@@ -26,6 +26,25 @@ for (const name of KILL_SWITCHES) {
   await db.query("INSERT INTO kill_switches (name, engaged) VALUES ($1, FALSE) ON CONFLICT (name) DO NOTHING", [name]);
 }
 
+console.log("→ superadmin operator (TOTP mandatory)");
+const { createUser } = await import("../packages/auth/src/index.ts");
+const adminEmail = process.env.ADW_SUPERADMIN_EMAIL ?? "admin@adw.example";
+const existingAdmin = await db.maybeOne<{ id: string; totp_secret: string | null }>(
+  "SELECT id, totp_secret FROM users WHERE email = $1",
+  [adminEmail],
+);
+if (existingAdmin) {
+  console.log(`   superadmin already seeded: ${adminEmail}`);
+} else {
+  const { totpSecret } = await createUser(db, {
+    email: adminEmail,
+    password: process.env.ADW_SUPERADMIN_PASSWORD ?? "changeme-in-production",
+    role: "superadmin",
+  });
+  console.log(`   superadmin: ${adminEmail}`);
+  console.log(`   TOTP secret (enrol in your authenticator, then rotate the password): ${totpSecret}`);
+}
+
 console.log("→ feature flags");
 for (const [key, desc] of [
   ["payments_facilitation", "Stripe Connect payment facilitation (Phase 3)"],

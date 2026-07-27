@@ -6,6 +6,15 @@
 // AI-visibility claim depends on it). Preview mode adds the disclaimer banner,
 // noindex, the consent checkbox and the "this isn't for me" suppression link.
 import { config } from "@adw/config";
+import {
+  DEFAULT_LAYOUT,
+  LAYOUT_SECTIONS,
+  TemplateVariantError,
+  type ColorSystem,
+  type LayoutId,
+  type TemplateFamily,
+  type TypePairing,
+} from "./families/types.ts";
 
 export interface BusinessRecord {
   name: string;
@@ -35,6 +44,13 @@ export interface RenderOptions {
   labelVersion: string;
   claimToken?: string;
   formAction: string; // Cloudflare Worker endpoint (or demo host)
+  // --- Template-family variants (spec §59). All optional: omitting every one of
+  // them reproduces the pre-§59 output byte for byte, so existing callers and
+  // their goldens are untouched. ---
+  familyDef?: TemplateFamily;
+  colorSystem?: string; // ColorSystem id within familyDef.tokens
+  typePairing?: string; // TypePairing id within familyDef.tokens
+  layout?: LayoutId;
 }
 
 export class SlotViolationError extends Error {}
@@ -74,6 +90,91 @@ a{color:#1155cc}img{max-width:100%;height:auto}
 footer{padding:24px 0;color:#667;font-size:.86rem;border-top:1px solid #eef;margin-top:24px}
 .consent{margin:12px 0;font-size:.92rem}.btn{background:#0a5;color:#fff;border:0;padding:12px 20px;border-radius:8px;font-weight:600;cursor:pointer}`;
 
+// Layout-specific CSS. Appended only for the non-default layouts, so the default
+// document is unchanged from before template families existed.
+const LAYOUT_CSS: Partial<Record<LayoutId, string>> = {
+  "hero-gallery-contact": `
+.gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px;padding:24px 0}
+.gallery figure{margin:0;border:1px solid #e3e8ef;border-radius:10px;padding:16px}
+.gallery figcaption{margin-top:6px;font-size:.95rem}
+.gallery h3{font-size:1.05rem;margin-bottom:4px}
+.hero-about{max-width:640px;margin:18px auto 0;text-align:left}`,
+  "hero-menu-about-contact": `
+.menu{padding:24px 0}.menu dl{margin:0}
+.menu dt{font-weight:700;margin-top:16px;font-size:1.05rem}
+.menu dd{margin:4px 0 0;padding-bottom:12px;border-bottom:1px dotted #d7dee8}`,
+};
+
+/**
+ * The chosen colour system and type pairing as CSS custom properties, plus the
+ * handful of rules that consume them. Custom properties (not find-and-replace)
+ * so a family swap is one declaration block, and the tokens stay inspectable in
+ * the shipped document.
+ */
+function tokenCss(color: ColorSystem | undefined, type: TypePairing | undefined): string {
+  if (!color && !type) return "";
+  const vars: string[] = [];
+  if (color) {
+    vars.push(
+      `--adw-primary:${color.primary}`,
+      `--adw-accent:${color.accent}`,
+      `--adw-surface:${color.surface}`,
+      `--adw-text:${color.text}`,
+    );
+  }
+  if (type) {
+    vars.push(`--adw-heading:${type.headingStack}`, `--adw-body:${type.bodyStack}`, `--adw-scale:${type.scale}`);
+  }
+  const rules: string[] = [`:root{${vars.join(";")}}`];
+  if (color) {
+    rules.push(
+      `html{color:var(--adw-text);background:var(--adw-surface)}`,
+      `a{color:var(--adw-primary)}`,
+      `.hero p{color:var(--adw-text)}`,
+      `.cta,.btn{background:var(--adw-primary);color:#fff}`,
+      `.card,.gallery figure{border-color:var(--adw-accent)}`,
+      `footer{color:var(--adw-text)}`,
+    );
+  }
+  if (type) {
+    rules.push(
+      `html{font-family:var(--adw-body)}`,
+      `h1,h2,h3{font-family:var(--adw-heading)}`,
+      `h1{font-size:clamp(1.6rem,5vw,calc(1.6rem * var(--adw-scale)))}`,
+    );
+  }
+  return "\n" + rules.join("\n");
+}
+
+/** Resolve the colour system for a render, defaulting to the family's first. */
+function pickColor(fam: TemplateFamily | undefined, id: string | undefined): ColorSystem | undefined {
+  if (!fam) return undefined;
+  if (id === undefined) return fam.tokens.colorSystems[0];
+  const found = fam.tokens.colorSystems.find((c) => c.id === id);
+  if (!found) throw new TemplateVariantError(`family ${fam.id} has no colour system ${id}`);
+  return found;
+}
+
+/** Resolve the type pairing for a render, defaulting to the family's first. */
+function pickType(fam: TemplateFamily | undefined, id: string | undefined): TypePairing | undefined {
+  if (!fam) return undefined;
+  if (id === undefined) return fam.tokens.typePairings[0];
+  const found = fam.tokens.typePairings.find((t) => t.id === id);
+  if (!found) throw new TemplateVariantError(`family ${fam.id} has no type pairing ${id}`);
+  return found;
+}
+
+/** Resolve the layout: explicit > family default > pre-§59 default. */
+function pickLayout(fam: TemplateFamily | undefined, id: LayoutId | undefined): LayoutId {
+  if (id !== undefined) {
+    if (fam && !fam.layouts.includes(id)) {
+      throw new TemplateVariantError(`family ${fam.id} does not offer layout ${id}`);
+    }
+    return id;
+  }
+  return fam?.layouts[0] ?? DEFAULT_LAYOUT;
+}
+
 /** Render a complete self-contained HTML document. */
 export function renderSite(opts: RenderOptions): string {
   validateSlots(opts.copy);
@@ -99,9 +200,72 @@ export function renderSite(opts: RenderOptions): string {
        <p style="margin-top:10px"><a href="${esc(opts.formAction)}?action=not_for_me&token=${esc(opts.claimToken ?? "")}">This isn't for me</a></p>`
     : "";
 
-  const services = opts.copy.services
+  const layout = pickLayout(opts.familyDef, opts.layout);
+  const color = pickColor(opts.familyDef, opts.colorSystem);
+  const type = pickType(opts.familyDef, opts.typePairing);
+  const sections = LAYOUT_SECTIONS[layout];
+
+  // --- Section builders. The layout picks which ones run and in what order;
+  // each emits genuinely different markup, not a re-skin of one blob. ---
+
+  // The gallery layout drops the standalone About section, so the about copy
+  // rides in the hero instead — no layout ever silently discards a copy slot.
+  const heroAbout =
+    layout === "hero-gallery-contact" ? `\n<p class="hero-about">${esc(opts.copy.about)}</p>` : "";
+
+  const hero = `<header class="hero">
+<h1>${esc(opts.copy.headline)}</h1>
+<p>${esc(b.category)} in ${esc(b.city)}${b.rating ? ` · ${b.rating}★ (${b.reviewCount} reviews)` : ""}</p>${heroAbout}
+<a class="cta" href="#contact">${esc(opts.copy.cta)}</a>
+</header>`;
+
+  const servicesSection = `<section class="services" aria-label="Services">${opts.copy.services
     .map((s) => `<div class="card"><h3>${esc(s.title)}</h3><p>${esc(s.blurb)}</p></div>`)
-    .join("");
+    .join("")}</section>`;
+
+  const gallerySection = `<section class="gallery" aria-label="Our work">${opts.copy.services
+    .map(
+      (s) =>
+        `<figure><h3>${esc(s.title)}</h3><figcaption>${esc(s.blurb)}</figcaption></figure>`,
+    )
+    .join("")}</section>`;
+
+  const menuSection = `<section class="menu" aria-label="Menu">
+<h2>Menu</h2>
+<dl>${opts.copy.services.map((s) => `<dt>${esc(s.title)}</dt><dd>${esc(s.blurb)}</dd>`).join("")}</dl>
+</section>`;
+
+  const aboutSection = `<section class="about"><h2>About</h2><p>${esc(opts.copy.about)}</p></section>`;
+
+  const contactSection = `<section class="contact" id="contact">
+<h2>Contact ${esc(b.name)}</h2>
+<form method="post" action="${esc(opts.formAction)}">
+<label for="name">Your name</label><input id="name" name="name" required autocomplete="name">
+<label for="email">Your email</label><input id="email" name="email" type="email" required autocomplete="email">
+<label for="message">How can we help?</label><textarea id="message" name="message" rows="3"></textarea>
+${consent}
+<p style="margin-top:12px"><button class="btn" type="submit">${esc(opts.copy.cta)}</button></p>
+</form>
+<p style="margin-top:12px">Call us: <a href="tel:${esc(b.phone)}">${esc(b.phone)}</a></p>
+</section>`;
+
+  const bySection: Record<string, string> = {
+    hero,
+    services: servicesSection,
+    gallery: gallerySection,
+    menu: menuSection,
+    about: aboutSection,
+    contact: contactSection,
+  };
+  const mainSections = sections.filter((s) => s !== "hero").map((s) => bySection[s] ?? "");
+
+  const styles = CRITICAL_CSS + (LAYOUT_CSS[layout] ?? "") + tokenCss(color, type);
+  // data-* markers only appear when a family/layout was explicitly selected, so
+  // the legacy call path stays byte-identical.
+  const bodyAttrs =
+    opts.familyDef || opts.layout
+      ? ` data-family="${esc(opts.familyDef?.id ?? opts.family)}" data-layout="${esc(layout)}"`
+      : "";
 
   const html = `<!doctype html>
 <html lang="${esc(opts.locale)}">
@@ -112,30 +276,14 @@ ${isPreview ? '<meta name="robots" content="noindex, nofollow">' : ""}
 <title>${esc(b.name)} — ${esc(b.category)} in ${esc(b.city)}</title>
 <meta name="description" content="${esc(opts.copy.headline)}">
 <link rel="alternate" type="text/plain" href="/llms.txt">
-<style>${CRITICAL_CSS}</style>
+<style>${styles}</style>
 <script type="application/ld+json">${JSON.stringify(schema)}</script>
 </head>
-<body>
+<body${bodyAttrs}>
 ${banner}
-<header class="hero">
-<h1>${esc(opts.copy.headline)}</h1>
-<p>${esc(b.category)} in ${esc(b.city)}${b.rating ? ` · ${b.rating}★ (${b.reviewCount} reviews)` : ""}</p>
-<a class="cta" href="#contact">${esc(opts.copy.cta)}</a>
-</header>
+${hero}
 <main>
-<section class="services" aria-label="Services">${services}</section>
-<section class="about"><h2>About</h2><p>${esc(opts.copy.about)}</p></section>
-<section class="contact" id="contact">
-<h2>Contact ${esc(b.name)}</h2>
-<form method="post" action="${esc(opts.formAction)}">
-<label for="name">Your name</label><input id="name" name="name" required autocomplete="name">
-<label for="email">Your email</label><input id="email" name="email" type="email" required autocomplete="email">
-<label for="message">How can we help?</label><textarea id="message" name="message" rows="3"></textarea>
-${consent}
-<p style="margin-top:12px"><button class="btn" type="submit">${esc(opts.copy.cta)}</button></p>
-</form>
-<p style="margin-top:12px">Call us: <a href="tel:${esc(b.phone)}">${esc(b.phone)}</a></p>
-</section>
+${mainSections.join("\n")}
 </main>
 <footer>
 ${esc(opts.legalEntity)} · ${esc(opts.legalAddress)}${isPreview ? " · This is an unofficial preview." : ""}

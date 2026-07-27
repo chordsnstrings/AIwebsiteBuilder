@@ -11,5 +11,8 @@
   },
   "dependencies": {
     "@adw/config": "workspace:*"
+  },
+  "devDependencies": {
+    "@adw/reviewer-gates": "workspace:*"
   }
 }

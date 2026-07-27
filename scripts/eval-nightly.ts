@@ -4,9 +4,10 @@
 // form of the Phase-0 exit criterion and the nightly assertion table.
 import { createDb, migrate, type Db } from "../packages/db/src/index.ts";
 import { LocalKeyWrapper, LocalPgBackend } from "../packages/vault/src/index.ts";
-import { runFullSweep } from "../packages/evals-harness/src/index.ts";
+import { runFullSweep, runSuites } from "../packages/evals-harness/src/index.ts";
 import { registryStatus } from "../packages/registry/src/index.ts";
 import { config } from "../packages/config/src/index.ts";
+import { probeCoverage, runAllProbes, evaluateSignals, heartbeatMissed, emitHeartbeat } from "../packages/sentinel/src/index.ts";
 
 const url = process.env.DATABASE_URL ?? "postgres://adw_admin@127.0.0.1:5433/adw";
 const db: Db = await createDb({ backend: "pg", url });
@@ -26,6 +27,54 @@ const checks: Check[] = [
       const status = await registryStatus(db);
       const missing = status.filter((s) => !s.champion || !s.hasEvalRun);
       return { ok: missing.length === 0 && status.length >= 16, detail: `${status.length} roles, ${missing.length} missing champion/eval` };
+    },
+  },
+  {
+    name: "Adversarial suites pass (injection 10, care 30, IP/claims 15 at 100% recall)",
+    run: async () => {
+      const results = await runSuites({ db, vault, forceMock: true });
+      const failed = results.filter((r) => r.casesPassed < r.casesTotal);
+      const detail = results.map((r) => `${r.suite} ${r.casesPassed}/${r.casesTotal}`).join(", ");
+      return { ok: failed.length === 0 && results.length >= 3, detail };
+    },
+  },
+  {
+    name: "Every T0/T1 vendor has a live probe and all probes pass",
+    run: async () => {
+      const t0t1 = config
+        .vendors()
+        .data.vendors.filter((v) => v.tier === "T0" || v.tier === "T1")
+        .map((v) => v.id);
+      const coverage = probeCoverage(db, t0t1);
+      const run = await runAllProbes(db);
+      return {
+        ok: coverage.missing.length === 0 && run.failed === 0,
+        detail: `${coverage.covered.length} covered, ${coverage.missing.length} missing; ${run.passed}/${run.total} probes passing`,
+      };
+    },
+  },
+  {
+    name: "Dead man's switch heartbeat is current",
+    run: async () => {
+      await emitHeartbeat(db);
+      const missed = await heartbeatMissed(db);
+      return { ok: !missed, detail: missed ? "heartbeat stale" : "heartbeat fresh" };
+    },
+  },
+  {
+    name: "Layer-2 passive signals are all within threshold on a healthy window",
+    run: async () => {
+      const signals = evaluateSignals({
+        firstPassRateByRole: { developer: 0.84, customer_care: 0.91 },
+        inboxPlacement: 0.725,
+        complaintRate: 0.0006,
+        silentFailureCount: 0,
+        previewRenderSuccess: 0.99,
+        formSubmissionArrival: 0.999,
+        providerConcentration: 0.55,
+      });
+      const alarming = signals.filter((s) => s.alarm);
+      return { ok: alarming.length === 0, detail: `${signals.length} signals, ${alarming.length} alarming` };
     },
   },
   {

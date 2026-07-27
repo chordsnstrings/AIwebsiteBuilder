@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { HashRouter, NavLink, Route, Routes } from "react-router-dom";
 import { Badge, Button, Card, Counter, Reveal, Stat, Table, useTheme } from "@adw/ui";
 import {
@@ -9,6 +9,8 @@ import {
   vaultSlots as seedVault,
   vendors,
 } from "@adw/demo-data";
+import { api, type OpsUser, type VaultEntry } from "./api.ts";
+import { Login } from "./Login.tsx";
 
 function Head({ title, sub }: { title: string; sub: string }) {
   return (
@@ -153,13 +155,56 @@ function Vendors() {
 function Vault() {
   const [slots, setSlots] = useState(seedVault);
   const [draft, setDraft] = useState<Record<string, string>>({});
-  const deposit = (vendorId: string, keyName: string) => {
-    const secret = draft[`${vendorId}:${keyName}`] ?? "";
+  const [live, setLive] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  // Load real vault metadata when the API is reachable; otherwise keep the
+  // seeded slots so the surface is never empty.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const res = await api.vault([]);
+      if (cancelled || !res.live) return;
+      setLive(true);
+      setSlots((current) =>
+        current.map((sl) => {
+          const match = (res.data as VaultEntry[]).find((e) => e.vendorId === sl.vendorId && e.keyName === sl.keyName);
+          return match ? { ...sl, deposited: true, fingerprint: match.fingerprint, expiresAt: match.expiresAt } : sl;
+        }),
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const deposit = async (vendorId: string, keyName: string) => {
+    const key = `${vendorId}:${keyName}`;
+    const secret = draft[key] ?? "";
     if (!secret) return;
-    const fp = "sha256:" + Array.from(secret).reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7).toString(16).slice(0, 12);
+    setBusy(key);
+    const res = await api.depositCredential(vendorId, keyName, secret);
+    // Fingerprint comes from the server when live; computed locally in demo so
+    // the surface still demonstrates the write-only behaviour.
+    const fp = res.live
+      ? "sha256:server"
+      : "sha256:" + Array.from(secret).reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7).toString(16).slice(0, 12);
     setSlots((s) => s.map((sl) => (sl.vendorId === vendorId && sl.keyName === keyName ? { ...sl, deposited: true, fingerprint: fp } : sl)));
-    setDraft((d) => ({ ...d, [`${vendorId}:${keyName}`]: "" }));
+    setDraft((d) => ({ ...d, [key]: "" }));
+    setBusy(null);
+    if (res.live) {
+      const refreshed = await api.vault([]);
+      if (refreshed.live) {
+        setSlots((current) =>
+          current.map((sl) => {
+            const match = (refreshed.data as VaultEntry[]).find((e) => e.vendorId === sl.vendorId && e.keyName === sl.keyName);
+            return match ? { ...sl, deposited: true, fingerprint: match.fingerprint } : sl;
+          }),
+        );
+      }
+    }
   };
+
   return (
     <>
       <Head
@@ -167,6 +212,9 @@ function Vault() {
         sub="Deposit vendor credentials to go live. Write-only: once deposited, only a fingerprint is shown — never the secret. Depositing flips that vendor from mock to live."
       />
       <Card>
+        <div className="adw-spread" style={{ marginBottom: 12 }}>
+          <Badge tone={live ? "ok" : "warn"}>{live ? "connected to API — deposits are real" : "demo mode — API not reachable"}</Badge>
+        </div>
         <p className="adw-muted" style={{ marginBottom: 16 }}>
           Compliance config (jurisdictions, thresholds, pricing) is changed by pull request, never here. This surface manages
           credentials, flags and kill switches only.
@@ -197,8 +245,12 @@ function Vault() {
                   value={draft[`${sl.vendorId}:${sl.keyName}`] ?? ""}
                   onChange={(e) => setDraft((d) => ({ ...d, [`${sl.vendorId}:${sl.keyName}`]: e.target.value }))}
                 />
-                <Button size="sm" onClick={() => deposit(sl.vendorId, sl.keyName)}>
-                  Deposit
+                <Button
+                  size="sm"
+                  disabled={busy === `${sl.vendorId}:${sl.keyName}`}
+                  onClick={() => void deposit(sl.vendorId, sl.keyName)}
+                >
+                  {busy === `${sl.vendorId}:${sl.keyName}` ? "Depositing…" : "Deposit"}
                 </Button>
               </div>
             )}
@@ -220,6 +272,41 @@ const NAV = [
 
 export function App() {
   const [theme, toggle] = useTheme();
+  const [user, setUser] = useState<OpsUser | null>(null);
+  const [signingIn, setSigningIn] = useState(false);
+
+  // Resume an existing session in the background. First paint deliberately does
+  // NOT wait on this — the console renders immediately against the seeded demo
+  // fixtures and upgrades to live data if a session resolves. A slow or dead API
+  // must never leave the console blank.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const me = await api.me();
+      if (!cancelled && me) setUser(me);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (signingIn && !user) {
+    return (
+      <Login
+        onSignedIn={(u) => {
+          setUser(u);
+          setSigningIn(false);
+        }}
+        onDemoMode={() => setSigningIn(false)}
+      />
+    );
+  }
+
+  const signOut = async () => {
+    await api.logout();
+    setUser(null);
+  };
+
   return (
     <HashRouter>
       <div className="ops-shell">
@@ -234,8 +321,18 @@ export function App() {
               </NavLink>
             ))}
           </nav>
+          <div className="session-chip">
+            {user ? <Badge tone="ok">{user.email}</Badge> : <Badge tone="warn">demo mode</Badge>}
+          </div>
           <Button variant="ghost" size="sm" onClick={toggle}>
             {theme === "dark" ? "☀ Light" : "☾ Dark"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => (user ? void signOut() : setSigningIn(true))}
+          >
+            {user ? "Sign out" : "Sign in"}
           </Button>
         </aside>
         <main className="ops-main">

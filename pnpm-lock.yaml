@@ -424,15 +424,20 @@ importers:
         specifier: workspace:*
         version: link:../db
 
+  packages/reports:
+    dependencies:
+      '@adw/config':
+        specifier: workspace:*
+        version: link:../config
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+
   packages/reviewer-gates:
     dependencies:
       '@adw/config':
         specifier: workspace:*
         version: link:../config
-    devDependencies:
-      '@adw/site-templates':
-        specifier: workspace:*
-        version: link:../site-templates
 
   packages/sentinel:
     dependencies:
@@ -445,12 +450,19 @@ importers:
       '@adw/telemetry':
         specifier: workspace:*
         version: link:../telemetry
+      '@adw/vendors':
+        specifier: workspace:*
+        version: link:../vendors
 
   packages/site-templates:
     dependencies:
       '@adw/config':
         specifier: workspace:*
         version: link:../config
+    devDependencies:
+      '@adw/reviewer-gates':
+        specifier: workspace:*
+        version: link:../reviewer-gates
 
   packages/telemetry:
     dependencies:

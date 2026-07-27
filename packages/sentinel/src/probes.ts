@@ -59,24 +59,59 @@ export async function runProbe(db: Db, probe: Probe): Promise<ProbeResult> {
   return result;
 }
 
-/** The probe catalogue: interval + pass criteria per vendor family (spec §72). */
+/**
+ * The probe catalogue: interval + pass criteria per vendor family (spec §72).
+ *
+ * INVARIANT: every T0/T1 vendor in config/vendors.yaml must appear here. The
+ * nightly eval asserts 100% coverage and will fail the build if a tier-0 or
+ * tier-1 vendor is added to the register without a probe — an unmonitored T0
+ * vendor is precisely the silent-failure mode the Sentinel exists to prevent.
+ */
 export const PROBE_CATALOGUE: Record<string, { intervalMs: number; family: string }> = {
+  // Money — a dead fallback processor is only discovered when you need it.
   stripe: { intervalMs: 60_000, family: "money" },
+  stripe_connect: { intervalMs: 300_000, family: "money" },
   secondary_processor: { intervalMs: 900_000, family: "money" },
+  mercury: { intervalMs: 3_600_000, family: "money" },
+
+  // Delivery / the go-live path.
   cloudflare: { intervalMs: 300_000, family: "delivery" },
   registrar_reseller: { intervalMs: 900_000, family: "delivery" },
+  cloudflare_registrar: { intervalMs: 3_600_000, family: "delivery" },
+  google_business_profile: { intervalMs: 3_600_000, family: "delivery" },
+
+  // Email — including the bounce/complaint path into suppression, which is a
+  // compliance failure when it breaks, not merely an outage.
   aws_ses: { intervalMs: 300_000, family: "email" },
+  aws_sns: { intervalMs: 900_000, family: "email" },
   google_workspace: { intervalMs: 900_000, family: "email" },
   microsoft_365: { intervalMs: 900_000, family: "email" },
+  cold_smtp: { intervalMs: 900_000, family: "email" },
+
+  // Models.
   modelark: { intervalMs: 60_000, family: "models" },
   google_ai: { intervalMs: 300_000, family: "models" },
   anthropic: { intervalMs: 300_000, family: "models" },
   langfuse: { intervalMs: 900_000, family: "models" },
+
+  // Data and infrastructure.
   postgres: { intervalMs: 30_000, family: "data" },
   redis: { intervalMs: 30_000, family: "data" },
+  clickhouse: { intervalMs: 300_000, family: "data" },
   temporal: { intervalMs: 60_000, family: "data" },
   lead_data_primary: { intervalMs: 3_600_000, family: "data" },
+  lead_data_secondary: { intervalMs: 3_600_000, family: "data" },
   email_verification: { intervalMs: 3_600_000, family: "data" },
   browserless: { intervalMs: 900_000, family: "data" },
   twilio: { intervalMs: 3_600_000, family: "data" },
+
+  // The alert path itself. These are probed like everything else — an alerting
+  // vendor that is down is an alert you will never receive.
+  healthchecks: { intervalMs: 60_000, family: "alerting" },
+  pushover: { intervalMs: 3_600_000, family: "alerting" },
+  pagerduty: { intervalMs: 3_600_000, family: "alerting" },
+
+  // Counsel is a T0 vendor: the probe is a retainer/engagement liveness check,
+  // not a synthetic transaction, but its absence is still a monitored state.
+  counsel: { intervalMs: 86_400_000, family: "legal" },
 };

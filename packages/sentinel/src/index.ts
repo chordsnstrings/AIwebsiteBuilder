@@ -8,6 +8,8 @@ import { emit } from "@adw/telemetry";
 
 export * from "./probes.ts";
 export * from "./remediation.ts";
+export * from "./runner.ts";
+export * from "./signals.ts";
 
 export type Severity = 1 | 2 | 3 | 4;
 

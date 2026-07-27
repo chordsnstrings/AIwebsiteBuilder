@@ -174,3 +174,9 @@ export function detectNoCem(pageText: string): boolean {
   // Returns TRUE when NO "do not email"-style statement is found.
   return !CEM_PATTERNS.some((re) => re.test(pageText));
 }
+
+// ---------------------------------------------------------------------------
+// Localisation layer (spec §60): the four text layers, per-jurisdiction legal
+// blocks that fail closed, and bidi normalisation.
+// ---------------------------------------------------------------------------
+export * from "./localisation.ts";

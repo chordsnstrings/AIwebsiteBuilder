@@ -56,7 +56,11 @@ const biz = await db.one<{ id: string }>(
   "INSERT INTO businesses (source_vendor, source_batch_id, name, category, country_code, region_code, city, segment, review_count, rating) VALUES ('demo',$1,'Ridgeline Roofing','roofer','US','R1','Boise','stale_site',64,4.6) RETURNING id",
   [batch.id],
 );
-const email = "owner@ridgelineroofing.example";
+// A distinct prospect per run. The frequency cap is keyed on identity
+// (email_hash) rather than on a contact row, so reusing one address would — very
+// correctly — get the fifth demo run denied at rule 7.
+const runId = Date.now().toString(36);
+const email = `owner+${runId}@ridgelineroofing.example`;
 const contact = await db.one<{ id: string }>(
   "INSERT INTO contacts (business_id, email, email_hash, verification, subscriber_type) VALUES ($1,$2,$3,'valid','corporate') RETURNING id",
   [biz.id, email, emailHash(email)],

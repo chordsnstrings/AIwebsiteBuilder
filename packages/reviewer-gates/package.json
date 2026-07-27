@@ -13,8 +13,5 @@
   },
   "dependencies": {
     "@adw/config": "workspace:*"
-  },
-  "devDependencies": {
-    "@adw/site-templates": "workspace:*"
   }
 }

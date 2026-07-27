@@ -21,7 +21,15 @@ import { complete } from "@adw/gateway";
 import { LocalKeyWrapper, LocalPgBackend, type SecretsBackend } from "@adw/vault";
 import { registryStatus, setChampion, type RoleId } from "@adw/registry";
 import { dsarExport } from "@adw/dsar";
-import { readSessionCookie, validateSession, type SessionUser } from "@adw/auth";
+import {
+  clearCookie,
+  invalidateSession,
+  login,
+  readSessionCookie,
+  sessionCookie,
+  validateSession,
+  type SessionUser,
+} from "@adw/auth";
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 export interface AppDeps {
@@ -56,6 +64,36 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
   };
 
   app.get("/health", (c) => c.json({ ok: true, mode: deps.forceMock ? "demo" : "live" }));
+
+  // --- Authentication -------------------------------------------------------
+  app.post("/auth/login", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { email?: string; password?: string; totp?: string };
+    if (!b.email || !b.password) return c.json({ error: "email and password required" }, 400);
+    const result = await login(db, b.email, b.password, b.totp, {
+      ip: c.req.header("x-forwarded-for") ?? undefined,
+      userAgent: c.req.header("user-agent") ?? undefined,
+    });
+    if (!result.ok) {
+      // A required-TOTP response is a distinct, non-secret signal so the UI can
+      // prompt for the code; it does not reveal whether the password was right.
+      const status = result.reason === "invalid_credentials" ? 401 : 403;
+      return c.json({ error: result.reason }, status);
+    }
+    c.header("set-cookie", sessionCookie(result.token, false));
+    return c.json({ ok: true, user: result.user });
+  });
+
+  app.post("/auth/logout", async (c) => {
+    const token = readSessionCookie(c.req.header("cookie"));
+    if (token) await invalidateSession(db, token);
+    c.header("set-cookie", clearCookie());
+    return c.json({ ok: true });
+  });
+
+  app.get("/auth/me", (c) => {
+    const user = c.get("user");
+    return user ? c.json({ user }) : c.json({ user: null }, 401);
+  });
 
   // --- The only route to transport -----------------------------------------
   app.post("/gate/evaluate", async (c) => {

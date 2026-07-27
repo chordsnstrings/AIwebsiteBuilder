@@ -101,6 +101,59 @@ describe("the gate is the only route to transport", () => {
   });
 });
 
+describe("authentication", () => {
+  it("rejects a bad password with 401 and requires TOTP for a superadmin", async () => {
+    const { createUser, totp } = await import("@adw/auth");
+    const email = `apiadmin${Date.now()}@example.com`;
+    const { totpSecret } = await createUser(db, { email, password: "pw12345678", role: "superadmin" });
+    // Real cookie auth for this block (no override).
+    const app = createApp({ db, vault, forceMock: true });
+
+    const bad = await app.request("/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, password: "wrong" }),
+    });
+    expect(bad.status).toBe(401);
+
+    const noTotp = await app.request("/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, password: "pw12345678" }),
+    });
+    expect(noTotp.status).toBe(403);
+    expect((await noTotp.json()).error).toBe("totp_required");
+
+    const ok = await app.request("/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, password: "pw12345678", totp: totp(totpSecret!, Math.floor(Date.now() / 1000)) }),
+    });
+    expect(ok.status).toBe(200);
+    const cookie = ok.headers.get("set-cookie") ?? "";
+    expect(cookie).toContain("adw_session=");
+    expect(cookie).toContain("HttpOnly");
+
+    // The session cookie now unlocks the operator surfaces.
+    const me = await app.request("/auth/me", { headers: { cookie } });
+    expect(me.status).toBe(200);
+    expect((await me.json()).user.role).toBe("superadmin");
+
+    const vendors = await app.request("/vendors", { headers: { cookie } });
+    expect(vendors.status).toBe(200);
+
+    // And logging out revokes it.
+    await app.request("/auth/logout", { method: "POST", headers: { cookie } });
+    const after = await app.request("/vendors", { headers: { cookie } });
+    expect(after.status).toBe(403);
+  });
+
+  it("/auth/me is 401 when anonymous", async () => {
+    const res = await createApp({ db, vault, forceMock: true }).request("/auth/me");
+    expect(res.status).toBe(401);
+  });
+});
+
 describe("append-only ledgers", () => {
   it("accepts a suppression write", async () => {
     const res = await appAs(null).request("/suppression", {
