@@ -34,6 +34,30 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.1)
 
+  packages/agents:
+    dependencies:
+      '@adw/config':
+        specifier: workspace:*
+        version: link:../config
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+      '@adw/gateway':
+        specifier: workspace:*
+        version: link:../gateway
+      '@adw/prompts':
+        specifier: workspace:*
+        version: link:../prompts
+      '@adw/registry':
+        specifier: workspace:*
+        version: link:../registry
+      '@adw/vault':
+        specifier: workspace:*
+        version: link:../vault
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+
   packages/compliance:
     dependencies:
       '@adw/config':
@@ -177,6 +201,15 @@ importers:
       '@adw/vault':
         specifier: workspace:*
         version: link:../vault
+
+  packages/workflows:
+    dependencies:
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+      '@adw/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
 
 packages:
 
