@@ -244,6 +244,9 @@ importers:
       '@adw/orchestrator':
         specifier: workspace:*
         version: link:../../packages/orchestrator
+      '@adw/provenance':
+        specifier: workspace:*
+        version: link:../../packages/provenance
       '@adw/registry':
         specifier: workspace:*
         version: link:../../packages/registry

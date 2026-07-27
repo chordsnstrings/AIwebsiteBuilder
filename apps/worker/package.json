@@ -25,6 +25,7 @@
     "@adw/site-templates": "workspace:*",
     "@adw/reviewer-gates": "workspace:*",
     "@adw/vendors": "workspace:*",
-    "@adw/registry": "workspace:*"
+    "@adw/registry": "workspace:*",
+    "@adw/provenance": "workspace:*"
   }
 }
