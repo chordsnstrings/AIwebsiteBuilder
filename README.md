@@ -47,9 +47,22 @@ pnpm demo                # boots the API + apps and runs the end-to-end demo
   provisions and monitors; never creates accounts, never signs.
 - **`packages/vault`** — envelope-encrypted credentials. Agents hold opaque
   `CredentialRef`s; secrets are resolved only inside vendor adapters.
+- **`packages/auth`** — scrypt sessions indexed by `sha256(token)`, RFC 6238 TOTP
+  (mandatory for the superadmin, verified against the spec's test vectors), and
+  an Origin-based CSRF check. Zero native dependencies.
+- **`packages/dsar`** — subject access export as a signed archive, and an
+  erasure routine that deliberately retains the email hash, the suppression row
+  and the provenance evidence.
+- **`packages/reports`** — the monthly value report, every figure from a
+  deterministic query, with no upsell in a month where the metrics are down.
+- **`apps/api`** — the internal API surface: the sole `/gate/evaluate` transport
+  route, registry-resolved completions, append-only ledgers, operator surfaces
+  behind superadmin auth, and signature-verified idempotent webhooks.
 - **`apps/ops`** — the superadmin console: exceptions, kill switches, health,
   registry, cost, search, DSAR, and the Settings/Vault surface where credentials
   are deposited to go live.
+- **`evals/`** — the adversarial suites: 10 injection cases, 30 scripted care
+  objections, 15 IP/claims cases held to 100% recall, and 20 fixture businesses.
 - **`config/*.yaml`** — jurisdiction matrix, thresholds, pricing, allowlists and
   more. PR-gated; never editable at runtime through any UI.
 

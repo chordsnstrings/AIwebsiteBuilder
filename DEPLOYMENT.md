@@ -20,6 +20,22 @@ pnpm verify              # typecheck + lint + full test suite
 The apps run on: ops `:5173`, marketing `:5174`, preview `:5175`, dashboard `:5176`,
 API `:8787`.
 
+### Signing in to the operator console
+
+`pnpm seed` creates the superadmin and prints a TOTP secret once:
+
+```
+superadmin: admin@adw.example
+TOTP secret (enrol in your authenticator, then rotate the password): ...
+```
+
+Enrol that secret in an authenticator app, then use **Sign in** in the console
+sidebar. TOTP is mandatory for the superadmin — a superadmin login cannot
+complete without a valid code, and that is enforced in `login()` rather than by
+convention. Until you sign in, the console renders against the seeded demo
+fixtures; credentials deposited in demo mode are local to the browser session,
+while deposits made while signed in go into the real vault.
+
 ## 1. The go-live model
 
 The system is designed so that going live is a sequence of **credential deposits**,
