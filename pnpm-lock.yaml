@@ -212,6 +212,36 @@ importers:
         specifier: ^5.4.11
         version: 5.4.21(@types/node@22.20.1)
 
+  apps/worker:
+    dependencies:
+      '@adw/billing':
+        specifier: workspace:*
+        version: link:../../packages/billing
+      '@adw/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@adw/fleet':
+        specifier: workspace:*
+        version: link:../../packages/fleet
+      '@adw/orchestrator':
+        specifier: workspace:*
+        version: link:../../packages/orchestrator
+      '@adw/sentinel':
+        specifier: workspace:*
+        version: link:../../packages/sentinel
+      '@adw/telemetry':
+        specifier: workspace:*
+        version: link:../../packages/telemetry
+      '@adw/vault':
+        specifier: workspace:*
+        version: link:../../packages/vault
+      '@adw/workflows':
+        specifier: workspace:*
+        version: link:../../packages/workflows
+
   packages/agents:
     dependencies:
       '@adw/config':

@@ -1,0 +1,23 @@
+{
+  "name": "@adw/worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/worker.ts",
+  "scripts": {
+    "start": "tsx src/worker.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@adw/db": "workspace:*",
+    "@adw/sentinel": "workspace:*",
+    "@adw/workflows": "workspace:*",
+    "@adw/vault": "workspace:*",
+    "@adw/config": "workspace:*",
+    "@adw/telemetry": "workspace:*",
+    "@adw/fleet": "workspace:*",
+    "@adw/billing": "workspace:*",
+    "@adw/orchestrator": "workspace:*"
+  }
+}
