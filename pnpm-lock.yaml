@@ -75,6 +75,9 @@ importers:
       '@adw/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@adw/billing':
+        specifier: workspace:*
+        version: link:../../packages/billing
       '@adw/compliance':
         specifier: workspace:*
         version: link:../../packages/compliance

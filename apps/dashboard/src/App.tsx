@@ -2,6 +2,7 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from "re
 import { HashRouter, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { Badge, Button, Card, Counter, Reveal, Stat, Table, useTheme } from "@adw/ui";
 import { demoCustomer } from "@adw/demo-data";
+import { customerIdFromUrl, dashboardApi } from "./api.ts";
 
 /* ------------------------------------------------------------------ *
  * Toast — a tiny slide-in notifier shared across every view.
@@ -184,6 +185,8 @@ function EditView() {
   const notify = useToast();
   const [text, setText] = useState("");
   const [reqs, setReqs] = useState<ChangeReq[]>(seedChanges);
+  // Synchronous URL parse — no network on the render path.
+  const customerId = useMemo(() => customerIdFromUrl(), []);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -193,6 +196,15 @@ function EditView() {
     setReqs((xs) => [{ id: `req_${Math.floor(Math.random() * 900 + 100)}`, text: trimmed, status: "in progress", when: "just now" }, ...xs]);
     setText("");
     notify("Change requested", "Our team has it. Most edits are live within minutes.");
+    // …then tell the truth about what actually happened. A dead API leaves the
+    // optimistic entry in place but never claims the change was filed.
+    void dashboardApi.requestRevision(customerId, trimmed).then((res) => {
+      if (!res.ok) {
+        notify("Saved locally (demo)", "We couldn't reach the server — this change is only in your browser.");
+      } else if (res.round !== undefined) {
+        notify("Sent to the build pipeline", `Revision round ${res.round}.`);
+      }
+    });
   };
 
   return (

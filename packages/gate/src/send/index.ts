@@ -77,11 +77,14 @@ async function recordMessage(
   messageId: string,
 ): Promise<void> {
   if (!input.conversationId) return;
+  // provider_message_id is the join the deliverability loop depends on: a bounce
+  // or complaint notification names the message by the provider's id and nothing
+  // else, so a send that does not record it can never be scored.
   await db.query(
     `INSERT INTO messages
       (conversation_id, direction, channel, sending_asset_id, subject, body_r2_key, body_hash,
-       gate_decision_id, idempotency_key, role_id, sent_at)
-     VALUES ($1,'outbound',$2,$3,$4,$5,$6,$7,$8,$9, now())
+       gate_decision_id, idempotency_key, role_id, provider_message_id, sent_at)
+     VALUES ($1,'outbound',$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
      ON CONFLICT (idempotency_key) DO NOTHING`,
     [
       input.conversationId,
@@ -93,6 +96,7 @@ async function recordMessage(
       gateDecisionId,
       input.message.idempotencyKey,
       input.roleId ?? null,
+      messageId,
     ],
   );
 }

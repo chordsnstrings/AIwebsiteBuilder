@@ -10,6 +10,14 @@ import type {
 } from "./types.ts";
 
 export * from "./types.ts";
+export {
+  mintUnsubscribeToken,
+  verifyUnsubscribeToken,
+  unsubscribeUrl,
+  unsubscribeHeaders,
+  unsubscribeSecret,
+  type UnsubscribeToken,
+} from "./unsubscribe.ts";
 
 export interface JurisdictionResolution {
   configVersion: string;

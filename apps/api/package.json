@@ -24,6 +24,7 @@
     "@hono/node-server": "^1.13.7",
     "@adw/auth": "workspace:*",
     "@adw/dsar": "workspace:*",
+    "@adw/billing": "workspace:*",
     "@adw/config": "workspace:*",
     "zod": "^3.24.1"
   }
