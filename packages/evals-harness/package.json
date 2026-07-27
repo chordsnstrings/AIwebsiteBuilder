@@ -1,0 +1,21 @@
+{
+  "name": "@adw/evals-harness",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@adw/db": "workspace:*",
+    "@adw/vault": "workspace:*",
+    "@adw/vendors": "workspace:*",
+    "@adw/registry": "workspace:*",
+    "@adw/gateway": "workspace:*",
+    "@adw/config": "workspace:*",
+    "zod": "^3.24.1"
+  }
+}

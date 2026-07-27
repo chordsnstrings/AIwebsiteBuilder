@@ -71,6 +71,30 @@ importers:
         specifier: ^8.20.0
         version: 8.65.0(eslint@9.39.5)(typescript@5.9.3)
 
+  packages/evals-harness:
+    dependencies:
+      '@adw/config':
+        specifier: workspace:*
+        version: link:../config
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+      '@adw/gateway':
+        specifier: workspace:*
+        version: link:../gateway
+      '@adw/registry':
+        specifier: workspace:*
+        version: link:../registry
+      '@adw/vault':
+        specifier: workspace:*
+        version: link:../vault
+      '@adw/vendors':
+        specifier: workspace:*
+        version: link:../vendors
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+
   packages/gate:
     dependencies:
       '@adw/compliance':
@@ -86,6 +110,32 @@ importers:
         specifier: workspace:*
         version: link:../telemetry
 
+  packages/gateway:
+    dependencies:
+      '@adw/config':
+        specifier: workspace:*
+        version: link:../config
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+      '@adw/registry':
+        specifier: workspace:*
+        version: link:../registry
+      '@adw/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
+      '@adw/vault':
+        specifier: workspace:*
+        version: link:../vault
+      '@adw/vendors':
+        specifier: workspace:*
+        version: link:../vendors
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+
+  packages/prompts: {}
+
   packages/provenance:
     dependencies:
       '@adw/compliance':
@@ -98,6 +148,15 @@ importers:
         specifier: workspace:*
         version: link:../telemetry
 
+  packages/registry:
+    dependencies:
+      '@adw/config':
+        specifier: workspace:*
+        version: link:../config
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+
   packages/telemetry:
     dependencies:
       '@adw/db':
@@ -109,6 +168,15 @@ importers:
       '@adw/db':
         specifier: workspace:*
         version: link:../db
+
+  packages/vendors:
+    dependencies:
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+      '@adw/vault':
+        specifier: workspace:*
+        version: link:../vault
 
 packages:
 
