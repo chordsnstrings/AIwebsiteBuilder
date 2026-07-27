@@ -272,6 +272,12 @@ importers:
 
   packages/demo-data: {}
 
+  packages/dsar:
+    dependencies:
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+
   packages/eslint-rules:
     devDependencies:
       '@typescript-eslint/parser':
