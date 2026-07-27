@@ -66,7 +66,7 @@ switches only.
 | Stripe | `stripe` / `secret_key` | Real card acquiring + subscriptions | `STRIPE_SECRET_KEY` |
 | Stripe (webhooks) | `stripe` / `webhook_secret` | Signature-verified webhooks | `STRIPE_WEBHOOK_SECRET` |
 | Cloudflare | `cloudflare` / `api_token` | Real Pages/DNS/R2 deploys | `CLOUDFLARE_API_TOKEN` |
-| AWS SES | `aws_ses` / `access_key` (+ `secret_key`) | Real transactional email | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` |
+| AWS SES | `aws_ses` / `access_key_id` (+ `secret_access_key`) | Real transactional email | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` |
 | Google Workspace | `google_workspace` / `service_account` | Real cold mailbox provisioning | — |
 | Microsoft 365 | `microsoft_365` / `client_secret` | Real second-provider mailboxes | — |
 | Lead data (primary/secondary) | `lead_data_primary` / `api_key` | Real licensed record pulls | — |
@@ -78,7 +78,75 @@ switches only.
 | Pushover | `pushover` / `token` | SEV1 push alerts | — |
 | PagerDuty | `pagerduty` / `routing_key` | SEV1 phone escalation (never Twilio) | — |
 
-## 3. Setup order (spec §13 — the sequence that avoids rework)
+### 2.1 Exact key sets per capability
+
+A capability goes live only when **every required key** is present. A partially
+deposited set stays on the mock — a half-live Cloudflare is worse than a
+simulator, because it fails in the middle of a deploy rather than before one.
+`VENDOR_CREDENTIAL_KEYS` (exported from `@adw/vendors`) is the machine-readable
+form of this table; the Settings screen renders from it.
+
+| Capability | `vendorId` | Required | Optional (default) |
+|---|---|---|---|
+| SiteHost — Cloudflare Pages | `cloudflare` | `api_token`, `account_id` | `pages_project` (`adw-sites`) |
+| DnsProvider — Cloudflare DNS | `cloudflare` | `api_token`, `zone_id` | — |
+| ObjectStore — Cloudflare R2 | `cloudflare` | `r2_access_key_id`, `r2_secret_access_key`, `account_id` | `r2_bucket` (`adw-artifacts`) |
+| EmailTransport — AWS SES | `aws_ses` | `access_key_id`, `secret_access_key` | `region` (`us-east-1`), `configuration_set` |
+| DomainRegistrar — reseller | `registrar_reseller` | `api_key`, `api_user`, `username` | `client_ip` (`127.0.0.1`) |
+| PaymentRail — Stripe | `stripe` | `secret_key` | `webhook_secret` |
+
+Two deliberate behaviours worth knowing before you deposit:
+
+- **SES sends `Content.Raw`, not `Content.Simple`.** The simple shape has no
+  field for arbitrary headers, so it would accept the message, silently drop
+  `List-Unsubscribe` / `List-Unsubscribe-Post`, and report success while
+  delivering non-compliant mail. The adapter builds RFC 5322 itself.
+- **The cold fleet stays on the simulator even with SES credentials present.**
+  Routing cold mail down the brand rail would burn SES's reputation. Cold
+  sending goes live when the Workspace/M365/SMTP transports are built, not when
+  SES is deposited.
+
+## 3. Processes and environment
+
+Three processes. Deploying only the first is the most likely way to have a
+system that looks healthy and does nothing.
+
+| Process | Command | What breaks without it |
+|---|---|---|
+| API | `pnpm --filter @adw/api start` | Everything user-facing |
+| **Worker** | `pnpm --filter @adw/worker start` | **Durable timers never fire, probes never run, the heartbeat reports the Sentinel dead, asset health never updates, dunning never advances, and nothing ever starts a workflow.** Run ≥1; leadership is a Postgres advisory lock so extra replicas stand by. |
+| Static apps | built by Vite, served from any CDN | The four frontends |
+
+Environment variables (secrets belong in your secrets manager, not a repo file):
+
+| Variable | Required in production | Purpose |
+|---|---|---|
+| `DATABASE_URL` | yes | Managed Postgres. Consent ledger needs synchronous replication (RPO 0). |
+| `ADW_VAULT_MASTER_KEY` | yes | Envelope-encryption master key. The process **refuses to start** on a well-known demo key outside local/test. |
+| `ADW_UNSUBSCRIBE_SECRET` | yes | Signs one-click unsubscribe links. **Never rotate casually** — every link in mail already sent stops verifying, and unsubscribes then fail silently. Rotating means accepting both old and new for the retention window. |
+| `ADW_ENV` | yes (`production`) | Anything other than `local`/`test` enables Secure cookies, the weak-key guard, and vault-resolved adapters. |
+| `ADW_WEBHOOK_SECRET` | yes | HMAC for inbound provider webhooks. |
+| `ADW_PUBLIC_BASE` | yes | Origin serving `/u/:token` and `/claim`. Must be on `email_links` in `config/allowlists.yaml`. |
+| `ADW_BRAND_SENDER` | yes | From-address for transactional mail. |
+| `ADW_ALLOWED_ORIGINS` | yes | Comma-separated CORS allowlist. Never a wildcard — the API is credentialed. |
+| `ADW_FORCE_MOCK` | no | `1` pins every adapter to its simulator. Use for a production smoke test; unset it to go live. |
+
+### 3.1 Webhooks to configure at the vendor
+
+Both endpoints are signature-verified and idempotent, and both now have effects
+— they are not acknowledgement stubs.
+
+- **SES → SNS → `POST /webhooks/aws_ses`.** Subscribe an SNS topic to the SES
+  configuration set for Bounce, Complaint and Delivery. Complaints and permanent
+  bounces write the suppression ledger; all three write the message row the
+  deliverability control loop scores assets from. **If this is not configured,
+  the loop reads zero complaints forever and can never halt a burning domain.**
+- **Stripe → `POST /webhooks/stripe`.** Send `invoice.payment_failed`,
+  `invoice.paid`, `customer.subscription.deleted`, `charge.dispute.created`.
+  Failures start dunning, payments resolve it, disputes raise an exception for a
+  human rather than being actioned.
+
+## 4. Setup order (spec §13 — the sequence that avoids rework)
 
 The five long-lead items gate the earliest Wave-1 send date (surfaced by the
 Orchestrator). Start them first:
@@ -101,7 +169,7 @@ Longest lead times, start first: counsel review · registrar reseller approval �
 SES production access · mailbox warm-up (21 days, hard floor) · Stripe Connect
 platform approval.
 
-## 4. Production infrastructure
+## 5. Production infrastructure
 
 - **Database:** swap `DATABASE_URL` to your managed Postgres (Neon/RDS). The
   consent ledger requires synchronous replication (RPO 0). The migrations create
@@ -119,7 +187,7 @@ platform approval.
 - **IaC:** `infra/` holds Terraform skeletons for Cloudflare, AWS, Neon and
   ClickHouse. **CI:** `.github/workflows/ci.yml` runs typecheck + lint + tests.
 
-## 5. Pre-launch gate (Phase 0 exit criterion)
+## 6. Pre-launch gate (Phase 0 exit criterion)
 
 Before any autonomous outreach, all of these must hold (run `pnpm verify &&
 pnpm demo` — they are machine-checked):
@@ -131,8 +199,15 @@ pnpm demo` — they are machine-checked):
 - Every T0 vendor has a live probe; the alert chain has been exercised; no
   CUST/PAY vendor is `ACTIVE` with an incomplete diligence file.
 - One real preview generated end-to-end under $0.05 (the demo reports the cost).
+- **The worker is deployed and holds leadership** (`[worker] LEADER — running jobs`).
+- **The unsubscribe endpoint answers on the public origin.** `curl -X POST
+  $ADW_PUBLIC_BASE/u/test` must return a 404 JSON body, not a connection error
+  or an HTML 404 from a CDN — a link that does not resolve is worse than no
+  link, and every cold message carries one.
+- **Both webhook endpoints are registered at the vendor** and a test delivery
+  returns `handled: true`.
 
-## 6. Open items requiring counsel before Phase 1 (spec §19)
+## 7. Open items requiring counsel before Phase 1 (spec §19)
 
 Photo-licensing position for speculative previews · `relates_to_role` template
 wording · AI-disclosure timing · vendor data-licence terms (incl. screenshotting

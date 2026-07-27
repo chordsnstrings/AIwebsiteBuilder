@@ -2,7 +2,7 @@
   "name": "adw",
   "version": "1.0.0",
   "private": true,
-  "description": "ADW — Autonomous Website Foundry",
+  "description": "ADW \u2014 Autonomous Website Foundry",
   "type": "module",
   "packageManager": "pnpm@10.33.0",
   "engines": {
@@ -24,7 +24,8 @@
     "demo": "bash scripts/demo.sh",
     "demo:e2e": "tsx scripts/demo-e2e.ts",
     "eval:nightly": "tsx scripts/eval-nightly.ts",
-    "dev": "turbo run dev"
+    "dev": "turbo run dev",
+    "lighthouse": "node scripts/lighthouse-all.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
