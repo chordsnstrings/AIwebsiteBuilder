@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createDb, migrate, type Db } from "@adw/db";
-import { ingestRecord, type ProvenanceDeps, type IngestRecord } from "./src/index.ts";
+import { createDb, emailHash, migrate, type Db } from "@adw/db";
+import { randomUUID } from "node:crypto";
+import { enrolLead, ingestRecord, type ProvenanceDeps, type IngestRecord } from "./src/index.ts";
 
 const URL = process.env.DATABASE_ADMIN_URL ?? "postgres://adw_admin@127.0.0.1:5433/adw_test";
 let db: Db;
@@ -96,5 +97,65 @@ describe("provenance pipeline", () => {
       const c = await db.one<{ subscriber_type: string }>("SELECT subscriber_type FROM contacts WHERE id = $1", [out.contactId]);
       expect(c.subscriber_type).toBe("corporate");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// enrolLead is the only entry point into the lead workflow. Before it existed,
+// ingestion produced perfect contacts and provenance and then stopped.
+// ---------------------------------------------------------------------------
+describe("enrolLead", () => {
+  async function makeContact(): Promise<{ contactId: string; businessId: string; email: string }> {
+    const batch = await db.one<{ id: string }>(
+      "INSERT INTO ingest_batches (vendor, licence_ref, record_count, cost_cents, checksum) VALUES ('d','LIC',1,0,'x') RETURNING id",
+    );
+    const biz = await db.one<{ id: string }>(
+      `INSERT INTO businesses (source_vendor, source_batch_id, name, country_code, region_code, segment)
+       VALUES ('d',$1,'Enrol Co','US','R1','no_site') RETURNING id`,
+      [batch.id],
+    );
+    const email = `enrol_${randomUUID()}@example.com`;
+    const contact = await db.one<{ id: string }>(
+      "INSERT INTO contacts (business_id, email, email_hash, verification) VALUES ($1,$2,$3,'valid') RETURNING id",
+      [biz.id, email, emailHash(email)],
+    );
+    return { contactId: contact.id, businessId: biz.id, email };
+  }
+
+  async function makeCampaign(): Promise<string> {
+    const row = await db.one<{ id: string }>(
+      "INSERT INTO campaigns (name, region_code, enabled_markets) VALUES ($1,'R1',$2) RETURNING id",
+      [`enrol-${randomUUID()}`, ["US"]],
+    );
+    return row.id;
+  }
+
+  it("creates the lead and queues the workflow start", async () => {
+    const c = await makeContact();
+    const campaignId = await makeCampaign();
+    const out = await enrolLead(db, { ...c, campaignId });
+    expect(out.leadId).not.toBeNull();
+
+    const intent = await db.one<{ kind: string; workflow_type: string }>(
+      "SELECT kind, workflow_type FROM workflow_intents WHERE execution_id = $1",
+      [`lead:${out.leadId}`],
+    );
+    expect(intent).toMatchObject({ kind: "start", workflow_type: "lead" });
+  });
+
+  it("refuses to enrol a suppressed contact", async () => {
+    const c = await makeContact();
+    await db.query("INSERT INTO suppression (email_hash, reason, channel_scope) VALUES ($1,'unsubscribe','all')", [
+      emailHash(c.email),
+    ]);
+    const out = await enrolLead(db, { ...c, campaignId: await makeCampaign() });
+    expect(out).toEqual({ leadId: null, reason: "suppressed" });
+  });
+
+  it("refuses a second active lead for the same contact", async () => {
+    const c = await makeContact();
+    await enrolLead(db, { ...c, campaignId: await makeCampaign() });
+    const second = await enrolLead(db, { ...c, campaignId: await makeCampaign() });
+    expect(second).toEqual({ leadId: null, reason: "already_active" });
   });
 });

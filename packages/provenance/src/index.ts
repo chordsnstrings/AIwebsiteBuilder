@@ -143,3 +143,55 @@ function hashPage(text: string): string {
 }
 
 export { detectNoCem, NO_CEM_DETECTOR_VERSION } from "@adw/compliance";
+import { enqueueIntent, executionId } from "@adw/workflows";
+
+/**
+ * Enrol an ingested contact into a campaign and hand it to the pipeline.
+ *
+ * ingestRecord() ends with a contact and its provenance evidence — a legal
+ * artefact, not a lead. This is the step that turns one into the other, and it
+ * is the only entry point into the lead workflow. Without it the system ingests
+ * perfectly and then does nothing with any of it.
+ *
+ * Idempotent twice over: the partial unique index allows one non-terminal lead
+ * per contact, and the outbox allows one start per execution id. Re-running an
+ * ingest batch does not double-contact anyone.
+ */
+export async function enrolLead(
+  db: Db,
+  input: { contactId: string; campaignId: string; businessId: string },
+): Promise<{ leadId: string; enqueued: boolean } | { leadId: null; reason: "already_active" | "suppressed" }> {
+  // A suppressed contact is never enrolled. The gate would deny the send anyway
+  // — this just avoids creating a lead that can only ever dead-end.
+  const suppressed = await db.maybeOne(
+    `SELECT 1 AS x FROM suppression s JOIN contacts c ON c.email_hash = s.email_hash WHERE c.id = $1`,
+    [input.contactId],
+  );
+  if (suppressed) return { leadId: null, reason: "suppressed" };
+
+  const active = await db.maybeOne<{ id: string }>(
+    `SELECT id FROM leads WHERE contact_id = $1
+       AND state NOT IN ('WON','LOST','EXHAUSTED','SUPPRESSED','CANCELLED') LIMIT 1`,
+    [input.contactId],
+  );
+  if (active) return { leadId: null, reason: "already_active" };
+
+  const lead = await db.one<{ id: string }>(
+    `INSERT INTO leads (contact_id, campaign_id, state, workflow_id)
+     VALUES ($1,$2,'INGESTED',$3)
+     ON CONFLICT (contact_id, campaign_id) DO UPDATE SET state = leads.state
+     RETURNING id`,
+    [input.contactId, input.campaignId, executionId.lead(input.contactId)],
+  );
+  await db.query("INSERT INTO conversations (lead_id, channel) VALUES ($1,'email') ON CONFLICT DO NOTHING", [
+    lead.id,
+  ]);
+  await enqueueIntent(db, {
+    kind: "start",
+    workflowType: "lead",
+    executionId: executionId.lead(lead.id),
+    payload: { leadId: lead.id, contactId: input.contactId, businessId: input.businessId },
+  });
+  await emit({ eventType: "lead.enrolled", subject: { kind: "lead", id: lead.id } });
+  return { leadId: lead.id, enqueued: true };
+}

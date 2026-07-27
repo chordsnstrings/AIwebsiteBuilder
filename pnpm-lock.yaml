@@ -111,6 +111,9 @@ importers:
       '@adw/vault':
         specifier: workspace:*
         version: link:../../packages/vault
+      '@adw/workflows':
+        specifier: workspace:*
+        version: link:../../packages/workflows
       '@hono/node-server':
         specifier: ^1.13.7
         version: 1.19.17(hono@4.12.32)
@@ -468,6 +471,9 @@ importers:
       '@adw/telemetry':
         specifier: workspace:*
         version: link:../telemetry
+      '@adw/workflows':
+        specifier: workspace:*
+        version: link:../workflows
 
   packages/registry:
     dependencies:

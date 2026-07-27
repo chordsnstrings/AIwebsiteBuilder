@@ -40,6 +40,7 @@ import {
   type RateLimitStore,
 } from "./middleware.ts";
 import { applyWebhookEffects } from "./webhooks.ts";
+import { enqueueIntent, executionId } from "@adw/workflows";
 import {
   unsubscribeSecret,
   verifyUnsubscribeToken,
@@ -299,7 +300,26 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
         ],
       );
     }
-    return c.json({ ok: true, claimed: true });
+
+    // Ignition. A claim is the moment a prospect becomes a customer, and until
+    // this enqueue existed the claim was recorded and then nothing happened —
+    // no build, no domain, no delivery. The worker turns it into a running
+    // onboarding; the unique index makes a double-click a no-op.
+    const lead = await db.maybeOne<{ id: string; business_id: string; region_code: string }>(
+      `SELECT l.id, b.id AS business_id, b.region_code
+         FROM leads l JOIN contacts ct ON ct.id = l.contact_id JOIN businesses b ON b.id = ct.business_id
+        WHERE l.preview_id = $1 LIMIT 1`,
+      [found.preview.id],
+    );
+    if (lead) {
+      await enqueueIntent(db, {
+        kind: "start",
+        workflowType: "onboarding",
+        executionId: executionId.onboarding(lead.id),
+        payload: { leadId: lead.id, businessId: lead.business_id, region: lead.region_code },
+      });
+    }
+    return c.json({ ok: true, claimed: true, onboardingQueued: Boolean(lead) });
   });
 
   /** A change request typed on the preview page, before there is any account. */
@@ -448,7 +468,48 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
     );
     if (conversation) await recordInboundMessage(conversation, parsed.text, `customer-revision:${event.event_id}`);
 
-    return c.json({ ok: true, round });
+    // Deliver to the onboarding execution if one is still parked on its revision
+    // window; otherwise run the standalone revision workflow. The signal is the
+    // preferred path because it consumes an included round in the same loop the
+    // customer is already in.
+    const parked = await db.maybeOne<{ id: string }>(
+      `SELECT e.id FROM workflow_executions e
+        WHERE e.type = 'onboarding' AND e.status = 'running'
+          AND e.input->>'leadId' IN (SELECT l.id::text FROM leads l
+                                       JOIN contacts ct ON ct.id = l.contact_id
+                                       JOIN customers cu ON cu.business_id = ct.business_id
+                                      WHERE cu.id = $1)
+        LIMIT 1`,
+      [customerId],
+    );
+    if (parked) {
+      await enqueueIntent(db, {
+        kind: "signal",
+        workflowType: "onboarding",
+        executionId: parked.id,
+        signalName: "revision_requested",
+        payload: { requestText: parsed.text },
+      });
+    } else {
+      const build = await db.maybeOne<{ id: string; business_id: string }>(
+        "SELECT id, business_id FROM builds WHERE customer_id = $1 ORDER BY created_at DESC LIMIT 1",
+        [customerId],
+      );
+      await enqueueIntent(db, {
+        kind: "start",
+        workflowType: "revision",
+        executionId: executionId.revision(customerId, round),
+        payload: {
+          customerId,
+          businessId: build?.business_id ?? "",
+          buildId: build?.id ?? "",
+          requestText: parsed.text,
+          round,
+        },
+      });
+    }
+
+    return c.json({ ok: true, round, queued: true });
   });
 
   // --- Registry: champion changes require an eval run (harness only) --------

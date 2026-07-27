@@ -10,7 +10,12 @@ import {
   runProbe,
   type Probe,
 } from "@adw/sentinel";
-import { Engine } from "@adw/workflows";
+import {
+  Engine,
+  markIntentDelivered,
+  markIntentFailed,
+  pendingIntents,
+} from "@adw/workflows";
 import type { Job } from "./scheduler.ts";
 
 /**
@@ -137,6 +142,36 @@ export function vendorWatchJob(runWatches: (db: Db) => Promise<{ vendorId: strin
             `Review ${f.vendorId}: ${f.detail}`,
           ],
         );
+      }
+    },
+  };
+}
+
+/**
+ * Drain the workflow outbox. This is the job that turns "a customer claimed
+ * their preview" into a running onboarding — without it the API records
+ * intentions nobody acts on, and the pipeline has no ignition.
+ *
+ * Runs every 5 seconds: an entry point is the one place latency is visible to a
+ * person who just clicked something.
+ */
+export function intentDispatcherJob(engine: Engine, db: Db): Job {
+  return {
+    name: "intent-dispatcher",
+    intervalMs: 5_000,
+    run: async () => {
+      for (const intent of await pendingIntents(db)) {
+        try {
+          if (intent.kind === "start") {
+            await engine.start(intent.workflow_type, intent.execution_id, intent.payload);
+          } else {
+            await engine.signal(intent.execution_id, intent.signal_name!, intent.payload);
+          }
+          await markIntentDelivered(db, intent.id);
+        } catch (err) {
+          // One bad intent must not stall the queue behind it.
+          await markIntentFailed(db, intent.id, String(err));
+        }
       }
     },
   };

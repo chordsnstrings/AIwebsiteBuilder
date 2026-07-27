@@ -25,6 +25,7 @@ import { Scheduler } from "./scheduler.ts";
 import {
   deliverabilityJob,
   dunningJob,
+  intentDispatcherJob,
   heartbeatJob,
   previewExpiryJob,
   probeJobs,
@@ -100,6 +101,7 @@ const scheduler = new Scheduler({
   db,
   jobs: [
     workflowTimerJob(engine),
+    intentDispatcherJob(engine, db),
     heartbeatJob(),
     ...probeJobs(),
     deliverabilityJob(sweepDeliverability),

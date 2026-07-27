@@ -414,7 +414,7 @@ describe("preview claim", () => {
     const fx = await makePreview();
     const res = await appAs(null).request(`/previews/${fx.token}/claim`, json({}));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, claimed: true });
+    expect(await res.json()).toMatchObject({ ok: true, claimed: true });
     const row = await db.one<{ claimed_at: string | null }>("SELECT claimed_at FROM previews WHERE id = $1", [
       fx.previewId,
     ]);
@@ -735,5 +735,60 @@ describe("middleware is actually wired into the app", () => {
       }
     }
     expect(limited).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ignition: the routes that must hand work to the pipeline, not just record it.
+// ---------------------------------------------------------------------------
+describe("workflow ignition", () => {
+  async function makeCustomerForIgnition(): Promise<string> {
+    const businessId = await makeBusiness();
+    const row = await db.one<{ id: string }>(
+      `INSERT INTO customers (business_id, region_code, legal_name, contact_email, locale, timezone, status)
+       VALUES ($1,'R1','Ignition Co',$2,'en-US','UTC','active') RETURNING id`,
+      [businessId, `ign_${randomUUID()}@example.com`],
+    );
+    return row.id;
+  }
+
+  it("claiming a preview queues an onboarding start", async () => {
+    const fx = await makePreview({ withLead: true });
+    const res = await appAs(null).request(`/previews/${fx.token}/claim`, json({}));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ onboardingQueued: true });
+
+    const intent = await db.one<{ kind: string; workflow_type: string }>(
+      `SELECT wi.kind, wi.workflow_type FROM workflow_intents wi
+        JOIN leads l ON wi.execution_id = 'onboarding:' || l.id::text
+       WHERE l.preview_id = $1`,
+      [fx.previewId],
+    );
+    expect(intent).toMatchObject({ kind: "start", workflow_type: "onboarding" });
+  });
+
+  it("claiming twice queues one onboarding, not two", async () => {
+    const fx = await makePreview({ withLead: true });
+    const app = appAs(null);
+    await app.request(`/previews/${fx.token}/claim`, json({}));
+    await app.request(`/previews/${fx.token}/claim`, json({}));
+    const n = await db.one<{ n: string }>(
+      `SELECT count(*) AS n FROM workflow_intents wi
+         JOIN leads l ON wi.execution_id = 'onboarding:' || l.id::text
+        WHERE l.preview_id = $1`,
+      [fx.previewId],
+    );
+    expect(Number(n.n)).toBe(1);
+  });
+
+  it("a dashboard revision request queues a revision workflow", async () => {
+    const customerId = await makeCustomerForIgnition();
+    const res = await appAs(OPERATOR).request(`/customers/${customerId}/revisions`, json({ requestText: "make it blue" }));
+    expect(res.status).toBe(200);
+    const intent = await db.one<{ kind: string; workflow_type: string }>(
+      "SELECT kind, workflow_type FROM workflow_intents WHERE execution_id = $1",
+      [`revision:${customerId}:1`],
+    );
+    expect(intent).toMatchObject({ kind: "start", workflow_type: "revision" });
   });
 });

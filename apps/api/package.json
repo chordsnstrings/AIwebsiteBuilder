@@ -26,6 +26,7 @@
     "@adw/dsar": "workspace:*",
     "@adw/billing": "workspace:*",
     "@adw/config": "workspace:*",
-    "zod": "^3.24.1"
+    "zod": "^3.24.1",
+    "@adw/workflows": "workspace:*"
   }
 }
