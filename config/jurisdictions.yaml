@@ -1,0 +1,118 @@
+# Jurisdiction matrix (spec §4.3, §10.4, §69.1). PR-gated, version-controlled,
+# counsel name + date per row. NOT editable at runtime through any UI.
+# Changing this file requires the compliance owner's approval.
+version: 3
+reviewed_by_default: "counsel-pending"
+
+countries:
+  US:
+    enabled: true
+    legal_basis: can_spam_optout
+    provenance_required: false
+    provenance_captured_anyway: true
+    provenance_max_age_months: 24
+    requires_relates_to_role: false
+    requires_no_cem_statement: false
+    quiet_hours: { start: 8, end: 18, tz: recipient_local }
+    frequency_cap: { count: 4, window_days: 30 }
+    optout_honour_days: 10
+    required_elements: [sender_id, postal_address, one_click_unsub, plaintext_unsub, privacy_link]
+    ai_disclosure: where_required
+    subscriber_type_required: false
+    registry_lookup: false
+    credit_agency_consent_required: false
+    reviewed_by: counsel-pending
+    reviewed_at: null
+
+  CA:
+    enabled: true
+    legal_basis: casl_10_9
+    provenance_required: true
+    provenance_max_age_months: 24
+    requires_relates_to_role: true
+    requires_no_cem_statement: true
+    quiet_hours: { start: 8, end: 18, tz: recipient_local }
+    frequency_cap: { count: 4, window_days: 30 }
+    optout_honour_days: 10
+    required_elements: [sender_id, postal_address, one_click_unsub, plaintext_unsub, privacy_link]
+    ai_disclosure: first_message
+    subscriber_type_required: false
+    credit_agency_consent_required: true
+    reviewed_by: counsel-pending
+
+  AU:
+    enabled: true
+    legal_basis: spam_act_sch2
+    provenance_required: true
+    provenance_max_age_months: 24
+    requires_relates_to_role: true
+    requires_no_cem_statement: true
+    quiet_hours: { start: 8, end: 18, tz: recipient_local }
+    frequency_cap: { count: 4, window_days: 30 }
+    optout_honour_days: 5
+    required_elements: [sender_id, postal_address, one_click_unsub, plaintext_unsub, privacy_link]
+    ai_disclosure: first_message
+    reviewed_by: counsel-pending
+
+  NZ:
+    enabled: true
+    legal_basis: uem_inferred
+    provenance_required: true
+    provenance_max_age_months: 24
+    requires_relates_to_role: true
+    requires_no_cem_statement: true
+    quiet_hours: { start: 8, end: 18, tz: recipient_local }
+    frequency_cap: { count: 4, window_days: 30 }
+    optout_honour_days: 5
+    required_elements: [sender_id, postal_address, one_click_unsub, plaintext_unsub, privacy_link]
+    ai_disclosure: first_message
+    reviewed_by: counsel-pending
+
+  GB:
+    enabled: true
+    legal_basis: pecr_corporate
+    provenance_required: false
+    provenance_captured_anyway: true
+    requires_relates_to_role: true
+    subscriber_type_required: true            # only 'corporate' permitted
+    quiet_hours: { start: 8, end: 18, tz: recipient_local }
+    frequency_cap: { count: 4, window_days: 30 }
+    optout_honour_days: 10
+    required_elements: [sender_id, postal_address, one_click_unsub, plaintext_unsub, privacy_link]
+    registry_lookup: true
+    ai_disclosure: first_message
+    reviewed_by: counsel-pending
+
+  IE:
+    enabled: true
+    legal_basis: pecr_corporate
+    subscriber_type_required: true
+    requires_relates_to_role: true
+    quiet_hours: { start: 8, end: 18, tz: recipient_local }
+    frequency_cap: { count: 4, window_days: 30 }
+    optout_honour_days: 10
+    required_elements: [sender_id, postal_address, one_click_unsub, plaintext_unsub, privacy_link]
+    registry_lookup: true
+    ai_disclosure: first_message
+    reviewed_by: counsel-pending
+
+  AE:
+    enabled: false
+    legal_basis: gcc_b2b
+    provenance_required: true
+    requires_relates_to_role: true
+    reason: "Counsel review required before enabling (treat as consent-leaning)."
+    reviewed_by: counsel-pending
+
+  BR:
+    enabled: false
+    legal_basis: lgpd_legit_interest
+    provenance_required: true
+    reason: "Legitimate-interest assessment required per campaign before enabling."
+    reviewed_by: counsel-pending
+
+  DE:
+    enabled: false
+    legal_basis: none
+    reason: "EU is not a v1 market. Denied at rule 3 (MARKET_NOT_ENABLED)."
+    reviewed_by: counsel-pending

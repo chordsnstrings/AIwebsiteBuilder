@@ -1,0 +1,20 @@
+# Build refusal + payments pre-screen (spec §26, §14.2.2). Sensitive change class.
+# Any business making representations about these outcomes is refused for build
+# and not offered payments; the IP/Claims agent escalates rather than negotiates.
+prohibited:
+  - health_outcomes          # "cures", "treats", medical claims
+  - financial_returns        # "guaranteed returns", investment advice
+  - legal_results            # "we will win your case"
+  - immigration_outcomes
+  - firearms
+  - adult_content
+  - gambling
+  - cryptocurrency_offerings
+  - debt_relief_guarantees
+  - regulated_pharmaceuticals
+
+# Categories flagged for review (not auto-refused) — human decision.
+review:
+  - supplements
+  - cosmetic_procedures
+  - financial_advisory

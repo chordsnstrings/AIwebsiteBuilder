@@ -1,0 +1,23 @@
+# Template families, trade mapping, locale variants (spec §59). Standard change class.
+families:
+  trades:
+    layouts: [hero-services-about-contact, hero-gallery-contact]
+    locales: [en-US, en-GB, en-AU]
+    color_systems: 6
+    type_pairings: 4
+  personal_services:
+    layouts: [hero-services-about-contact, hero-gallery-contact]
+    locales: [en-US, en-GB, en-AU]
+    color_systems: 6
+    type_pairings: 4
+  food_hospitality:
+    layouts: [hero-menu-about-contact, hero-gallery-contact]
+    locales: [en-US, en-GB, en-AU]
+    color_systems: 6
+    type_pairings: 4
+
+copy_slots:
+  headline: { min: 20, max: 70 }
+  service_blurb: { min: 40, max: 160 }
+  about: { min: 120, max: 480 }
+  cta: { min: 8, max: 40 }

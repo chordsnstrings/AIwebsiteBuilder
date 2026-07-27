@@ -1,0 +1,41 @@
+{
+  "name": "adw",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ADW — Autonomous Website Foundry",
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "db:start": "bash scripts/dev-db.sh start",
+    "db:stop": "bash scripts/dev-db.sh stop",
+    "db:reset": "bash scripts/dev-db.sh reset",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "vault:init": "bash scripts/init-vault.sh",
+    "typecheck": "turbo run typecheck",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:pg": "ADW_DB=pg vitest run",
+    "build": "turbo run build",
+    "verify": "pnpm typecheck && pnpm lint && pnpm test",
+    "seed": "tsx scripts/seed-demo.ts",
+    "demo": "bash scripts/demo.sh",
+    "demo:e2e": "tsx scripts/demo-e2e.ts",
+    "eval:nightly": "tsx scripts/eval-nightly.ts",
+    "dev": "turbo run dev"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "eslint": "^9.18.0",
+    "tsx": "^4.19.2",
+    "turbo": "^2.10.7",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8",
+    "@typescript-eslint/parser": "^8.20.0"
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  }
+}

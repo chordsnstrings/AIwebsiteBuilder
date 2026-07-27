@@ -1,0 +1,15 @@
+{
+  "name": "@adw/eslint-rules",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "echo 'no typecheck (js)'"
+  },
+  "devDependencies": {
+    "@typescript-eslint/rule-tester": "^8.20.0",
+    "@typescript-eslint/parser": "^8.20.0"
+  }
+}

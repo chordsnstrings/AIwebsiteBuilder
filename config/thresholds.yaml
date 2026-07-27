@@ -1,0 +1,29 @@
+# Deliverability, build, money, payments and control thresholds (spec §69.2).
+# PR-gated. Sensitive change class.
+deliverability:
+  complaint_rate: { warn: 0.0008, throttle: 0.0010, halt: 0.0020 }
+  bounce_rate: { warn: 0.010, throttle: 0.015, halt: 0.020 }
+  provider_daily_per_domain: { warn: 3000, throttle: 4000, halt: 4900 }
+  inbox_placement: { warn: 0.70, throttle: 0.65, halt: 0.60 }
+
+build:
+  first_pass_rate_min: 0.75
+  lighthouse: { perf: 85, a11y: 90, best_practices: 90, seo: 95 }
+  cls_max: 0.10
+  weight_kb_max: 1200
+  duplicate_paragraph_cap_24h: 40
+
+money:
+  dispute_rate_alert: 0.005
+  refund_rate_alert: 0.12
+  chargeback_reserve_pct: 0.004
+
+payments:
+  merchant_dispute_suspend: 0.0075
+  volume_spike_multiple: 4.0
+  refund_rate_review: 0.20
+
+control:
+  exceptions_per_week_target_max: 5
+  provider_concentration_max: 0.60
+  cost_per_pass_wow_alert: 0.15

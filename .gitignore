@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.turbo/
+.pg/
+*.log
+.env
+.env.local
+.vault-master-key
+coverage/
+.DS_Store
+apps/*/dist/
+packages/*/dist/
+demo-artifacts/
+*.tsbuildinfo

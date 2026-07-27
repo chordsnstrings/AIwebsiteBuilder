@@ -1,0 +1,24 @@
+# Legal text blocks per jurisdiction (spec §60.1). NEVER model-generated.
+# Sensitive change class. {entity}, {address}, {unsub_url}, {privacy_url} are
+# substituted deterministically at send time.
+default:
+  entity: "ADW Foundry Ltd"
+  postal_address: "123 Example Street, Suite 400, Toronto, ON M5V 0A1, Canada"
+  privacy_url: "https://adw.example/privacy"
+
+blocks:
+  en-US:
+    unsubscribe: "You received this because your business is publicly listed. Unsubscribe: {unsub_url}"
+    ai_disclosure: "This message was drafted with the help of AI. Reply STOP to opt out."
+    preview_disclaimer: "Unofficial preview created by {entity} — not affiliated with this business."
+    guarantee: "30-day money-back guarantee. You pay nothing until you approve this. Reply REFUND within 30 days for a full refund."
+  en-GB:
+    unsubscribe: "You received this as a corporate subscriber. Unsubscribe: {unsub_url}"
+    ai_disclosure: "This message was drafted with the help of AI. Reply STOP to opt out."
+    preview_disclaimer: "Unofficial preview created by {entity} — not affiliated with this business."
+    guarantee: "30-day money-back guarantee. You pay nothing until you approve this."
+  en-AU:
+    unsubscribe: "You received this because your work address is conspicuously published. Unsubscribe: {unsub_url}"
+    ai_disclosure: "This message was drafted with the help of AI. Reply STOP to opt out."
+    preview_disclaimer: "Unofficial preview created by {entity} — not affiliated with this business."
+    guarantee: "30-day money-back guarantee. You pay nothing until you approve this."

@@ -1,0 +1,136 @@
+# Role definitions, candidate pools, eval suites, cadences (spec §11.3, §69).
+# Restricted change class. Champions are NOT set here — they are written by the
+# eval harness with a stored eval run. Seed values from the financial model's
+# LLM_Routing tab are candidate/escalation *pools*, not champion assertions.
+rails:
+  primary: modelark
+  fallback: google
+  pinned:
+    ceo: "anthropic/opus-5"
+    sentinel: "anthropic/opus-5"
+
+roles:
+  enrichment:
+    candidates: ["modelark/seed-2-0-mini", "modelark/seed-2-0-lite", "google/gemini-flash-lite", "modelark/deepseek-v4-flash"]
+    escalation: ["modelark/seed-2-0-lite", "google/gemini-flash-lite"]
+    selection_metric: cost_per_pass
+    re_eval_cadence: monthly
+    data_class: PUB
+    eval_suite: enrichment
+  site_scoring:
+    candidates: ["modelark/seed-2-0-lite", "modelark/seed-2-1-pro", "google/gemini-3-1-pro", "modelark/seed-2-0-pro"]
+    escalation: ["modelark/seed-2-1-pro", "google/gemini-3-1-pro"]
+    selection_metric: cost_per_pass
+    re_eval_cadence: monthly
+    data_class: PUB
+    eval_suite: site_scoring
+  preview_gen:
+    candidates: ["modelark/seed-2-0-mini", "modelark/seed-2-0-lite", "modelark/glm-5-2", "google/gemini-flash-lite"]
+    escalation: ["modelark/seed-2-0-lite", "modelark/glm-5-2"]
+    selection_metric: cost_per_pass
+    re_eval_cadence: monthly
+    data_class: PUB
+    eval_suite: preview_gen
+  outreach_draft:
+    candidates: ["modelark/seed-2-0-lite", "modelark/seed-2-0-pro", "google/gemini-3-6-flash", "modelark/glm-5-2"]
+    escalation: ["modelark/seed-2-0-pro", "google/gemini-3-6-flash"]
+    selection_metric: live_ab_cost_per_close
+    re_eval_cadence: continuous
+    data_class: PUB
+    eval_suite: outreach
+    status: pending
+  customer_care:
+    candidates: ["modelark/seed-2-0-pro", "anthropic/sonnet-5", "google/gemini-3-1-pro", "modelark/glm-5-2"]
+    escalation: ["anthropic/sonnet-5", "google/gemini-3-1-pro"]
+    selection_metric: live_ab_cost_per_close
+    re_eval_cadence: continuous
+    data_class: CUST
+    eval_suite: customer_care
+    status: pending
+  developer:
+    candidates: ["modelark/glm-5-2", "modelark/seed-2-0-pro", "anthropic/sonnet-5", "google/gemini-3-1-pro", "modelark/deepseek-v4-pro"]
+    escalation: ["modelark/seed-2-0-pro", "anthropic/sonnet-5"]
+    selection_metric: cost_per_pass
+    re_eval_cadence: weekly
+    data_class: PUBLISHABLE
+    eval_suite: developer
+  reviewer_patch:
+    candidates: ["modelark/glm-5-2", "modelark/seed-2-0-pro", "google/gemini-3-6-flash", "modelark/deepseek-v4-pro"]
+    escalation: ["modelark/seed-2-0-pro", "google/gemini-3-6-flash"]
+    selection_metric: cost_per_pass
+    re_eval_cadence: weekly
+    data_class: PUBLISHABLE
+    eval_suite: reviewer_patch
+  ux_review:
+    candidates: ["modelark/seed-2-1-pro", "google/gemini-3-1-pro", "anthropic/sonnet-5", "modelark/seed-2-0-pro"]
+    escalation: ["google/gemini-3-1-pro", "anthropic/sonnet-5"]
+    selection_metric: cost_per_pass
+    re_eval_cadence: monthly
+    data_class: PUB
+    eval_suite: ux_review
+  ip_claims:
+    candidates: ["anthropic/sonnet-5", "anthropic/opus-5", "modelark/seed-2-0-pro", "google/gemini-3-1-pro"]
+    escalation: ["anthropic/opus-5"]
+    selection_metric: recall_then_cost
+    re_eval_cadence: weekly
+    data_class: PUBLISHABLE
+    eval_suite: ip_claims
+    status: pending
+  finance_pricing:
+    candidates: ["modelark/seed-2-0-pro", "anthropic/sonnet-5", "google/gemini-3-1-pro", "modelark/glm-5-2"]
+    escalation: ["anthropic/sonnet-5"]
+    selection_metric: cost_per_pass
+    re_eval_cadence: weekly
+    data_class: CUST
+    eval_suite: finance_pricing
+  retention:
+    candidates: ["modelark/seed-2-0-pro", "anthropic/sonnet-5", "google/gemini-3-6-flash"]
+    escalation: ["anthropic/sonnet-5"]
+    selection_metric: cost_per_pass
+    re_eval_cadence: continuous
+    data_class: CUST
+    eval_suite: retention
+  dunning:
+    candidates: ["modelark/seed-2-0-lite", "google/gemini-3-6-flash", "modelark/seed-2-0-pro"]
+    escalation: ["google/gemini-3-6-flash"]
+    selection_metric: cost_per_pass
+    re_eval_cadence: monthly
+    data_class: CUST
+    eval_suite: dunning
+  researcher:
+    candidates: ["modelark/seed-2-0-lite", "google/gemini-3-6-flash", "modelark/seed-2-0-pro"]
+    escalation: ["google/gemini-3-6-flash"]
+    selection_metric: cost_per_pass
+    re_eval_cadence: monthly
+    data_class: PUB
+    eval_suite: researcher
+  pr_report:
+    candidates: ["anthropic/opus-5", "anthropic/sonnet-5", "google/gemini-3-1-pro", "modelark/seed-2-1-pro"]
+    escalation: ["anthropic/sonnet-5"]
+    selection_metric: recall_then_cost
+    re_eval_cadence: monthly
+    data_class: PUB
+    eval_suite: pr_report
+  vendor_orchestrator:
+    candidates: ["modelark/seed-2-0-pro", "anthropic/sonnet-5", "google/gemini-3-1-pro"]
+    escalation: ["anthropic/sonnet-5"]
+    selection_metric: recall_then_cost
+    re_eval_cadence: monthly
+    data_class: PUB
+    eval_suite: vendor_orchestrator
+  sentinel:
+    candidates: ["anthropic/opus-5"]
+    escalation: []
+    selection_metric: recall_then_cost
+    re_eval_cadence: quarterly
+    data_class: PUB
+    eval_suite: sentinel
+    pinned: true
+  ceo:
+    candidates: ["anthropic/opus-5"]
+    escalation: []
+    selection_metric: recall_then_cost
+    re_eval_cadence: quarterly
+    data_class: CUST
+    eval_suite: ceo
+    pinned: true

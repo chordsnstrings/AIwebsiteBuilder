@@ -1,0 +1,20 @@
+# Script/asset/link allowlists and the CSP template for generated sites
+# (spec §69.4). Restricted change class. Enforced by the Reviewer as hard fails.
+script_origins:
+  - "self"
+  - "https://cdn.adwsites.com"
+asset_origins:
+  - "self"
+  - "https://cdn.adwsites.com"
+  - "https://r2.adwsites.com"
+outbound_links:
+  - "customer_declared_domains"       # resolved per build
+  - "https://www.google.com/maps"
+  - "https://maps.app.goo.gl"
+email_links:
+  - "https://p.adwpreview.com"
+  - "https://app.adwsites.com"
+  - "https://adw.example"
+csp_template: >
+  default-src 'self'; script-src 'self' https://cdn.adwsites.com;
+  object-src 'none'; base-uri 'none'; frame-ancestors 'none'

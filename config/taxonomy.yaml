@@ -1,0 +1,20 @@
+# Trade taxonomy → template family mapping (spec §41.1). Standard change class.
+families:
+  trades:
+    label: "Trades"
+    categories: [plumber, electrician, hvac, roofer, landscaper, painter, builder, carpenter, locksmith, mason]
+  personal_services:
+    label: "Personal services"
+    categories: [salon, barber, spa, nail_salon, massage, tattoo, fitness_trainer, pet_grooming]
+  food_hospitality:
+    label: "Food & hospitality"
+    categories: [restaurant, cafe, bakery, caterer, food_truck, bar]
+  automotive:
+    label: "Automotive"
+    categories: [auto_repair, tyre_shop, car_detailing, body_shop, mechanic]
+  professional_services:
+    label: "Professional services"
+    categories: [accountant, consultant, photographer, real_estate_agent, insurance_broker]
+  retail:
+    label: "Retail"
+    categories: [florist, boutique, gift_shop, hardware_store, jeweller]
