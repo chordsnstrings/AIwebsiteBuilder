@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: adw_admin
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_ADMIN_URL: postgres://adw_admin@127.0.0.1:5433/adw_test
+      DATABASE_APP_URL: postgres://adw_app:adw@127.0.0.1:5433/adw_test
+      DATABASE_URL: postgres://adw_admin@127.0.0.1:5433/adw_test
+      ADW_VAULT_MASTER_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      ADW_DB: pg
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Create app role + databases
+        run: |
+          PGPASSWORD= psql -h 127.0.0.1 -p 5433 -U adw_admin -d postgres -c "CREATE ROLE adw_app LOGIN PASSWORD 'adw';" || true
+          for db in adw adw_test adw_shadow; do
+            PGPASSWORD= psql -h 127.0.0.1 -p 5433 -U adw_admin -d postgres -c "CREATE DATABASE $db OWNER adw_admin;" || true
+            PGPASSWORD= psql -h 127.0.0.1 -p 5433 -U adw_admin -d $db -c "CREATE EXTENSION IF NOT EXISTS citext; CREATE EXTENSION IF NOT EXISTS pgcrypto; GRANT CONNECT ON DATABASE $db TO adw_app; GRANT USAGE ON SCHEMA public TO adw_app;"
+          done
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Lint (spec-invariant rules)
+        run: pnpm lint
+      - name: Test suite
+        run: pnpm test
+      - name: Nightly evals (against demo DB)
+        run: pnpm db:migrate && pnpm exec tsx scripts/eval-nightly.ts

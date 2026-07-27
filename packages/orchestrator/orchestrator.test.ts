@@ -55,7 +55,9 @@ describe("vendor orchestrator", () => {
   });
 
   it("blocks a CUST/PAY vendor from ACTIVE with an incomplete diligence file", async () => {
-    // anthropic is CUST class, diligence empty by default.
+    // anthropic is CUST class. Reset its diligence to empty for this assertion
+    // (the shared test DB may carry completed diligence from a prior run).
+    await db.query("UPDATE vendors SET diligence='{}', state='IDENTIFIED' WHERE id='anthropic'");
     const r = await activateVendor(db, "anthropic", true);
     expect(r.activated).toBe(false);
     expect(r.reason).toMatch(/diligence/);
