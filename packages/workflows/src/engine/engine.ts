@@ -51,6 +51,7 @@ export class Engine {
 
   /** Start a new workflow execution and drive it as far as it will go now. */
   async start<In>(type: string, id: string, input: In): Promise<void> {
+    if (!this.workflows.has(type)) throw new Error(`Unregistered workflow type: ${type}`);
     await this.db.query(
       `INSERT INTO workflow_executions (id, type, status, input) VALUES ($1,$2,'running',$3)
        ON CONFLICT (id) DO NOTHING`,
@@ -68,12 +69,18 @@ export class Engine {
     await this.runOnce(id);
   }
 
-  /** Fire any timers whose fire_at has passed, and resume their executions. */
+  /** Fire any timers whose fire_at has passed, and resume their executions.
+   * Scoped to executions of a type this engine handles, so an engine sharing a
+   * database with another does not fire (and starve) the other's timers. */
   async fireDueTimers(): Promise<number> {
     const now = new Date(this.clock.now());
+    const types = [...this.workflows.keys()];
+    if (types.length === 0) return 0;
     const due = await this.db.query<{ id: string; execution_id: string }>(
-      `SELECT id, execution_id FROM workflow_timers WHERE fired = FALSE AND fire_at <= $1`,
-      [now],
+      `SELECT t.id, t.execution_id FROM workflow_timers t
+       JOIN workflow_executions e ON e.id = t.execution_id
+       WHERE t.fired = FALSE AND t.fire_at <= $1 AND e.type = ANY($2)`,
+      [now, types],
     );
     for (const t of due.rows) {
       await this.db.query("UPDATE workflow_timers SET fired = TRUE WHERE id = $1", [t.id]);
@@ -123,8 +130,11 @@ export class Engine {
     );
     if (!exec || exec.status === "completed" || exec.status === "failed") return;
 
+    // Skip executions of a type this engine does not handle. In a multi-engine
+    // deployment (or a shared test database) fireDueTimers may surface an
+    // execution owned by a different engine — it is not ours to drive.
     const def = this.workflows.get(exec.type);
-    if (!def) throw new Error(`Unregistered workflow type: ${exec.type}`);
+    if (!def) return;
 
     const journalRows = await this.db.query<JournalEntry>(
       "SELECT seq, kind, name, result, error FROM workflow_journal WHERE execution_id = $1 ORDER BY seq",
