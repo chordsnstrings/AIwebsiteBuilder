@@ -1,0 +1,171 @@
+/* ADW design system — tokens, reset, components and the microanimation kit.
+   Motion is compositor-only (transform/opacity), gated behind
+   prefers-reduced-motion, and never applied to the LCP element. This keeps
+   "ample microanimations" compatible with Lighthouse Performance >= 85. */
+
+:root {
+  --adw-bg: #f7f9fc;
+  --adw-surface: #ffffff;
+  --adw-surface-2: #f1f5fb;
+  --adw-border: #e2e8f2;
+  --adw-text: #16202e;
+  --adw-text-muted: #4a5666;
+  --adw-primary: #2f6bff;
+  --adw-primary-ink: #ffffff;
+  --adw-accent: #00b389;
+  --adw-warn: #e8a23d;
+  --adw-danger: #e0455e;
+  --adw-radius: 12px;
+  --adw-radius-sm: 8px;
+  --adw-shadow: 0 1px 2px rgba(16, 32, 46, 0.05), 0 8px 24px rgba(16, 32, 46, 0.06);
+  --adw-shadow-lg: 0 12px 40px rgba(16, 32, 46, 0.12);
+  --adw-dur-fast: 140ms;
+  --adw-dur: 240ms;
+  --adw-dur-slow: 420ms;
+  --adw-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --adw-space: 16px;
+  --adw-font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --adw-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --adw-bg: #0c1118;
+    --adw-surface: #131a24;
+    --adw-surface-2: #1a2331;
+    --adw-border: #26303f;
+    --adw-text: #e8eef7;
+    --adw-text-muted: #93a2b8;
+    --adw-primary: #5a8bff;
+    --adw-accent: #22d3a8;
+    --adw-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+    --adw-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.5);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --adw-bg: #0c1118; --adw-surface: #131a24; --adw-surface-2: #1a2331; --adw-border: #26303f;
+  --adw-text: #e8eef7; --adw-text-muted: #93a2b8; --adw-primary: #5a8bff; --adw-accent: #22d3a8;
+  --adw-shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35); --adw-shadow-lg: 0 12px 40px rgba(0,0,0,.5);
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --adw-bg: #f7f9fc; --adw-surface: #fff; --adw-surface-2: #f1f5fb; --adw-border: #e2e8f2;
+  --adw-text: #16202e; --adw-text-muted: #5b6b80; --adw-primary: #2f6bff; --adw-accent: #00b389;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: var(--adw-font);
+  background: var(--adw-bg);
+  color: var(--adw-text);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--adw-primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1, h2, h3, h4 { line-height: 1.15; margin: 0 0 0.4em; letter-spacing: -0.01em; }
+img { max-width: 100%; height: auto; }
+
+/* --- Layout utilities --- */
+.adw-container { width: 100%; max-width: 1200px; margin: 0 auto; padding: 0 20px; }
+.adw-row { display: flex; gap: var(--adw-space); flex-wrap: wrap; }
+.adw-col { display: flex; flex-direction: column; gap: var(--adw-space); }
+.adw-grid { display: grid; gap: var(--adw-space); }
+.adw-spread { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.adw-muted { color: var(--adw-text-muted); }
+.adw-mono { font-family: var(--adw-mono); font-size: 0.85em; }
+
+/* --- Card --- */
+.adw-card {
+  background: var(--adw-surface);
+  border: 1px solid var(--adw-border);
+  border-radius: var(--adw-radius);
+  padding: 20px;
+  box-shadow: var(--adw-shadow);
+  transition: transform var(--adw-dur) var(--adw-ease), box-shadow var(--adw-dur) var(--adw-ease);
+}
+.adw-card.adw-hoverable:hover { transform: translateY(-3px); box-shadow: var(--adw-shadow-lg); }
+
+/* --- Button --- */
+.adw-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  font: inherit; font-weight: 600;
+  padding: 10px 18px; border-radius: var(--adw-radius-sm);
+  border: 1px solid transparent; cursor: pointer;
+  background: var(--adw-primary); color: var(--adw-primary-ink);
+  transition: transform var(--adw-dur-fast) var(--adw-ease), filter var(--adw-dur-fast) var(--adw-ease), box-shadow var(--adw-dur-fast) var(--adw-ease);
+  will-change: transform;
+}
+.adw-btn:hover { filter: brightness(1.06); transform: translateY(-1px); box-shadow: var(--adw-shadow); }
+.adw-btn:active { transform: translateY(0) scale(0.98); }
+.adw-btn:focus-visible { outline: 3px solid color-mix(in srgb, var(--adw-primary) 40%, transparent); outline-offset: 2px; }
+.adw-btn.adw-ghost { background: transparent; color: var(--adw-text); border-color: var(--adw-border); }
+.adw-btn.adw-danger { background: var(--adw-danger); }
+.adw-btn.adw-sm { padding: 6px 12px; font-size: 0.88rem; }
+
+/* --- Badge / pill --- */
+.adw-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.76rem; font-weight: 600; padding: 3px 10px; border-radius: 999px;
+  background: var(--adw-surface-2); color: var(--adw-text-muted); border: 1px solid var(--adw-border);
+}
+.adw-badge.adw-ok { color: var(--adw-accent); border-color: color-mix(in srgb, var(--adw-accent) 40%, transparent); }
+.adw-badge.adw-warn { color: var(--adw-warn); border-color: color-mix(in srgb, var(--adw-warn) 40%, transparent); }
+.adw-badge.adw-bad { color: var(--adw-danger); border-color: color-mix(in srgb, var(--adw-danger) 40%, transparent); }
+.adw-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.adw-badge.adw-ok .adw-dot { animation: adw-pulse 2s var(--adw-ease) infinite; }
+
+/* --- Stat tile --- */
+.adw-stat { display: flex; flex-direction: column; gap: 4px; }
+.adw-stat .adw-stat-val { font-size: 1.9rem; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.adw-stat .adw-stat-label { font-size: 0.82rem; color: var(--adw-text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* --- Table --- */
+.adw-table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+.adw-table th { text-align: left; color: var(--adw-text-muted); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; padding: 10px 12px; border-bottom: 1px solid var(--adw-border); }
+.adw-table td { padding: 11px 12px; border-bottom: 1px solid var(--adw-border); }
+.adw-table tbody tr { transition: background var(--adw-dur-fast) var(--adw-ease); }
+.adw-table tbody tr:hover { background: var(--adw-surface-2); }
+.adw-table-wrap { overflow-x: auto; }
+
+/* --- Input --- */
+.adw-input, .adw-select, .adw-textarea {
+  width: 100%; font: inherit; padding: 10px 12px; border-radius: var(--adw-radius-sm);
+  border: 1px solid var(--adw-border); background: var(--adw-surface); color: var(--adw-text);
+  transition: border-color var(--adw-dur-fast) var(--adw-ease), box-shadow var(--adw-dur-fast) var(--adw-ease);
+}
+.adw-input:focus, .adw-select:focus, .adw-textarea:focus {
+  outline: none; border-color: var(--adw-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--adw-primary) 22%, transparent);
+}
+
+/* --- Skeleton shimmer --- */
+.adw-skeleton {
+  background: linear-gradient(90deg, var(--adw-surface-2) 25%, var(--adw-border) 50%, var(--adw-surface-2) 75%);
+  background-size: 200% 100%; border-radius: 6px; animation: adw-shimmer 1.4s linear infinite;
+}
+
+/* --- Animation keyframes (compositor-only) --- */
+@keyframes adw-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+@keyframes adw-shimmer { to { background-position: -200% 0; } }
+@keyframes adw-enter { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes adw-pop { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: none; } }
+@keyframes adw-spin { to { transform: rotate(360deg); } }
+
+/* --- Entrance reveal (IntersectionObserver adds .adw-in) --- */
+.adw-reveal { opacity: 0; }
+.adw-reveal.adw-in { animation: adw-enter var(--adw-dur-slow) var(--adw-ease) both; }
+.adw-reveal.adw-in[data-stagger] { animation-delay: calc(var(--i, 0) * 60ms); }
+.adw-pop.adw-in { animation: adw-pop var(--adw-dur) var(--adw-ease) both; }
+
+.adw-spinner { width: 18px; height: 18px; border: 2px solid var(--adw-border); border-top-color: var(--adw-primary); border-radius: 50%; animation: adw-spin 0.7s linear infinite; }
+
+/* --- Respect reduced motion: strip all non-essential animation --- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+  .adw-reveal { opacity: 1 !important; }
+}
