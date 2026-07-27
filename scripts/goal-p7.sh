@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 export DATABASE_URL="${DATABASE_URL:-postgres://adw_admin@127.0.0.1:5433/adw}"
+export ADW_ENV="${ADW_ENV:-local}"
 export ADW_VAULT_MASTER_KEY="${ADW_VAULT_MASTER_KEY:-$(node -e "console.log('0'.repeat(64))")}"
 bash scripts/dev-db.sh start >/dev/null
 

@@ -15,6 +15,9 @@ export default defineConfig({
       DATABASE_URL: "postgres://adw_admin@127.0.0.1:5433/adw_test",
       ADW_VAULT_MASTER_KEY: "0".repeat(64),
       ADW_DB: "pg",
+      // The vault refuses the well-known demo key unless the environment
+      // declares itself local/test. Tests must opt in explicitly.
+      ADW_ENV: "test",
     },
   },
 });

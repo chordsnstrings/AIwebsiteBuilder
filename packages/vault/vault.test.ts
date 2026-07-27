@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb, migrate, type Db } from "@adw/db";
 import { LocalKeyWrapper, LocalPgBackend, parseRef } from "./src/index.ts";
+import { isWeakMasterKey } from "./src/crypto.ts";
 import { open, seal } from "./src/crypto.ts";
 
 const URL = process.env.DATABASE_ADMIN_URL ?? "postgres://adw_admin@127.0.0.1:5433/adw_test";
@@ -63,5 +64,48 @@ describe("vault backend", () => {
     expect(parseRef(r1).version).toBe(1);
     expect(parseRef(r2).version).toBe(2);
     expect(await backend.resolve(r2)).toBe("b");
+  });
+});
+
+describe("master key production guard", () => {
+  const withEnv = (env: string | undefined, fn: () => void) => {
+    const original = process.env.ADW_ENV;
+    try {
+      if (env === undefined) delete process.env.ADW_ENV;
+      else process.env.ADW_ENV = env;
+      fn();
+    } finally {
+      if (original === undefined) delete process.env.ADW_ENV;
+      else process.env.ADW_ENV = original;
+    }
+  };
+
+  it("identifies well-known weak keys", () => {
+    expect(isWeakMasterKey("0".repeat(64))).toBe(true);
+    expect(isWeakMasterKey("f".repeat(64))).toBe(true);
+    expect(isWeakMasterKey("ab".repeat(32))).toBe(true);
+    expect(isWeakMasterKey("not-hex")).toBe(true);
+    expect(isWeakMasterKey("0123456789abcdef".repeat(4))).toBe(false);
+  });
+
+  it("REFUSES the all-zeros demo key in production", () => {
+    withEnv("production", () => {
+      expect(() => new LocalKeyWrapper("0".repeat(64))).toThrow(/well-known demo key/);
+    });
+    withEnv(undefined, () => {
+      // Unset ADW_ENV defaults to production — fail closed.
+      expect(() => new LocalKeyWrapper("0".repeat(64))).toThrow(/well-known demo key/);
+    });
+  });
+
+  it("permits the demo key only in local and test", () => {
+    withEnv("local", () => expect(() => new LocalKeyWrapper("0".repeat(64))).not.toThrow());
+    withEnv("test", () => expect(() => new LocalKeyWrapper("0".repeat(64))).not.toThrow());
+  });
+
+  it("accepts a real key in production", () => {
+    withEnv("production", () => {
+      expect(() => new LocalKeyWrapper("0123456789abcdef".repeat(4))).not.toThrow();
+    });
   });
 });

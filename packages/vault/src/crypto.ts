@@ -11,6 +11,26 @@ export interface KeyWrapper {
   unwrap(wrapped: Buffer): Buffer;
 }
 
+/**
+ * Is this master key one an attacker could guess? All-zeros is the documented
+ * demo key and appears in this repository, in CI config and in the test suite;
+ * any single-repeated-byte key is equally weak. Exported so callers can warn
+ * before they ever construct a wrapper.
+ */
+export function isWeakMasterKey(hex: string): boolean {
+  const normalised = hex.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(normalised)) return true;
+  // Every byte identical (covers the all-zeros demo key and "ffff…").
+  const first = normalised.slice(0, 2);
+  return normalised.match(/.{2}/g)!.every((byte) => byte === first);
+}
+
+/** Environments where a weak, well-known master key is acceptable. */
+function weakKeyPermitted(): boolean {
+  const env = process.env.ADW_ENV ?? "production";
+  return env === "local" || env === "test";
+}
+
 /** Local key wrapper using a 32-byte master key (demo). Replaceable by KMS. */
 export class LocalKeyWrapper implements KeyWrapper {
   private readonly masterKey: Buffer;
@@ -24,6 +44,15 @@ export class LocalKeyWrapper implements KeyWrapper {
     this.masterKey = Buffer.from(hex, "hex");
     if (this.masterKey.length !== 32) {
       throw new Error("ADW_VAULT_MASTER_KEY must be 32 bytes (64 hex chars)");
+    }
+    // Fail closed outside local/test. Encrypting real vendor credentials under a
+    // key that ships in this repository would make the vault decorative — and
+    // the failure would be silent, because everything else would work.
+    if (isWeakMasterKey(hex) && !weakKeyPermitted()) {
+      throw new Error(
+        `Refusing to start: ADW_VAULT_MASTER_KEY is a well-known demo key and ADW_ENV is "${process.env.ADW_ENV ?? "production"}". ` +
+          "Generate a real 32-byte key from your secrets manager. Set ADW_ENV=local only for development.",
+      );
     }
   }
   wrap(dek: Buffer): Buffer {

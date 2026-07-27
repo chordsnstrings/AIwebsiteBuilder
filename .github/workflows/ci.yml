@@ -23,6 +23,7 @@ jobs:
       DATABASE_URL: postgres://adw_admin@127.0.0.1:5433/adw_test
       ADW_VAULT_MASTER_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
       ADW_DB: pg
+      ADW_ENV: test
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

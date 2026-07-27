@@ -7,6 +7,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 export DATABASE_URL="${DATABASE_URL:-postgres://adw_admin@127.0.0.1:5433/adw}"
+# The vault refuses the well-known demo key unless the environment says local.
+export ADW_ENV="${ADW_ENV:-local}"
 if [ -z "${ADW_VAULT_MASTER_KEY:-}" ]; then
   export ADW_VAULT_MASTER_KEY="$(node -e "console.log('0'.repeat(64))")"
 fi
