@@ -110,6 +110,19 @@ const registrySchema = z.object({
 });
 export type RegistryRoleConfig = z.infer<typeof registryRole>;
 
+// --- Vendors -----------------------------------------------------------------
+const vendorRow = z.object({
+  id: z.string(),
+  name: z.string(),
+  tier: z.enum(["T0", "T1", "T2", "T3"]),
+  data_class: z.enum(["PUB", "PUBLISHABLE", "CUST", "PAY", "NONE"]),
+  gate: z.enum(["self_serve", "contract", "counsel"]),
+  category: z.string(),
+  provisioning: z.array(z.string()),
+});
+const vendorsSchema = z.object({ vendors: z.array(vendorRow) });
+export type VendorRow = z.infer<typeof vendorRow>;
+
 // Lazily-loaded, cached singletons.
 let _cache: Record<string, { data: unknown; version: string }> = {};
 function cached<T>(file: string, schema: z.ZodType<T>): { data: T; version: string } {
@@ -132,6 +145,7 @@ export const config = {
     const raw = readFileSync(join(CONFIG_DIR, "taxonomy.yaml"), "utf8");
     return { data: parse(raw), version: "taxonomy" };
   },
+  vendors: () => cached("vendors.yaml", vendorsSchema),
   templates: () => {
     const raw = readFileSync(join(CONFIG_DIR, "templates.yaml"), "utf8");
     return { data: parse(raw), version: "templates" };

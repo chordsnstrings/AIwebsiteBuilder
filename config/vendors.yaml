@@ -1,0 +1,239 @@
+# Vendor register (companion to ADW-VENDOR-REGISTER.md). The live version is a
+# state machine owned by the Vendor Onboarding Orchestrator; this is the seed.
+# ~66 vendors; the go-live critical path and every T0/T1 vendor are listed with
+# their tier, data class, gate and the provisioning operations permitted inside
+# an already-created account (spec §75.4). The Orchestrator never creates an
+# account and never signs.
+vendors:
+  # --- Go-live critical path (spec §1) ---
+  - id: registrar_reseller
+    name: "Domain registrar (reseller)"
+    tier: T0
+    data_class: PUB
+    gate: contract
+    category: go_live
+    provisioning: [nameserver_defaults, auto_renew_policy, transfer_lock_defaults, domain_registration]
+  - id: cloudflare
+    name: "Cloudflare (DNS/Pages/Workers/R2)"
+    tier: T0
+    data_class: PUB
+    gate: self_serve
+    category: go_live
+    provisioning: [create_zone, dns_records, pages_project, worker_route, r2_bucket, scoped_api_token, page_rules]
+  - id: aws_ses
+    name: "AWS SES"
+    tier: T0
+    data_class: CUST
+    gate: self_serve
+    category: go_live
+    provisioning: [ses_domain_dkim, sns_topic, iam_scoped_policy]
+  - id: stripe
+    name: "Stripe"
+    tier: T0
+    data_class: PAY
+    gate: self_serve
+    category: payments
+    provisioning: [webhook_endpoints, products_prices, tax_settings, connect_platform_settings, statement_descriptor]
+  - id: stripe_connect
+    name: "Stripe Connect"
+    tier: T0
+    data_class: PAY
+    gate: counsel
+    category: payments
+    provisioning: [connect_platform_settings]
+  - id: secondary_processor
+    name: "Secondary processor (Adyen/Braintree/Checkout.com)"
+    tier: T0
+    data_class: PAY
+    gate: contract
+    category: payments
+    provisioning: [webhook_endpoints]
+  - id: google_business_profile
+    name: "Google Business Profile API"
+    tier: T1
+    data_class: PUB
+    gate: self_serve
+    category: site_functionality
+    provisioning: []
+  # --- Model & AI layer (spec §4) ---
+  - id: modelark
+    name: "BytePlus ModelArk (primary rail)"
+    tier: T0
+    data_class: PUB
+    gate: contract
+    category: model
+    provisioning: []
+  - id: google_ai
+    name: "Google Gemini (fallback rail)"
+    tier: T0
+    data_class: PUB
+    gate: self_serve
+    category: model
+    provisioning: []
+  - id: anthropic
+    name: "Anthropic (pinned CEO/Sentinel)"
+    tier: T0
+    data_class: CUST
+    gate: self_serve
+    category: model
+    provisioning: []
+  - id: langfuse
+    name: "Langfuse (LLM tracing)"
+    tier: T1
+    data_class: CUST
+    gate: self_serve
+    category: observability
+    provisioning: [projects, alert_rules, retention_policy]
+  # --- Cold email infrastructure (spec §3) ---
+  - id: google_workspace
+    name: "Google Workspace (cold fleet)"
+    tier: T0
+    data_class: PUB
+    gate: self_serve
+    category: cold_email
+    provisioning: [users, groups, spf_dkim_dmarc]
+  - id: microsoft_365
+    name: "Microsoft 365 (cold fleet)"
+    tier: T0
+    data_class: PUB
+    gate: self_serve
+    category: cold_email
+    provisioning: [users, groups, spf_dkim_dmarc]
+  - id: cold_smtp
+    name: "Cold-specialist SMTP (Mailreef/Maildoso)"
+    tier: T1
+    data_class: PUB
+    gate: contract
+    category: cold_email
+    provisioning: []
+  - id: cloudflare_registrar
+    name: "Cloudflare Registrar (burner domains)"
+    tier: T1
+    data_class: PUB
+    gate: self_serve
+    category: cold_email
+    provisioning: [domain_registration]
+  - id: email_verification
+    name: "Email verification (ZeroBounce/MillionVerifier)"
+    tier: T0
+    data_class: PUB
+    gate: self_serve
+    category: lead_data
+    provisioning: []
+  - id: aws_sns
+    name: "AWS SNS (bounce/complaint webhooks)"
+    tier: T0
+    data_class: PUB
+    gate: self_serve
+    category: cold_email
+    provisioning: [sns_topic]
+  # --- Lead data (spec §2) ---
+  - id: lead_data_primary
+    name: "Licensed place-data aggregator (primary)"
+    tier: T0
+    data_class: PUB
+    gate: contract
+    category: lead_data
+    provisioning: []
+  - id: lead_data_secondary
+    name: "Second lead-data vendor (redundancy)"
+    tier: T0
+    data_class: PUB
+    gate: contract
+    category: lead_data
+    provisioning: []
+  - id: browserless
+    name: "Browserless / Browserbase"
+    tier: T1
+    data_class: PUB
+    gate: self_serve
+    category: rendering
+    provisioning: []
+  # --- Data & infra (spec §8) ---
+  - id: postgres
+    name: "PostgreSQL (Neon/RDS)"
+    tier: T0
+    data_class: CUST
+    gate: self_serve
+    category: data
+    provisioning: [databases, least_privilege_roles, backup_schedule, replication_config]
+  - id: clickhouse
+    name: "ClickHouse Cloud"
+    tier: T1
+    data_class: CUST
+    gate: self_serve
+    category: data
+    provisioning: [databases, retention]
+  - id: redis
+    name: "Redis (Upstash/ElastiCache)"
+    tier: T1
+    data_class: CUST
+    gate: self_serve
+    category: data
+    provisioning: [databases]
+  - id: temporal
+    name: "Temporal Cloud"
+    tier: T0
+    data_class: CUST
+    gate: self_serve
+    category: data
+    provisioning: [namespaces, retention, search_attributes]
+  # --- Communications (spec §6) ---
+  - id: twilio
+    name: "Twilio (SMS/voice)"
+    tier: T1
+    data_class: CUST
+    gate: counsel
+    category: communications
+    provisioning: [messaging_services, tendlc_campaign, webhook_endpoints]
+  # --- Observability & alerting (spec §9A) ---
+  - id: sentry
+    name: "Sentry"
+    tier: T2
+    data_class: PUB
+    gate: self_serve
+    category: observability
+    provisioning: [projects, alert_rules]
+  - id: grafana
+    name: "Grafana Cloud + Prometheus"
+    tier: T2
+    data_class: PUB
+    gate: self_serve
+    category: observability
+    provisioning: [projects, alert_rules]
+  - id: healthchecks
+    name: "Healthchecks.io (dead man's switch)"
+    tier: T0
+    data_class: NONE
+    gate: self_serve
+    category: alerting
+    provisioning: [checks, escalation_policies, contact_methods]
+  - id: pushover
+    name: "Pushover (primary SEV1 push)"
+    tier: T0
+    data_class: NONE
+    gate: self_serve
+    category: alerting
+    provisioning: [contact_methods]
+  - id: pagerduty
+    name: "PagerDuty (phone escalation — never Twilio)"
+    tier: T0
+    data_class: NONE
+    gate: self_serve
+    category: alerting
+    provisioning: [escalation_policies, contact_methods]
+  # --- Corporate & finance (spec §12) ---
+  - id: mercury
+    name: "Mercury / Wise Business (banking)"
+    tier: T0
+    data_class: PAY
+    gate: contract
+    category: corporate
+    provisioning: []
+  - id: counsel
+    name: "Multi-jurisdiction counsel"
+    tier: T0
+    data_class: NONE
+    gate: counsel
+    category: legal
+    provisioning: []
