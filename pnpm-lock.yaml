@@ -72,12 +72,21 @@ importers:
       '@adw/agents':
         specifier: workspace:*
         version: link:../../packages/agents
+      '@adw/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@adw/compliance':
         specifier: workspace:*
         version: link:../../packages/compliance
+      '@adw/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@adw/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@adw/dsar':
+        specifier: workspace:*
+        version: link:../../packages/dsar
       '@adw/gate':
         specifier: workspace:*
         version: link:../../packages/gate
@@ -105,6 +114,9 @@ importers:
       hono:
         specifier: ^4.6.14
         version: 4.12.32
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
 
   apps/dashboard:
     dependencies:
