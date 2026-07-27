@@ -259,11 +259,11 @@ export const developerAgent = defineAgent({
   simulate: (input) => ({
     headline: `${input.name} — ${input.category} done right`,
     services: [
-      { title: "Fast response", blurb: "We answer quickly and show up when we say we will." },
-      { title: "Quality work", blurb: "Careful, professional work that lasts." },
-      { title: "Fair pricing", blurb: "Clear quotes with no surprises." },
+      { title: "Fast response", blurb: "We answer quickly and show up when we say we will, every time." },
+      { title: "Quality work", blurb: "Careful, professional workmanship that holds up and looks great for years." },
+      { title: "Fair pricing", blurb: "Clear, upfront quotes with no hidden fees and no surprises at the end." },
     ],
-    about: `${input.name} is a local ${input.category} business built on doing good work and treating people right.`,
+    about: `${input.name} is a locally owned ${input.category} business built on doing careful, honest work and treating every customer the way we'd want to be treated. We show up on time, quote clearly, and stand behind everything we do.`,
     cta: "Request a quote",
     sectionOrder: ["hero", "services", "about", "contact"],
   }),

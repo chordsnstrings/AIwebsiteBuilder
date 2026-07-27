@@ -1,0 +1,25 @@
+{
+  "name": "@adw/api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/server.ts",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@adw/db": "workspace:*",
+    "@adw/gate": "workspace:*",
+    "@adw/gateway": "workspace:*",
+    "@adw/registry": "workspace:*",
+    "@adw/vault": "workspace:*",
+    "@adw/agents": "workspace:*",
+    "@adw/compliance": "workspace:*",
+    "@adw/telemetry": "workspace:*",
+    "@adw/orchestrator": "workspace:*",
+    "@adw/sentinel": "workspace:*",
+    "hono": "^4.6.14",
+    "@hono/node-server": "^1.13.7"
+  }
+}

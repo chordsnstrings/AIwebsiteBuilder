@@ -45,6 +45,8 @@
     "vitest": "^2.1.8"
   },
   "dependencies": {
+    "@hono/node-server": "^2.0.12",
+    "hono": "^4.12.32",
     "zod": "^3.24.1"
   },
   "pnpm": {

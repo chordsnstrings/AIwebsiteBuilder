@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://adw.example/sitemap.xml
