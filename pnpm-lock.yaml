@@ -217,9 +217,15 @@ importers:
 
   apps/worker:
     dependencies:
+      '@adw/agents':
+        specifier: workspace:*
+        version: link:../../packages/agents
       '@adw/billing':
         specifier: workspace:*
         version: link:../../packages/billing
+      '@adw/compliance':
+        specifier: workspace:*
+        version: link:../../packages/compliance
       '@adw/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -229,18 +235,33 @@ importers:
       '@adw/fleet':
         specifier: workspace:*
         version: link:../../packages/fleet
+      '@adw/gate':
+        specifier: workspace:*
+        version: link:../../packages/gate
       '@adw/orchestrator':
         specifier: workspace:*
         version: link:../../packages/orchestrator
+      '@adw/registry':
+        specifier: workspace:*
+        version: link:../../packages/registry
+      '@adw/reviewer-gates':
+        specifier: workspace:*
+        version: link:../../packages/reviewer-gates
       '@adw/sentinel':
         specifier: workspace:*
         version: link:../../packages/sentinel
+      '@adw/site-templates':
+        specifier: workspace:*
+        version: link:../../packages/site-templates
       '@adw/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry
       '@adw/vault':
         specifier: workspace:*
         version: link:../../packages/vault
+      '@adw/vendors':
+        specifier: workspace:*
+        version: link:../../packages/vendors
       '@adw/workflows':
         specifier: workspace:*
         version: link:../../packages/workflows

@@ -13,11 +13,14 @@ import {
   buildWorkflow,
   leadWorkflow,
   onboardingWorkflow,
+  revisionWorkflow,
   subscriptionWorkflow,
   paymentsOnboardingWorkflow,
   deliverabilityLoopWorkflow,
   evalLoopWorkflow,
 } from "@adw/workflows";
+import { LocalKeyWrapper, LocalPgBackend } from "@adw/vault";
+import { registerActivities } from "./activities.ts";
 import { Scheduler } from "./scheduler.ts";
 import {
   deliverabilityJob,
@@ -38,6 +41,7 @@ for (const wf of [
   leadWorkflow,
   buildWorkflow,
   onboardingWorkflow,
+  revisionWorkflow,
   subscriptionWorkflow,
   paymentsOnboardingWorkflow,
   deliverabilityLoopWorkflow,
@@ -45,6 +49,17 @@ for (const wf of [
 ]) {
   engine.registerWorkflow(wf as never);
 }
+
+// ...and every activity those workflows name, or the first step of the first
+// execution throws "Unregistered activity" and the whole pipeline stalls.
+const vault = new LocalPgBackend(db, new LocalKeyWrapper(process.env.ADW_VAULT_MASTER_KEY ?? "0".repeat(64)));
+const forceMock = process.env.ADW_FORCE_MOCK === "1" || ["local", "test"].includes(process.env.ADW_ENV ?? "production");
+registerActivities(engine, {
+  db,
+  vault,
+  forceMock,
+  ...(process.env.ADW_PUBLIC_BASE ? { publicBase: process.env.ADW_PUBLIC_BASE } : {}),
+});
 
 /**
  * Deliverability sweep over every live sending asset. Metrics come from the

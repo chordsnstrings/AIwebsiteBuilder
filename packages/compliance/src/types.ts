@@ -38,7 +38,11 @@ export interface OutboundMessage {
   messageClass: MessageClass;
   domainClass: DomainClass;
   sendingAssetId?: string;
-  campaignId: string;
+  /**
+   * Absent for transactional mail, which belongs to a customer rather than a
+   * campaign. Cold outreach always carries one.
+   */
+  campaignId?: string;
   idempotencyKey: string;
   // Rendered message body + headers, for the required-elements and injection checks.
   body: string;

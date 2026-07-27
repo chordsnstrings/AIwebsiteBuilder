@@ -18,6 +18,13 @@
     "@adw/telemetry": "workspace:*",
     "@adw/fleet": "workspace:*",
     "@adw/billing": "workspace:*",
-    "@adw/orchestrator": "workspace:*"
+    "@adw/orchestrator": "workspace:*",
+    "@adw/agents": "workspace:*",
+    "@adw/gate": "workspace:*",
+    "@adw/compliance": "workspace:*",
+    "@adw/site-templates": "workspace:*",
+    "@adw/reviewer-gates": "workspace:*",
+    "@adw/vendors": "workspace:*",
+    "@adw/registry": "workspace:*"
   }
 }

@@ -293,9 +293,23 @@ export const ipClaimsAgent = defineAgent({
   simulate: (input) => {
     const c = input.content.toLowerCase();
     const findings: { category: string; excerpt: string; severity: number; reason: string }[] = [];
-    if (/\bcure|treat|heal\b/.test(c)) findings.push({ category: "regulated_claim", excerpt: "cure/treat", severity: 3, reason: "medical outcome claim" });
-    if (/\bbest\b|#1|number one|guaranteed/.test(c)) findings.push({ category: "superlative", excerpt: "best/#1", severity: 1, reason: "unverifiable superlative" });
-    if (/\blicensed|certified|insured\b/.test(c)) findings.push({ category: "certification", excerpt: "licensed/certified", severity: 2, reason: "unverified certification claim" });
+    // Each alternation is parenthesised. Written flat, `\b` binds only to the
+    // first and last branch, so `/\bcure|treat|heal\b/` matched "treat" inside
+    // "treating every customer well" — which flagged our own default copy and
+    // would have sent every build to the exception queue.
+    // "treat" carries two senses and only one is regulated. The medical sense
+    // takes a condition as its object ("treats type 2 diabetes"); the everyday
+    // sense takes a person ("treating every customer the way we'd want to be
+    // treated") or no object at all. So: flag a treat-form followed by an object
+    // that is not a person. Recall stays total — any condition noun matches,
+    // without the suite having to enumerate diseases.
+    const treatsACondition =
+      /\btreat(s|ed|ing)?\s+(?!(?:every|each|our|their|the|you|your|people|everyone|customers?|clients?|us|them|homeowners?|neighbou?rs?)\b)[a-z]/.test(c);
+    if (/\b(cures?|cured|curing|heals?|healed|healing)\b/.test(c) || treatsACondition) {
+      findings.push({ category: "regulated_claim", excerpt: "cure/treat", severity: 3, reason: "medical outcome claim" });
+    }
+    if (/\b(best|#1|number one|guaranteed)\b/.test(c)) findings.push({ category: "superlative", excerpt: "best/#1", severity: 1, reason: "unverifiable superlative" });
+    if (/\b(licensed|certified|insured)\b/.test(c)) findings.push({ category: "certification", excerpt: "licensed/certified", severity: 2, reason: "unverified certification claim" });
     return { verdict: findings.length > 0 ? ("flag" as const) : ("pass" as const), findings };
   },
 });

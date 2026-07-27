@@ -90,3 +90,47 @@ describe("capability model (spec §16.2, §13.4)", () => {
     }
   });
 });
+
+describe("ip_claims screens claims, not ordinary prose", () => {
+  // Regression: the alternations were written flat, so `\b` bound only to the
+  // first and last branch. `/\bcure|treat|heal\b/` matched "treat" inside
+  // "treating every customer well" — our own default about-copy — which would
+  // have hard-stopped every build into the exception queue.
+  it("passes copy that merely uses the word 'treating'", async () => {
+    const out = await ipClaimsAgent.run(
+      {
+        content:
+          "We show up on time, quote clearly, and stand behind everything we do, " +
+          "treating every customer the way we'd want to be treated.",
+        jurisdiction: "US",
+      },
+      deps(),
+    );
+    expect(out.result.verdict).toBe("pass");
+  });
+
+  it("still flags an actual medical outcome claim", async () => {
+    const out = await ipClaimsAgent.run(
+      { content: "Our therapy cures chronic back pain in two weeks.", jurisdiction: "US" },
+      deps(),
+    );
+    expect(out.result.verdict).toBe("flag");
+  });
+
+  it("still flags an unverifiable superlative and a bare certification claim", async () => {
+    for (const content of ["The best roofer in the state.", "Fully licensed and insured."]) {
+      const out = await ipClaimsAgent.run({ content, jurisdiction: "US" }, deps());
+      expect(out.result.verdict).toBe("flag");
+    }
+  });
+
+  it("does not flag a word that merely contains a trigger", async () => {
+    const out = await ipClaimsAgent.run(
+      { content: "We recertified our crew and healed the roof valley flashing.", jurisdiction: "US" },
+      deps(),
+    );
+    // "healed" IS a claim word and should flag; "recertified" alone must not be
+    // what does it — assert the finding names the medical category.
+    expect(out.result.findings.some((f) => f.category === "regulated_claim")).toBe(true);
+  });
+});

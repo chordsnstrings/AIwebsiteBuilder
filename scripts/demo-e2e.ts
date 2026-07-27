@@ -21,6 +21,7 @@ import { renderSite, buildArtifactFromHtml } from "../packages/site-templates/sr
 import { reviewBuild } from "../packages/reviewer-gates/src/index.ts";
 import { Engine, TestClock } from "../packages/workflows/src/engine/index.ts";
 import { buildWorkflow } from "../packages/workflows/src/definitions/index.ts";
+import { registerActivities } from "../apps/worker/src/activities.ts";
 
 const url = process.env.DATABASE_URL ?? "postgres://adw_admin@127.0.0.1:5433/adw";
 const db: Db = await createDb({ backend: "pg", url });
@@ -144,28 +145,12 @@ const quote = await financeAgent.run({ region: "R1", scope: "standard", proposed
 step(`6. Quote: $${(quote.result.buildFeeCents / 100).toFixed(0)} build + $${(quote.result.mrrCents / 100).toFixed(0)}/mo, discount clamped to ${(quote.result.discountPct * 100).toFixed(0)}%.`);
 
 // --- 7. Full build through the durable workflow engine ---
+// Registered from the PRODUCTION activity registry, not from stubs written here.
+// That is the point of this step: it proves the same wiring the worker boots
+// with can carry a build from assemble through both gates to a deploy. A stubbed
+// e2e would pass just as happily with nothing implemented behind the names.
 const engine = new Engine({ db, clock: new TestClock(0) });
-engine.registerActivity("assemble_and_render", async () => ({ artefactKey: "art/e2e" }));
-engine.registerActivity("reviewer_gate", async () => {
-  const dev = await developerAgent.run({ name: "Ridgeline Roofing", category: "roofer", templateFamily: "trades" }, deps);
-  const built = renderSite({ family: "trades", business: { name: "Ridgeline Roofing", category: "roofer", city: "Boise", phone: "+12085550143" }, copy: { headline: dev.result.headline, services: dev.result.services, about: dev.result.about, cta: dev.result.cta }, locale: "en-US", mode: "full", legalEntity: "ADW Foundry Ltd", legalAddress: "123 Example St", labelVersion: "v1", formAction: "https://app.adwsites.com/f" });
-  const rv = reviewBuild(buildArtifactFromHtml(built));
-  return { pass: rv.pass, hardFail: rv.hardFail };
-});
-engine.registerActivity("patch_build", async () => null);
-engine.registerActivity("ux_review", async () => ({ verdict: "accept" }));
-engine.registerActivity("ip_screen", async () => {
-  const ip = await ipClaimsAgent.run({ content: "Professional roofing you can count on.", jurisdiction: "US" }, deps);
-  return { verdict: ip.result.verdict };
-});
-engine.registerActivity("deploy_build", async () => {
-  const b = await db.one<{ id: string }>(
-    "INSERT INTO builds (business_id, customer_id, mode, role_chain, first_pass, gate_results, cost_cents, artefact_r2_key, deployed_url) VALUES ($1,NULL,'full',$2,true,$3,62,'r2/e2e-build','https://ridgelineroofing.adwsites.com') RETURNING id",
-    [biz.id, JSON.stringify(["developer:champion"]), JSON.stringify({ perf: 96 })],
-  );
-  return { buildId: b.id, url: "https://ridgelineroofing.adwsites.com" };
-});
-engine.registerActivity("raise_build_exception", async () => null);
+registerActivities(engine, { db, vault, forceMock: true });
 engine.registerWorkflow(buildWorkflow);
 const buildId = `build-e2e-${Date.now()}`;
 await engine.start("build", buildId, { businessId: biz.id, mode: "full" });
