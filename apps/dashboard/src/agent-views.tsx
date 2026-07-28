@@ -10,8 +10,9 @@
 // upsell. Every other panel here is a queue with a promise attached: photo
 // triage promises an owner reply inside 30 minutes, reviews promise a draft
 // waiting rather than a task, and the DNS diff promises their email never moved.
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Badge, Card, Reveal } from "@adw/ui";
+import { customerIdFromUrl, dashboardApi, DEMO_CUSTOMER_ID } from "./api.ts";
 
 // ---------------------------------------------------------------------------
 // Seed data. The dashboard renders instantly against these and upgrades if the
@@ -254,12 +255,52 @@ export function GapsView({ items = seedGaps }: { items?: Gap[] }) {
   const [gaps, setGaps] = useState(items);
   const [editing, setEditing] = useState<string | null>(null);
   const [text, setText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
 
-  const approve = (id: string) => {
+  // First paint is the fixtures, always; the live list replaces them once it
+  // arrives. Nothing here blocks rendering, which is the whole reason the panel
+  // opens instantly on a phone in a van.
+  useEffect(() => {
+    const customerId = customerIdFromUrl();
+    if (customerId === DEMO_CUSTOMER_ID) return;
+    let live = true;
+    void dashboardApi.listGaps(customerId).then((data) => {
+      if (!live || data === null) return;
+      setGaps(
+        data.gaps.map((g) => ({
+          id: g.id,
+          question: g.question,
+          timesAsked: g.timesAsked,
+          lastAskedAt: new Date(g.lastAskedAt).toLocaleDateString(),
+          status: g.status === "approved" ? ("approved" as const) : ("open" as const),
+          ...(g.draftedAnswer === null ? {} : { draft: g.draftedAnswer }),
+        })),
+      );
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const approve = async (id: string) => {
     // ⛔ The owner approves. An answer that promotes itself into the pack is a
     // system learning its own hallucinations, which is the one thing the whole
     // grounding design exists to prevent.
-    setGaps((g) => g.map((x) => (x.id === id ? { ...x, status: "approved" as const, draft: text || x.draft } : x)));
+    const answer = text || gaps.find((g) => g.id === id)?.draft || "";
+    setSaving(true);
+    setRefused(null);
+    const result = await dashboardApi.approveGap(id, answer);
+    setSaving(false);
+
+    // ⛔ A refusal must NOT look like a save. The refusal policy applies to the
+    // owner's words too, and an owner who believes their agent now says
+    // something it will never say is worse off than one who was told no.
+    if (result.live && !result.ok) {
+      setRefused(result.reason ?? "That answer could not be published.");
+      return;
+    }
+    setGaps((g) => g.map((x) => (x.id === id ? { ...x, status: "approved" as const, draft: answer } : x)));
     setEditing(null);
     setText("");
   };
@@ -304,13 +345,22 @@ export function GapsView({ items = seedGaps }: { items?: Gap[] }) {
                       style={{ width: "100%", padding: 10, borderRadius: 8, font: "inherit" }}
                     />
                     <div className="adw-row" style={{ gap: 8 }}>
-                      <button className="adw-btn" onClick={() => approve(g.id)} disabled={text.trim().length === 0}>
-                        Approve and publish
+                      <button
+                        className="adw-btn"
+                        onClick={() => void approve(g.id)}
+                        disabled={saving || text.trim().length === 0}
+                      >
+                        {saving ? "Publishing…" : "Approve and publish"}
                       </button>
-                      <button className="adw-btn adw-ghost" onClick={() => setEditing(null)}>
+                      <button className="adw-btn adw-ghost" onClick={() => setEditing(null)} disabled={saving}>
                         Cancel
                       </button>
                     </div>
+                    {refused !== null && (
+                      <p role="alert" style={{ margin: 0, color: "var(--adw-danger, #b42318)", fontSize: "0.9rem" }}>
+                        {refused}
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <div className="adw-row" style={{ gap: 8, marginTop: 12 }}>
