@@ -284,6 +284,21 @@ importers:
         specifier: workspace:*
         version: link:../../packages/workflows
 
+  packages/agenteval:
+    dependencies:
+      '@adw/concierge':
+        specifier: workspace:*
+        version: link:../concierge
+      '@adw/config':
+        specifier: workspace:*
+        version: link:../config
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+      '@adw/qapack':
+        specifier: workspace:*
+        version: link:../qapack
+
   packages/agents:
     dependencies:
       '@adw/config':
@@ -308,6 +323,15 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
 
+  packages/architect:
+    dependencies:
+      '@adw/config':
+        specifier: workspace:*
+        version: link:../config
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+
   packages/auth:
     dependencies:
       '@adw/db':
@@ -331,6 +355,24 @@ importers:
       '@adw/config':
         specifier: workspace:*
         version: link:../config
+
+  packages/concierge:
+    dependencies:
+      '@adw/agents':
+        specifier: workspace:*
+        version: link:../agents
+      '@adw/config':
+        specifier: workspace:*
+        version: link:../config
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+      '@adw/mcp':
+        specifier: workspace:*
+        version: link:../mcp
+      '@adw/qapack':
+        specifier: workspace:*
+        version: link:../qapack
 
   packages/config:
     dependencies:

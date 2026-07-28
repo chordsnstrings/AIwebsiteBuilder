@@ -1,0 +1,21 @@
+{
+  "name": "@adw/concierge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@adw/agents": "workspace:*",
+    "@adw/config": "workspace:*",
+    "@adw/db": "workspace:*",
+    "@adw/mcp": "workspace:*",
+    "@adw/qapack": "workspace:*"
+  }
+}

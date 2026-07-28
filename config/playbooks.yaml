@@ -193,6 +193,10 @@ verticals:
         matches: [it is definitely, the problem is, you need a new]
         reason: "Never diagnose without inspection"
 
+  # ⛔ Over the 40% ceiling at 41.7%. Kept here so the Architect refuses with the
+  # measured reason instead of falling through to "unclassifiable" — the entry
+  # documents WHY we do not build it, which is the useful thing for an operator
+  # reading an escalation.
   cleaning:
     label: "Cleaning"
     booking_coverage: 0.417
