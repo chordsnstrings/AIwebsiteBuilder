@@ -344,6 +344,15 @@ importers:
 
   packages/demo-data: {}
 
+  packages/dns:
+    dependencies:
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+      '@adw/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
+
   packages/dsar:
     dependencies:
       '@adw/db':
@@ -434,6 +443,24 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
 
+  packages/kb:
+    dependencies:
+      '@adw/config':
+        specifier: workspace:*
+        version: link:../config
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+
+  packages/mcp:
+    dependencies:
+      '@adw/config':
+        specifier: workspace:*
+        version: link:../config
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+
   packages/orchestrator:
     dependencies:
       '@adw/config':
@@ -477,6 +504,15 @@ importers:
       '@adw/workflows':
         specifier: workspace:*
         version: link:../workflows
+
+  packages/qapack:
+    dependencies:
+      '@adw/config':
+        specifier: workspace:*
+        version: link:../config
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
 
   packages/registry:
     dependencies:
