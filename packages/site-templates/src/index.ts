@@ -24,6 +24,19 @@ export {
   type OpeningHours,
 } from "./machine-surface.ts";
 
+/**
+ * The live agent on the preview page — the acquisition hook (§22.1). A
+ * speculative website is a pitch against a solved problem; a speculative agent
+ * that already knows their business is not.
+ */
+export {
+  agentWidget,
+  agentWidgetCss,
+  agentWidgetScript,
+  DEFAULT_SUGGESTIONS,
+  type AgentWidgetOptions,
+} from "./agent-widget.ts";
+
 /** Build a reviewer-gate artifact from a rendered preview (demo helper). */
 export { buildArtifactFromHtml } from "./artifact.ts";
 

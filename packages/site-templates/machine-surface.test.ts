@@ -13,7 +13,8 @@ import {
   renderLlmsTxtV3,
   type MachineSurfaceInput,
 } from "./src/machine-surface.ts";
-import { renderSite } from "./src/render.ts";
+import { renderSite, weightKb } from "./src/render.ts";
+import { DEFAULT_SUGGESTIONS, type AgentWidgetOptions } from "./src/agent-widget.ts";
 
 const base = (over: Partial<MachineSurfaceInput> = {}): MachineSurfaceInput => ({
   name: "Ridgeline Roofing",
@@ -225,5 +226,109 @@ describe("machineSurfaceHead", () => {
   it("is a fixed set of paths — an assistant must not have to guess", () => {
     const head = machineSurfaceHead();
     for (const path of Object.values(MACHINE_PATHS)) expect(head).toContain(path);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The live agent on the preview. This is the acquisition hook, so the tests
+// here are about the two things that would quietly break it: a page that needs
+// JavaScript to be usable, and a gap list that disappears when scripts fail.
+// ---------------------------------------------------------------------------
+describe("the preview's live agent", () => {
+  const copy = {
+    headline: "Ridgeline Roofing — dependable roofing across the Boise valley",
+    services: [
+      { title: "Roof repair", blurb: "Leak tracing and repair on tile, shingle and flat roofs, done right." },
+      { title: "Roof replacement", blurb: "Full tear-off and replacement with a written scope and timeline." },
+    ],
+    about:
+      "Ridgeline Roofing has served the Boise valley for two decades. We show up when we say we will, quote clearly, and stand behind the work long after the invoice is settled.",
+    cta: "Request a quote",
+  };
+
+  const withAgent = (over: Partial<AgentWidgetOptions> = {}): string =>
+    renderSite({
+      family: "trades",
+      business: { name: "Ridgeline Roofing", category: "roofer", city: "Boise", phone: "+12085550143" },
+      copy,
+      locale: "en-US",
+      mode: "preview",
+      legalEntity: "ADW Foundry Ltd",
+      legalAddress: "123 Example St",
+      labelVersion: "label-v1",
+      claimToken: "tok",
+      formAction: "https://p.adwpreview.com/claim",
+      agent: {
+        endpoint: "https://p.adwpreview.com/agent/turn",
+        sessionRef: "sess-123",
+        gaps: ["Do you offer a warranty?", "Are you insured for commercial work?"],
+        suggestedQuestions: ["What areas do you cover?"],
+        businessName: "Ridgeline Roofing",
+        ...over,
+      },
+    });
+
+  it("works without JavaScript — the form is a real POST to a real action", () => {
+    const html = withAgent();
+    const stripped = html.replace(/<script[\s\S]*?<\/script>/gi, "");
+    expect(stripped).toContain('method="post"');
+    expect(stripped).toContain('action="https://p.adwpreview.com/agent/turn"');
+    expect(stripped).toContain('name="question"');
+  });
+
+  it("renders the gap list server-side so it survives with scripts disabled", () => {
+    // This list is the most persuasive thing on the page — a visible set of
+    // questions their own content cannot answer. It must not depend on JS.
+    const stripped = withAgent().replace(/<script[\s\S]*?<\/script>/gi, "");
+    expect(stripped).toContain("Do you offer a warranty?");
+    expect(stripped).toContain("Are you insured for commercial work?");
+  });
+
+  it("frames the gaps as the content's, not the agent's limitation", () => {
+    expect(withAgent()).toMatch(/published information doesn't answer/i);
+  });
+
+  it("omits the gap panel entirely when there are none", () => {
+    expect(withAgent({ gaps: [] })).not.toContain("What it couldn't answer");
+  });
+
+  it("seeds a suggestion so the first interaction is one tap", () => {
+    expect(withAgent()).toContain('data-adw-ask="What areas do you cover?"');
+  });
+
+  it("falls back to default suggestions when the pack supplied none", () => {
+    const html = withAgent({ suggestedQuestions: [] });
+    expect(html).toContain(`data-adw-ask="${DEFAULT_SUGGESTIONS[0]}"`);
+  });
+
+  it("adds no external request — the whole widget is inlined", () => {
+    const html = withAgent();
+    expect(html).not.toMatch(/<script[^>]+src=/i);
+    expect(html).not.toMatch(/<link[^>]+rel=["']stylesheet["']/i);
+  });
+
+  it("stays small enough to render on 3G", () => {
+    // The audience is a tradesperson on a phone. The whole document, agent
+    // included, has to arrive in under a second.
+    expect(weightKb(withAgent())).toBeLessThan(50);
+  });
+
+  it("gates its animation behind prefers-reduced-motion", () => {
+    expect(withAgent()).toContain("@media (prefers-reduced-motion: no-preference)");
+  });
+
+  it("is absent when no agent was supplied", () => {
+    const html = renderSite({
+      family: "trades",
+      business: { name: "Ridgeline Roofing", category: "roofer", city: "Boise", phone: "+12085550143" },
+      copy,
+      locale: "en-US",
+      mode: "preview",
+      legalEntity: "ADW Foundry Ltd",
+      legalAddress: "123 Example St",
+      labelVersion: "label-v1",
+      formAction: "https://p.adwpreview.com/claim",
+    });
+    expect(html).not.toContain("adw-agent-form");
   });
 });

@@ -7,6 +7,7 @@
 // noindex, the consent checkbox and the "this isn't for me" suppression link.
 import { config } from "@adw/config";
 import { buildJsonLd, machineSurfaceHead, type MachineSurfaceInput } from "./machine-surface.ts";
+import { agentWidget, agentWidgetCss, agentWidgetScript, type AgentWidgetOptions } from "./agent-widget.ts";
 import {
   DEFAULT_LAYOUT,
   LAYOUT_SECTIONS,
@@ -54,6 +55,12 @@ export interface RenderOptions {
    * a price is published, hours, coverage, verified credentials.
    */
   machine?: MachineSurfaceInput;
+  /**
+   * The live agent. Supplying it is what makes a preview persuasive: an owner
+   * asking their own receptionist what they charge and getting the right answer
+   * is the hook the acquisition model rests on (§22.1).
+   */
+  agent?: AgentWidgetOptions;
   familyDef?: TemplateFamily;
   colorSystem?: string; // ColorSystem id within familyDef.tokens
   typePairing?: string; // TypePairing id within familyDef.tokens
@@ -274,6 +281,8 @@ ${consent}
 <p style="margin-top:12px">Call us: <a href="tel:${esc(b.phone)}">${esc(b.phone)}</a></p>
 </section>`;
 
+  const agentSection = opts.agent ? agentWidget(opts.agent) : "";
+
   const bySection: Record<string, string> = {
     hero,
     services: servicesSection,
@@ -282,9 +291,15 @@ ${consent}
     about: aboutSection,
     contact: contactSection,
   };
-  const mainSections = sections.filter((s) => s !== "hero").map((s) => bySection[s] ?? "");
+  // The agent sits immediately after the hero — above the fold on a phone,
+  // because it is the thing that has to be tried, not scrolled past.
+  const mainSections = [
+    agentSection,
+    ...sections.filter((s) => s !== "hero").map((s) => bySection[s] ?? ""),
+  ].filter((x) => x !== "");
 
-  const styles = CRITICAL_CSS + (LAYOUT_CSS[layout] ?? "") + tokenCss(color, type);
+  const styles =
+    CRITICAL_CSS + (LAYOUT_CSS[layout] ?? "") + tokenCss(color, type) + (opts.agent ? agentWidgetCss() : "");
   // data-* markers only appear when a family/layout was explicitly selected, so
   // the legacy call path stays byte-identical.
   const bodyAttrs =
@@ -310,6 +325,7 @@ ${hero}
 <main>
 ${mainSections.join("\n")}
 </main>
+${opts.agent ? agentWidgetScript() : ""}
 <footer>
 ${esc(opts.legalEntity)} · ${esc(opts.legalAddress)}${isPreview ? " · This is an unofficial preview." : ""}
 · <a href="/privacy">Privacy</a>
