@@ -1,6 +1,23 @@
-// Sale, onboarding and delivery workflow (spec §36). The delivery email does not
-// fire until integration verification passes; the guarantee is a keyword handler
-// on the inbound rail, not part of this flow.
+// Sale, onboarding and delivery — Pipeline C (spec §47, agent-workflow §4).
+//
+//   payment → deep KB → deep pack → build → revisions → agent activation
+//           → AGENT EVAL GATE → deploy → DNS cutover → integration verify
+//           → delivery email
+//
+// Two structural guarantees, both enforced by the shape of this function rather
+// than by a conditional an agent could influence:
+//
+//   1. ⛔ The delivery email is unreachable except from a PASSING agent eval
+//      gate. Telling a customer their agent is live when it improvises about
+//      their licensing is the worst available first experience — and under
+//      Moffatt v. Air Canada the liability for what their agent says is THEIRS.
+//
+//   2. ⛔ The DNS cutover is not on the critical path. `business.adwsites.com`
+//      is live, HTTPS, agent-enabled and complete from the moment of the
+//      speculative preview, so delivery does not depend on touching their
+//      domain. That removes the one step we cannot automate from the one flow
+//      we can, and it means a customer who declines cutover still has the whole
+//      product.
 import type { WorkflowContext, WorkflowDefinition } from "../engine/index.ts";
 import { ROUNDS_INCLUDED, runRevision } from "./revision.ts";
 
@@ -8,18 +25,20 @@ const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
 /**
- * Spec §36 step 3 — the customer reviews the built site before the domain is
- * registered, and gets ROUNDS_INCLUDED revision rounds included in the price.
+ * Spec §47 step 3 — the customer reviews before anything touches their domain,
+ * and gets ROUNDS_INCLUDED rounds included in the price.
  *
  * Each round opens two durable waits. The engine parks on one signal name at a
  * time, so the short approval window comes first (an explicit "ship it" ends the
- * loop immediately and skips the remaining rounds) and the long change-request
- * window second. Only a change request loops: an approval and plain silence both
- * fall through to the domain step, which is the behaviour that matters — a
- * customer who says nothing still goes live.
+ * loop immediately) and the long change-request window second. Only a change
+ * request loops: approval and silence both fall through, which is the behaviour
+ * that matters — a customer who says nothing still goes live.
  */
 const APPROVAL_WINDOW_MS = 6 * HOUR;
 const REVISION_WINDOW_MS = 3 * DAY;
+
+/** How long we wait for the customer to approve the DNS cutover before parking. */
+const CUTOVER_APPROVAL_WINDOW_MS = 10 * DAY;
 
 export interface OnboardingInput {
   leadId: string;
@@ -32,6 +51,24 @@ export interface OnboardingOutput {
   delivered: boolean;
   /** Included revision rounds that produced a redeployed site. */
   revisionsApplied: number;
+  /** False when the 30-case gate failed — delivery is then unreachable. */
+  agentLive: boolean;
+  /** 'declined' and 'parked' are ordinary outcomes, not failures. */
+  cutover: "completed" | "declined" | "parked" | "reverted" | "not_attempted";
+}
+
+interface EvalGateResult {
+  verdict: "pass" | "fail";
+  passed: number;
+  total: number;
+  /** Set when no calendar was connected: ship with booking disabled. */
+  bookingSkipped: boolean;
+  reason?: string;
+}
+
+interface CutoverResult {
+  status: "completed" | "reverted" | "parked";
+  mailRecordsChanged: boolean;
 }
 
 export const onboardingWorkflow: WorkflowDefinition<OnboardingInput, OnboardingOutput> = {
@@ -39,12 +76,22 @@ export const onboardingWorkflow: WorkflowDefinition<OnboardingInput, OnboardingO
   run: async (ctx: WorkflowContext, input: OnboardingInput): Promise<OnboardingOutput> => {
     await ctx.activity("record_payment", input);
     const customer = await ctx.activity<OnboardingInput, { customerId: string }>("create_customer", input);
-    const build = await ctx.activity<{ businessId: string; customerId: string }, { buildId?: string } | null>(
-      "run_full_build",
-      { businessId: input.businessId, customerId: customer.customerId },
+    const scope = { customerId: customer.customerId, businessId: input.businessId };
+
+    // A4' / A5' — the deep pass. The preview's pack was built from a shallow
+    // crawl; a paying customer gets a comprehensive one, 150-250 pairs.
+    const kb = await ctx.activity<typeof scope, { kbId?: string }>("extract_knowledge_base_deep", scope);
+    const pack = await ctx.activity<typeof scope & { kbId?: string }, { packId?: string; thin: boolean }>(
+      "generate_qa_pack_deep",
+      { ...scope, ...(kb.kbId === undefined ? {} : { kbId: kb.kbId }) },
     );
 
-    // --- Included revision rounds, BEFORE the domain is registered ----------
+    const build = await ctx.activity<typeof scope & { packId?: string }, { buildId?: string } | null>(
+      "run_full_build",
+      { ...scope, ...(pack.packId === undefined ? {} : { packId: pack.packId }) },
+    );
+
+    // --- Included revision rounds, BEFORE anything is announced -------------
     let buildId = build?.buildId ?? "";
     let revisionsApplied = 0;
     for (let round = 1; round <= ROUNDS_INCLUDED; round++) {
@@ -63,21 +110,74 @@ export const onboardingWorkflow: WorkflowDefinition<OnboardingInput, OnboardingO
         buildId = outcome.buildId;
         revisionsApplied++;
       }
-      // A halted revision (injection, hard fail, IP flag) has already raised an
-      // exception for a human; the customer keeps their remaining rounds.
+      // A halted revision has already raised an exception for a human; the
+      // customer keeps their remaining rounds.
     }
 
-    await ctx.activity("register_domain", customer);
-    await ctx.sleep("dns_propagation", 1 * DAY); // durable wait, capped at 48h in prod
-    await ctx.activity("verify_ssl", customer);
-    // Integration verification MUST pass before delivery.
-    const verify = await ctx.activity<{ customerId: string }, { ok: boolean }>("integration_verify", customer);
-    if (verify.ok) {
-      await ctx.activity("send_delivery_email", customer);
-      await ctx.activity("provision_dashboard", customer);
-      return { customerId: customer.customerId, delivered: true, revisionsApplied };
+    // --- Agent activation, then the gate that decides whether it is live ----
+    await ctx.activity("activate_agent", { ...scope, ...(pack.packId === undefined ? {} : { packId: pack.packId }) });
+
+    const gate = await ctx.activity<typeof scope & { packId?: string }, EvalGateResult>("agent_eval_gate", {
+      ...scope,
+      ...(pack.packId === undefined ? {} : { packId: pack.packId }),
+    });
+
+    // ⛔ No partial credit. 29/30 is a fail, and everything downstream of here —
+    // deploy, cutover, the delivery email — is unreachable without a pass.
+    if (gate.verdict !== "pass") {
+      await ctx.activity("raise_onboarding_exception", {
+        ...scope,
+        reason: gate.reason ?? "agent_eval_failed",
+        passed: gate.passed,
+        total: gate.total,
+      });
+      return {
+        customerId: customer.customerId,
+        delivered: false,
+        revisionsApplied,
+        agentLive: false,
+        cutover: "not_attempted",
+      };
     }
-    await ctx.activity("raise_onboarding_exception", customer);
-    return { customerId: customer.customerId, delivered: false, revisionsApplied };
+
+    await ctx.activity("deploy_customer_site", { ...scope, buildId });
+
+    // --- DNS cutover. Off the critical path by design ----------------------
+    // The snapshot is taken BEFORE the customer is asked to change anything:
+    // without a before-state there is no diff, and without a diff the safety
+    // claim is a promise rather than a verified assertion.
+    await ctx.activity("snapshot_dns", scope);
+    const approvedCutover = await ctx.waitForSignal<{ domain: string }>(
+      "cutover_approved",
+      CUTOVER_APPROVAL_WINDOW_MS,
+    );
+
+    let cutover: OnboardingOutput["cutover"] = "declined";
+    if (approvedCutover.received) {
+      const result = await ctx.activity<typeof scope & { domain?: string }, CutoverResult>("cutover_dns", {
+        ...scope,
+        ...(approvedCutover.payload?.domain === undefined ? {} : { domain: approvedCutover.payload.domain }),
+      });
+      cutover = result.status;
+      if (result.mailRecordsChanged) {
+        // The worst thing this system can do to a customer. The activity has
+        // already reverted; this raises the SEV1 and stops the flow announcing
+        // a successful delivery on top of it.
+        await ctx.activity("raise_onboarding_exception", { ...scope, reason: "mail_records_changed" });
+      }
+    }
+
+    // Integration verification is deterministic and runs against whichever
+    // origin is live — their domain if the cutover completed, the subdomain
+    // otherwise. A declined cutover is a complete product, not a degraded one.
+    const verify = await ctx.activity<typeof scope, { ok: boolean }>("integration_verify", scope);
+    if (!verify.ok) {
+      await ctx.activity("raise_onboarding_exception", { ...scope, reason: "integration_verification_failed" });
+      return { customerId: customer.customerId, delivered: false, revisionsApplied, agentLive: true, cutover };
+    }
+
+    await ctx.activity("send_delivery_email", { ...scope, bookingSkipped: gate.bookingSkipped });
+    await ctx.activity("provision_dashboard", scope);
+    return { customerId: customer.customerId, delivered: true, revisionsApplied, agentLive: true, cutover };
   },
 };

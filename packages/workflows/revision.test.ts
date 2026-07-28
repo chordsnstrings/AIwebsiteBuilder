@@ -6,6 +6,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb, migrate, type Db } from "@adw/db";
 import { Engine, TestClock } from "./src/engine/index.ts";
+import { registerStubActivities } from "./src/testing.ts";
 import { onboardingWorkflow, revisionRoundsExceeded, revisionWorkflow, ROUNDS_INCLUDED } from "./src/definitions/index.ts";
 
 const URL = process.env.DATABASE_ADMIN_URL ?? "postgres://adw_admin@127.0.0.1:5433/adw_test";
@@ -175,15 +176,22 @@ function onboardingEngine(clock: TestClock) {
     return result;
   };
 
-  engine.registerActivity("record_payment", async () => track("record_payment", null));
-  engine.registerActivity("create_customer", async () => track("create_customer", { customerId: "cust-9" }));
-  engine.registerActivity("run_full_build", async () => track("run_full_build", { buildId: "build-9" }));
-  engine.registerActivity("register_domain", async () => track("register_domain", null));
-  engine.registerActivity("verify_ssl", async () => track("verify_ssl", null));
-  engine.registerActivity("integration_verify", async () => track("integration_verify", { ok: true }));
-  engine.registerActivity("send_delivery_email", async () => track("send_delivery_email", null));
-  engine.registerActivity("provision_dashboard", async () => track("provision_dashboard", null));
-  engine.registerActivity("raise_onboarding_exception", async () => track("raise_onboarding_exception", null));
+  // The shared stub set covers every step; these overrides are the ones whose
+  // ORDER and presence this suite actually asserts.
+  registerStubActivities(engine, {
+    record_payment: async () => track("record_payment", null),
+    create_customer: async () => track("create_customer", { customerId: "cust-9" }),
+    run_full_build: async () => track("run_full_build", { buildId: "build-9" }),
+    activate_agent: async () => track("activate_agent", { activated: true }),
+    agent_eval_gate: async () => track("agent_eval_gate", { verdict: "pass", passed: 30, total: 30, bookingSkipped: false }),
+    deploy_customer_site: async () => track("deploy_customer_site", { url: "https://cust.example" }),
+    snapshot_dns: async () => track("snapshot_dns", { snapshotId: "snap-9" }),
+    cutover_dns: async () => track("cutover_dns", { status: "completed", mailRecordsChanged: false }),
+    integration_verify: async () => track("integration_verify", { ok: true }),
+    send_delivery_email: async () => track("send_delivery_email", null),
+    provision_dashboard: async () => track("provision_dashboard", null),
+    raise_onboarding_exception: async () => track("raise_onboarding_exception", null),
+  });
 
   // The revision activities are the same names the revision workflow uses.
   engine.registerActivity("structure_change_request", async () =>
@@ -228,7 +236,10 @@ describe("onboarding — revision rounds run before the domain is registered", (
     expect(calls.deployed).toEqual(["art/rev-9"]);
     // And the revision happened BEFORE the domain was registered.
     expect(calls.order.indexOf("deploy_revision")).toBeGreaterThan(calls.order.indexOf("run_full_build"));
-    expect(calls.order.indexOf("deploy_revision")).toBeLessThan(calls.order.indexOf("register_domain"));
+    // v3: revisions land before the agent is gated and before anything is
+    // announced. The eval gate is the guarantee that matters here, not the
+    // domain — the subdomain is a complete product and the cutover is optional.
+    expect(calls.order.indexOf("deploy_revision")).toBeLessThan(calls.order.indexOf("agent_eval_gate"));
     expect(calls.order).toContain("send_delivery_email");
   });
 
@@ -239,7 +250,7 @@ describe("onboarding — revision rounds run before the domain is registered", (
     await engine.start("onboarding", id, ONBOARD);
     // The approval is honoured immediately — no revision window is waited out.
     await engine.signal(id, "approved", { approvedBy: "customer" });
-    expect(calls.order).toContain("register_domain");
+    expect(calls.order).toContain("agent_eval_gate");
     expect(calls.order).not.toContain("structure_change_request");
 
     await drive(clock, engine);
@@ -259,7 +270,7 @@ describe("onboarding — revision rounds run before the domain is registered", (
     const res = await engine.result<{ delivered: boolean; revisionsApplied: number }>(id);
     expect(res.delivered).toBe(true);
     expect(res.revisionsApplied).toBe(0);
-    expect(calls.order).toContain("register_domain");
+    expect(calls.order).toContain("agent_eval_gate");
     expect(calls.order).not.toContain("apply_revision");
     expect(calls.deployed).toEqual([]);
   });
@@ -278,6 +289,6 @@ describe("onboarding — revision rounds run before the domain is registered", (
     expect(res.delivered).toBe(true);
     expect(res.revisionsApplied).toBe(ROUNDS_INCLUDED);
     expect(calls.deployed).toHaveLength(ROUNDS_INCLUDED);
-    expect(calls.order).toContain("register_domain");
+    expect(calls.order).toContain("agent_eval_gate");
   });
 });

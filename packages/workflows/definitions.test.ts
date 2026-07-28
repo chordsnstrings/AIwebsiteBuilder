@@ -2,6 +2,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb, migrate, type Db } from "@adw/db";
 import { Engine, TestClock } from "./src/engine/index.ts";
+import { registerStubActivities } from "./src/testing.ts";
 import { buildWorkflow, leadWorkflow } from "./src/definitions/index.ts";
 
 const URL = process.env.DATABASE_ADMIN_URL ?? "postgres://adw_admin@127.0.0.1:5433/adw_test";
@@ -19,16 +20,14 @@ afterAll(async () => {
 function buildEngine(clock: TestClock, gate: { pass: boolean; hardFail: boolean }, ip: "pass" | "flag") {
   const engine = new Engine({ db, clock });
   const deployed: string[] = [];
-  engine.registerActivity("assemble_and_render", async () => ({ artefactKey: "art/1" }));
-  engine.registerActivity("reviewer_gate", async () => gate);
-  engine.registerActivity("patch_build", async () => null);
-  engine.registerActivity("ux_review", async () => ({ verdict: "accept" }));
-  engine.registerActivity("ip_screen", async () => ({ verdict: ip }));
-  engine.registerActivity("deploy_build", async () => {
-    deployed.push("art/1");
-    return { buildId: "b1", url: "https://site.example" };
+  registerStubActivities(engine, {
+    reviewer_gate: async () => gate,
+    ip_screen: async () => ({ verdict: ip }),
+    deploy_build: async () => {
+      deployed.push("art/1");
+      return { buildId: "b1", url: "https://site.example" };
+    },
   });
-  engine.registerActivity("raise_build_exception", async () => null);
   engine.registerWorkflow(buildWorkflow);
   return { engine, deployed };
 }
@@ -68,12 +67,11 @@ describe("lead workflow — engagement and cooldown", () => {
   function leadEngine(clock: TestClock) {
     const engine = new Engine({ db, clock });
     const marks: string[] = [];
-    engine.registerActivity("score_lead", async () => ({ icpScore: 70, previewWorthy: true }));
-    engine.registerActivity("generate_preview", async () => null);
-    engine.registerActivity("send_outreach", async () => null);
-    engine.registerActivity("mark_engaged", async () => { marks.push("engaged"); return null; });
-    engine.registerActivity("mark_parked", async () => { marks.push("parked"); return null; });
-    engine.registerActivity("mark_exhausted", async () => { marks.push("exhausted"); return null; });
+    registerStubActivities(engine, {
+      mark_engaged: async () => { marks.push("engaged"); return null; },
+      mark_parked: async () => { marks.push("parked"); return null; },
+      mark_exhausted: async () => { marks.push("exhausted"); return null; },
+    });
     engine.registerWorkflow(leadWorkflow);
     return { engine, marks };
   }

@@ -20,6 +20,174 @@ interface Check {
 }
 
 const checks: Check[] = [
+  // -------------------------------------------------------------------------
+  // v3.0 — the transaction layer. Each of these has a target of ZERO and an
+  // alert at one, because each fails silently: a component reporting success
+  // while not working is the metric class this system is most exposed to.
+  // -------------------------------------------------------------------------
+  {
+    name: "No customer agent is live without a passing eval run",
+    run: async () => {
+      // ⛔ No partial credit, and no exceptions. An agent that improvises about
+      // a customer's licensing is THEIR liability under Moffatt — shipping one
+      // without a green gate is the single most damaging thing we can do to
+      // someone who has just paid us.
+      const row = await db.one<{ n: string }>(
+        `SELECT count(*) AS n
+           FROM customers c
+          WHERE c.status = 'active'
+            AND EXISTS (SELECT 1 FROM qa_packs p WHERE p.customer_id = c.id)
+            AND NOT EXISTS (
+              SELECT 1 FROM agent_eval_runs r
+               WHERE r.customer_id = c.id AND r.verdict = 'pass'
+            )`,
+      );
+      return { ok: Number(row.n) === 0, detail: `${row.n} live agents without a passing eval run` };
+    },
+  },
+  {
+    name: "No Q&A pair asserts something absent from the knowledge base",
+    run: async () => {
+      // A generated pair with no source fact is the grounding failure the whole
+      // architecture exists to prevent. Template refusal pairs are the one
+      // permitted exception — they assert nothing.
+      const row = await db.one<{ n: string }>(
+        `SELECT count(*) AS n FROM qa_pairs
+          WHERE source = 'generated'
+            AND (source_fact_ids IS NULL OR array_length(source_fact_ids, 1) IS NULL)`,
+      );
+      return { ok: Number(row.n) === 0, detail: `${row.n} ungrounded generated pairs` };
+    },
+  },
+  {
+    name: "No Q&A pack went live without the owner approving it",
+    run: async () => {
+      const row = await db.one<{ n: string }>(
+        `SELECT count(*) AS n FROM qa_packs p
+          WHERE p.customer_id IS NOT NULL AND p.approved_at IS NULL
+            AND EXISTS (SELECT 1 FROM agent_eval_runs r WHERE r.pack_id = p.id AND r.verdict = 'pass')`,
+      );
+      return { ok: Number(row.n) === 0, detail: `${row.n} unapproved packs behind a passing gate` };
+    },
+  },
+  {
+    name: "No customer mail record was altered during a cutover",
+    run: async () => {
+      // 86% of targets have live MX. This is the number that would end the
+      // company, so it is asserted over all history, not a rolling window.
+      const row = await db.one<{ n: string }>(
+        "SELECT count(*) AS n FROM dns_cutovers WHERE mail_records_changed = TRUE",
+      );
+      return { ok: Number(row.n) === 0, detail: `${row.n} cutovers that touched a mail record` };
+    },
+  },
+  {
+    name: "No cutover was applied without a prior DNS snapshot",
+    run: async () => {
+      // Without a before-state there is no diff, and without a diff the safety
+      // claim is a promise rather than a verified assertion.
+      const row = await db.one<{ n: string }>(
+        `SELECT count(*) AS n FROM dns_cutovers c
+          WHERE c.status <> 'pending'
+            AND NOT EXISTS (
+              SELECT 1 FROM dns_snapshots s
+               WHERE s.id = c.snapshot_id AND s.taken_at <= c.started_at
+            )`,
+      );
+      return { ok: Number(row.n) === 0, detail: `${row.n} cutovers with no prior snapshot` };
+    },
+  },
+  {
+    name: "No fallback answer was promoted into a pack without owner approval",
+    run: async () => {
+      // Auto-promotion is the difference between a grounded system and one that
+      // learns its own hallucinations.
+      const row = await db.one<{ n: string }>(
+        "SELECT count(*) AS n FROM agent_gaps WHERE promoted_pair_id IS NOT NULL AND approved_at IS NULL",
+      );
+      return { ok: Number(row.n) === 0, detail: `${row.n} auto-promoted answers` };
+    },
+  },
+  {
+    name: "No photo assessment carries a price the agent wrote",
+    run: async () => {
+      // The price column is only ever written by the owner from the dashboard.
+      // A priced assessment the owner never replied to means something else set
+      // it, which is the boundary in §41.1.
+      const row = await db.one<{ n: string }>(
+        "SELECT count(*) AS n FROM photo_assessments WHERE price_cents IS NOT NULL AND owner_replied_at IS NULL",
+      );
+      return { ok: Number(row.n) === 0, detail: `${row.n} agent-priced assessments` };
+    },
+  },
+  {
+    name: "Retrieval hit rate is at or above the launch target",
+    run: async () => {
+      // Not zero-targeted — this one is a health signal. Below the floor the
+      // fallback is carrying the product, which is both costlier and less
+      // grounded than the design assumes.
+      const target = (config.playbooks().data as { retrieval: { hit_rate_target_launch: number } }).retrieval
+        .hit_rate_target_launch;
+      const row = await db.maybeOne<{ total: string; hits: string }>(
+        `SELECT count(*) AS total,
+                count(*) FILTER (WHERE answered_from IN ('pack','pack_hedged','state_machine')) AS hits
+           FROM agent_turns WHERE created_at >= now() - interval '7 days'`,
+      );
+      const total = Number(row?.total ?? 0);
+      if (total === 0) return { ok: true, detail: "no agent turns in the window" };
+      const rate = Number(row?.hits ?? 0) / total;
+      return {
+        ok: rate >= target,
+        detail: `${(rate * 100).toFixed(1)}% of ${total} turns answered from the pack (target ${(target * 100).toFixed(0)}%)`,
+      };
+    },
+  },
+  {
+    name: "Architect escalation rate is inside the playbook target",
+    run: async () => {
+      // Above 6% the playbooks are too narrow — that is a config review, not
+      // more escalation.
+      const max = (config.playbooks().data as { escalation: { target_rate_max: number } }).escalation
+        .target_rate_max;
+      const row = await db.one<{ total: string; escalated: string }>(
+        `SELECT count(*) AS total,
+                count(*) FILTER (WHERE trigger = 'vertical_unresolved') AS escalated
+           FROM exceptions WHERE raised_at >= now() - interval '7 days'`,
+      );
+      const manifests = await db.one<{ n: string }>(
+        "SELECT count(*) AS n FROM delivery_manifests WHERE created_at >= now() - interval '7 days'",
+      );
+      const attempted = Number(manifests.n) + Number(row.escalated);
+      if (attempted === 0) return { ok: true, detail: "no classifications in the window" };
+      const rate = Number(row.escalated) / attempted;
+      return { ok: rate <= max, detail: `${(rate * 100).toFixed(1)}% escalated of ${attempted} (max ${(max * 100).toFixed(0)}%)` };
+    },
+  },
+  {
+    name: "No manifest names a module outside the playbook catalogue",
+    run: async () => {
+      // A module the model proposed that does not exist fails the build. This
+      // asserts none slipped through into a stored manifest.
+      const playbooks = config.playbooks().data as {
+        verticals: Record<string, { site_modules?: string[]; agent_capabilities?: string[] }>;
+      };
+      const known = new Set<string>();
+      for (const v of Object.values(playbooks.verticals)) {
+        for (const m of v.site_modules ?? []) known.add(m);
+        for (const c of v.agent_capabilities ?? []) known.add(c);
+      }
+      const rows = await db.query<{ id: string; site_modules: unknown; agent_capabilities: unknown }>(
+        "SELECT id, site_modules, agent_capabilities FROM delivery_manifests",
+      );
+      const bad: string[] = [];
+      for (const r of rows.rows) {
+        const mods = [...(r.site_modules as string[]), ...(r.agent_capabilities as string[])];
+        for (const m of mods) if (!known.has(m)) bad.push(`${r.id}:${m}`);
+      }
+      return { ok: bad.length === 0, detail: `${rows.rows.length} manifests, ${bad.length} unknown modules` };
+    },
+  },
+
   {
     name: "Every role has a champion backed by a stored eval run",
     run: async () => {
