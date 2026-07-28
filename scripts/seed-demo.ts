@@ -7,6 +7,11 @@ import { LocalKeyWrapper, LocalPgBackend } from "../packages/vault/src/index.ts"
 import { runFullSweep } from "../packages/evals-harness/src/index.ts";
 import { seedVendors } from "../packages/orchestrator/src/index.ts";
 import { KILL_SWITCHES } from "../packages/gate/src/index.ts";
+import { embedText, persistQAPack, type QAPack, type QAPair } from "../packages/qapack/src/index.ts";
+import { contextFromPack, handleTurn, openSession } from "../packages/concierge/src/index.ts";
+import { classify, persistManifest } from "../packages/architect/src/index.ts";
+import { assertAgentEvalPassed, runAgentEval } from "../packages/agenteval/src/index.ts";
+import { randomUUID } from "node:crypto";
 
 const url = process.env.DATABASE_URL ?? "postgres://adw_admin@127.0.0.1:5433/adw";
 const db: Db = await createDb({ backend: "pg", url });
@@ -101,8 +106,183 @@ await db.query(
   [customer.id],
 );
 
+// ---------------------------------------------------------------------------
+// The v3 product: a knowledge base, an approved pack, and a conversation that
+// actually happened.
+//
+// Seeding this is not decoration. Two nightly invariants — the retrieval hit
+// rate and the Architect escalation rate — are computed over a window, and with
+// no rows in that window they pass vacuously. A green check that cannot go red
+// is worse than no check, because it is read as evidence.
+// ---------------------------------------------------------------------------
+console.log("→ the customer's agent: knowledge base, pack, and a live conversation");
+
+const kb = await db.one<{ id: string }>(
+  "INSERT INTO knowledge_bases (business_id, customer_id) VALUES ($1,$2) RETURNING id",
+  [custBiz.id, customer.id],
+);
+const FACTS: [string, string, string, string][] = [
+  ["hours", "hours", "Open Monday to Friday, 7am to 6pm", "verified"],
+  ["area", "area", "We cover Denver, Aurora, Lakewood and Arvada", "verified"],
+  ["price_callout", "price", "Standard callout $89, credited against the work", "verified"],
+  ["service_drains", "service", "Blocked drain clearing with rods and jetting", "verified"],
+  ["service_boilers", "service", "Boiler installation, servicing and repair", "verified"],
+  ["service_leaks", "service", "Leak detection and pipe repair", "verified"],
+  ["emergency", "service", "24 hour emergency line for burst pipes", "verified"],
+  ["warranty", "warranty", "Twelve month workmanship warranty on installation", "verified"],
+  ["payment", "payment", "Card or bank transfer on completion", "verified"],
+  // ⛔ Unverified on purpose. It is on their site and we could not confirm it,
+  // so the agent may never assert it — the demo should show that, not hide it.
+  ["credential_insurance", "credential", "Fully insured and bonded", "claimed_unverified"],
+];
+for (const [key, type, value, status] of FACTS) {
+  await db.query(
+    `INSERT INTO kb_facts (kb_id, fact_key, type, value, status, source_url, retrieved_at)
+     VALUES ($1,$2,$3,$4,$5,'https://brightplumbing.example/about', now())`,
+    [kb.id, key, type, value, status],
+  );
+}
+
+// At least the 20 grounded cases the eval gate requires — a smaller pack is
+// legitimately un-shippable, and seeding one would leave the demo with a live
+// agent that never passed its gate.
+const PACK_PAIRS: [string, string][] = [
+  ["What are your opening hours?", "We're open Monday to Friday, 7am to 6pm."],
+  ["Which areas do you cover?", "We cover Denver, Aurora, Lakewood and Arvada."],
+  ["How much is a callout?", "Our standard callout is $89, credited against the work if you go ahead."],
+  ["Do you clear blocked drains?", "We clear blocked drains with rods and high pressure jetting."],
+  ["Do you install boilers?", "We install, service and repair boilers."],
+  ["Can you find a leak?", "We do leak detection and pipe repair."],
+  ["Do you do emergency callouts?", "We run a 24 hour emergency line for burst pipes."],
+  ["Do you offer a warranty?", "Installation work carries a twelve month workmanship warranty."],
+  ["How can I pay?", "We take card or bank transfer on completion."],
+  ["Do you work at weekends?", "Weekend work goes through the 24 hour emergency line."],
+  ["Do you replace radiators?", "We replace radiators and rebalance the system afterwards."],
+  ["Do you fit bathrooms?", "We fit complete bathrooms, from strip-out through to tiling."],
+  ["Do you repair water heaters?", "We repair and replace water heaters of most makes."],
+  ["Can you help with low water pressure?", "Low water pressure is something we diagnose on site."],
+  ["Do you work with landlords?", "We look after several landlords and their rental properties."],
+  ["How long have you been trading?", "The business has been trading in Denver since 2009."],
+  ["Do you fit outside taps?", "Outside taps are a straightforward job we do regularly."],
+  ["Do you provide written quotations?", "Anything beyond a small repair comes with a written quotation first."],
+  ["Do you tidy up afterwards?", "We sheet up before starting and clear everything away when we finish."],
+  ["Do you fit water softeners?", "Water softener installation is something we do often."],
+  ["Do you service sump pumps?", "We service and replace sump pumps."],
+  ["Can you re-pipe a whole house?", "Whole-house re-piping is work we take on, usually over several days."],
+];
+const seedPair = (question: string, answer: string): QAPair => ({
+  id: randomUUID(),
+  question,
+  answer,
+  sourceFactIds: [randomUUID()],
+  embedding: embedText(question),
+  confidence: 0.9,
+  source: "generated",
+});
+const pack: QAPack = {
+  id: randomUUID(),
+  kbId: kb.id,
+  businessId: custBiz.id,
+  customerId: customer.id,
+  version: 1,
+  vertical: "plumber",
+  playbookVersion: "seed",
+  embeddingProvider: "adw-hashed-ngram-v1",
+  pairs: PACK_PAIRS.map(([q, a]) => seedPair(q!, a!)),
+  coverage: {
+    byTopic: { hours: { answered: 1, total: 1 }, area: { answered: 1, total: 1 }, price: { answered: 1, total: 1 } },
+    byVerticalTemplate: { answered: 10, total: 14, ratio: 10 / 14 },
+    factsUsed: FACTS.length,
+    factsAvailable: FACTS.length,
+  },
+  templateFallbacks: ["Do you offer finance?", "Are you a member of a trade body?"],
+  gaps: [],
+  excluded: [],
+  thin: true,
+  extendedOnboarding: true,
+  approvedAt: new Date(),
+  approvedBy: "owner@brightplumbing.example",
+  createdAt: new Date(),
+};
+await persistQAPack(db, pack);
+await db.query("UPDATE qa_packs SET approved_at = now(), approved_by = $2 WHERE id = $1", [
+  pack.id,
+  "owner@brightplumbing.example",
+]);
+
+// A delivery manifest, so the dashboard knows which capabilities this agent has
+// and the Architect escalation-rate invariant has something to measure.
+const audit = await db.one<{ id: string }>(
+  `INSERT INTO site_audits (business_id, has_website, https, pricing_found, booking_found,
+                            has_service_schema, llms_txt, page_count, word_count,
+                            transactability_gap, top_defects)
+   VALUES ($1,TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,6,820,TRUE,$2) RETURNING id`,
+  [custBiz.id, JSON.stringify(["no_service_schema", "no_online_booking", "no_llms_txt"])],
+);
+void audit;
+const classified = await classify({
+  businessId: custBiz.id,
+  category: "plumber",
+  siteAudit: {
+    hasWebsite: true,
+    pricingFound: false,
+    bookingFound: false,
+    pageCount: 6,
+    wordCount: 820,
+    transactabilityGap: true,
+  },
+});
+if (!classified.escalate) await persistManifest(db, { ...classified.manifest, customerId: customer.id });
+
+// ⛔ The gate, for real. Nothing goes live on an approved pack alone — the
+// nightly invariant "no customer agent is live without a passing eval run"
+// exists precisely to catch a seed that skipped this.
+const evalRun = await runAgentEval(
+  { db },
+  { customerId: customer.id, businessId: custBiz.id, pack },
+  { businessName: "Bright Plumbing", kbSlice: FACTS.filter(([, , , st]) => st === "verified").map(([, , v]) => v) },
+);
+assertAgentEvalPassed(evalRun);
+console.log(`   agent eval: ${evalRun.passed}/${evalRun.total} — ${evalRun.verdict}`);
+
+// A conversation. Mostly questions the pack answers and a couple it does not,
+// so the hit rate lands at a real number and the gap list has something in it.
+const session = await openSession(db, { customerId: customer.id, businessId: custBiz.id });
+const ctx = contextFromPack(pack, session, {
+  capabilities: ["answer", "capture_enquiry", "escalate"],
+  kbSlice: FACTS.filter(([, , , status]) => status === "verified").map(([, , value]) => value),
+});
+const TRANSCRIPT = [
+  "What are your opening hours?",
+  "Do you work in Lakewood?",
+  "How much is a callout?",
+  "Do you replace radiators?",
+  "Can you unblock a drain?",
+  "Do you provide written quotations?",
+  "How long have you been trading?",
+  "Do you take American Express?",
+  "Do you do solar thermal?",
+  "Do you service sump pumps?",
+];
+for (const [i, question] of TRANSCRIPT.entries()) {
+  await handleTurn({ db }, ctx, question, { turnIndex: i });
+}
+
+await db.query(
+  `INSERT INTO enquiries (customer_id, business_id, name, need, contact, urgency)
+   VALUES ($1,$2,'Dana Whitfield','Kitchen tap dripping overnight, getting worse','+13035550142','urgent'),
+          ($1,$2,'Ray Okonjo','Wants a quote for a new boiler','ray@example.com','normal')`,
+  [customer.id, custBiz.id],
+);
+
 const counts = await db.one<{ b: string; c: string; v: string; r: string }>(
   "SELECT (SELECT count(*) FROM businesses) b, (SELECT count(*) FROM contacts) c, (SELECT count(*) FROM vendors) v, (SELECT count(*) FROM registry_roles WHERE champion IS NOT NULL) r",
 );
-console.log(`✓ seeded: ${counts.b} businesses, ${counts.c} contacts, ${counts.v} vendors, ${counts.r} roles with champions`);
+const agent = await db.one<{ turns: string; gaps: string }>(
+  "SELECT (SELECT count(*) FROM agent_turns) turns, (SELECT count(*) FROM agent_gaps) gaps",
+);
+console.log(
+  `✓ seeded: ${counts.b} businesses, ${counts.c} contacts, ${counts.v} vendors, ${counts.r} roles with champions, ` +
+    `${pack.pairs.length} Q&A pairs, ${agent.turns} agent turns, ${agent.gaps} gaps`,
+);
 await db.close();

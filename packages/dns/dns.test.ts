@@ -15,6 +15,7 @@ import {
   NoSnapshotError,
   NotApprovedError,
   StaticResolver,
+  anycastApexIp,
   applyCutover,
   assertPlanSafe,
   changedMailKinds,
@@ -77,6 +78,23 @@ async function makeCustomer(): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
+
+describe("the apex the cutover points at", () => {
+  it("⛔ refuses to guess one in production", () => {
+    // The old fallback was 198.51.100.4 — RFC 5737 TEST-NET-2. A cutover with
+    // ADW_ANYCAST_IP unset pointed the customer's apex at a documentation
+    // address, and NOTHING downstream noticed: the plan is valid, two records
+    // change, the mail alarm stays quiet, and verifyCutover confirms the
+    // records resolve to exactly what was asked for. The site is just gone.
+    expect(() => anycastApexIp({ ADW_ENV: "production" })).toThrow(/ADW_ANYCAST_IP/);
+    expect(() => anycastApexIp({ ADW_ENV: "production", ADW_ANYCAST_IP: "not-an-ip" })).toThrow(/IPv4/);
+  });
+
+  it("accepts a real address, and allows the documentation one only locally", () => {
+    expect(anycastApexIp({ ADW_ENV: "production", ADW_ANYCAST_IP: "203.0.113.9" })).toBe("203.0.113.9");
+    expect(anycastApexIp({ ADW_ENV: "local" })).toBe("198.51.100.4");
+  });
+});
 
 describe("mail-record detection — the whole risk lives here", () => {
   it("recognises MX", () => {

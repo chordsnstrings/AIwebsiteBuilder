@@ -27,6 +27,12 @@
     "@adw/billing": "workspace:*",
     "@adw/config": "workspace:*",
     "zod": "^3.24.1",
-    "@adw/workflows": "workspace:*"
+    "@adw/workflows": "workspace:*",
+    "@adw/concierge": "workspace:*",
+    "@adw/agenteval": "workspace:*",
+    "@adw/qapack": "workspace:*",
+    "@adw/mcp": "workspace:*",
+    "@adw/kb": "workspace:*",
+    "@adw/architect": "workspace:*"
   }
 }

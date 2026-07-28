@@ -30,6 +30,7 @@ export { changedMailKinds, diffDns, isMailRecord, mailRecordKind, mailRecordsCha
 
 export {
   MAX_CHANGES,
+  anycastApexIp,
   applyCutover,
   assertPlanSafe,
   detectProvider,

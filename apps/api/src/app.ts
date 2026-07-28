@@ -40,6 +40,7 @@ import {
   type RateLimitStore,
 } from "./middleware.ts";
 import { applyWebhookEffects } from "./webhooks.ts";
+import { agentRoutes } from "./agent-routes.ts";
 import { enqueueIntent, executionId } from "@adw/workflows";
 import {
   unsubscribeSecret,
@@ -100,6 +101,14 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
   };
 
   app.get("/health", (c) => c.json({ ok: true, mode: deps.forceMock ? "demo" : "live" }));
+
+  // --- The customer's agent (§39) ------------------------------------------
+  // Mounted after the auth middleware so its owner-facing routes see a user,
+  // and at the root so /.well-known/mcp lands where an assistant looks for it.
+  app.route(
+    "/",
+    agentRoutes({ db, ...(deps.authOverride === undefined ? {} : { authOverride: deps.authOverride }) }),
+  );
 
   // --- Authentication -------------------------------------------------------
   app.post("/auth/login", async (c) => {

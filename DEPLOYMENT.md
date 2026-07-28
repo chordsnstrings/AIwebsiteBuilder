@@ -36,6 +36,91 @@ convention. Until you sign in, the console renders against the seeded demo
 fixtures; credentials deposited in demo mode are local to the browser session,
 while deposits made while signed in go into the real vault.
 
+## 0.1 What the product is (v3.0)
+
+Read this before the vendor tables, because it changes what "live" means.
+
+v1 sold websites. The market was measured — 3,559 live businesses across eight
+countries — and that thesis does not hold: **92–98% already have a website and
+only 1.2% fail on mobile**. What almost nobody has is a business a machine can
+read and transact with. 72.7% carry some JSON-LD, but only **9.6% publish
+`Service` schema**, **24.7% publish a price**, and **11.6% clear both**.
+
+So the product is the transaction layer: a knowledge base extracted from what
+the business already published (with provenance per fact), a Q&A pack the owner
+approves, and an agent that answers **only** from that pack and refuses outside
+it. The website is included and never sold. Revenue is a **$399 agent setup and
+activation fee** plus subscription — never a website fee. Pricing copy that says
+otherwise is a bug.
+
+The runtime consequence is one rule that everything else serves:
+
+> ⛔ A stored answer is **returned**, never composed.
+
+Grounding is a retrieval guarantee, not a prompt instruction. Under *Moffatt v.
+Air Canada* (2024 BCCRT 149) the liability for what an agent says sits with the
+business operating it — so `agent_turns.pair_id` and `agent_turns.retrieval_score`
+are the customer's evidence, not our telemetry.
+
+### The runtime surface
+
+| Route | Auth | What it is |
+|---|---|---|
+| `POST /agent/session` | public | Opens a conversation against an **approved** pack |
+| `POST /agent/turn` | public | One visitor message. Returns the answer; never the score or the pair id |
+| `POST /api/enquiry` | public | The same widget with JavaScript disabled — returns HTML a browser renders |
+| `GET /.well-known/mcp` | public | Manifest an AI assistant discovers. Advertises only what the vertical and a connected calendar allow |
+| `POST /.well-known/mcp` | public | Tool call. **Same refusal decision a human gets** — one injected checker, both surfaces |
+| `GET /agent/:customerId/gaps` | owner | Questions the agent could not answer, ranked by how often |
+| `POST /agent/gaps/:id/approve` | owner | The **only** route by which a new answer enters a pack |
+
+⛔ There is deliberately no auto-promotion of a fallback answer. A system that
+promotes its own drafts is a system learning its own hallucinations, and by the
+second round there is nothing left to check them against.
+
+### The per-customer gate
+
+`@adw/agenteval` builds **30 cases from the customer's own pack**: 20 it must
+answer from what they published, 10 it must refuse. `pass_requires: all` — 29 of
+30 does not ship, and the delivery email in `OnboardingWorkflow` is unreachable
+except through a pass. A refusal probe is used only when it is provably outside
+that pack; a gate that fires on correct behaviour gets overridden, at which
+point it protects nothing.
+
+### Retrieval, and where it will need to change
+
+Retrieval is hybrid: cosine over 384-dim deterministic hashed n-gram embeddings,
+BM25 (k1=1.2, b=0.75) over question + answer, fused by reciprocal rank fusion.
+Fusion picks the candidate; the **cosine** is what the `config/playbooks.yaml`
+thresholds gate (0.82 verbatim, 0.65 hedged), because an RRF score has no
+absolute meaning. Then a coverage guard: every term in the question that narrows
+it must appear in the pair.
+
+That last gate is not optional polish. Measured against a real pack, *"are you
+gas safe registered"* scores **0.759** against the pair *"Are you insured?"* —
+over the 0.65 hedged floor. Both questions genuinely are about credentials, so
+the embedding is right and the threshold is not enough; without coverage the
+agent asserts a gas certification on the business's behalf.
+
+**pgvector is not used.** It is not guaranteed present, and a pack is 150–250
+pairs, which a brute-force scan handles exactly and in microseconds. The swap
+points when a pack outgrows that are `EmbeddingProvider` (in
+`packages/qapack/src/embedding.ts`) and `retrieve()` (in
+`packages/concierge/src/retrieval/`). The interface does not change. Note that a
+real embedding provider produces a **different vector space**: packs must be
+re-embedded, and `qa_packs.coverage.embeddingProvider` records which one built
+them so mismatches are detectable rather than silently compared.
+
+### Agent runtime cost
+
+The retrieval path makes **zero model calls** — routing is code, and the answer
+is a stored row. Cost is incurred only on a fallback, which is metered per turn
+in `agent_turns.cost_cents` from what the gateway reports rather than estimated.
+Budget from the measured hit rate: at the launch target of 80%, one turn in five
+reaches the model; at the month-three target of 93%, one in fourteen. If spend
+is higher than that implies, the hit rate is the thing to look at, not the
+model.
+
 ## 1. The go-live model
 
 The system is designed so that going live is a sequence of **credential deposits**,
@@ -130,6 +215,7 @@ Environment variables (secrets belong in your secrets manager, not a repo file):
 | `ADW_BRAND_SENDER` | yes | From-address for transactional mail. |
 | `ADW_ALLOWED_ORIGINS` | yes | Comma-separated CORS allowlist. Never a wildcard — the API is credentialed. |
 | `ADW_FORCE_MOCK` | no | `1` pins every adapter to its simulator. Use for a production smoke test; unset it to go live. |
+| `ADW_ANYCAST_IP` | yes, before any DNS cutover | The apex A-record target customers point their domain at. Must be anycast and stable **forever** — it ends up in third-party zone files we do not control, so it can never be renumbered. Set it before `cutover_dns` runs; the activity refuses without it rather than guessing. |
 
 ### 3.1 Webhooks to configure at the vendor
 
@@ -206,6 +292,16 @@ pnpm demo` — they are machine-checked):
   link, and every cold message carries one.
 - **Both webhook endpoints are registered at the vendor** and a test delivery
   returns `handled: true`.
+- **No customer agent is live without a passing 30-case eval run.** Checked
+  nightly; also enforced in `OnboardingWorkflow`, where delivery sits behind
+  `agent_eval_gate`.
+- **`ADW_ANYCAST_IP` is set and reachable** before the first DNS cutover. 86% of
+  these domains have live MX, and `verifyCutover` reverts and raises SEV1 on any
+  mail-record delta — but a cutover pointed at nothing is still an outage.
+- **The retrieval hit rate is being measured on real traffic.** The nightly check
+  needs 50 retrieval turns in the window before it can judge; below that it
+  reports the count and passes. Treat "below the sample needed" as *not yet
+  verified*, not as green.
 
 ## 7. Open items requiring counsel before Phase 1 (spec §19)
 
@@ -213,3 +309,10 @@ Photo-licensing position for speculative previews · `relates_to_role` template
 wording · AI-disclosure timing · vendor data-licence terms (incl. screenshotting
 the source page) · payments-licensing confirmation per market. These are tracked
 but not resolvable in code.
+
+**v3 additions.** The customer's terms must state plainly that the agent answers
+only from content they approved, and that they own what it says — the *Moffatt*
+position is theirs, and the grounding architecture plus the `agent_turns`
+transcript is what defends it. Counsel should also confirm the wording of the
+agent's AI disclosure per market, and whether the setup fee is characterised as
+a service fee anywhere it would attract different treatment from a subscription.

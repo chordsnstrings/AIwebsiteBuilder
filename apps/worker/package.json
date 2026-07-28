@@ -30,6 +30,9 @@
     "@adw/kb": "workspace:*",
     "@adw/qapack": "workspace:*",
     "@adw/dns": "workspace:*",
-    "@adw/mcp": "workspace:*"
+    "@adw/mcp": "workspace:*",
+    "@adw/agenteval": "workspace:*",
+    "@adw/concierge": "workspace:*",
+    "@adw/architect": "workspace:*"
   }
 }

@@ -1,0 +1,343 @@
+// The public runtime surface. Three of these four routes are reachable by
+// anyone with the URL, so the tests are mostly about what they will NOT do:
+// serve an unapproved pack, let the machine surface answer more than the human
+// one, hand back a similarity score, or let a new answer into a pack without an
+// owner behind it.
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
+import { createDb, migrate, type Db } from "@adw/db";
+import { LocalKeyWrapper, LocalPgBackend, type SecretsBackend } from "@adw/vault";
+import { embedText, persistQAPack, type QAPack, type QAPair } from "@adw/qapack";
+import type { SessionUser } from "@adw/auth";
+import { createApp } from "./src/app.ts";
+import { forgetPack } from "./src/agent-routes.ts";
+
+const URL = process.env["DATABASE_ADMIN_URL"] ?? "postgres://adw_admin@127.0.0.1:5433/adw_test";
+let db: Db;
+let vault: SecretsBackend;
+
+const OWNER: SessionUser = { id: "ow", email: "owner@example.com", role: "customer", customerId: null, totpEnabled: false };
+const appAs = (user: SessionUser | null) => createApp({ db, vault, forceMock: true, authOverride: user });
+
+beforeAll(async () => {
+  db = await createDb({ backend: "pg", url: URL });
+  await migrate(db);
+  vault = new LocalPgBackend(db, new LocalKeyWrapper("0".repeat(64)));
+});
+afterAll(async () => {
+  await db?.close();
+});
+
+const PAIRS: [string, string][] = [
+  ["What areas do you cover?", "We cover Bur Dubai, Deira and Jumeirah."],
+  ["What are your opening hours?", "We're open Monday to Friday, 8am to 5pm."],
+  ["How much is a callout?", "Our standard callout is AED 150."],
+  ["Do you install boilers?", "We install and service boilers."],
+];
+
+function pair(question: string, answer: string): QAPair {
+  return {
+    id: randomUUID(),
+    question,
+    answer,
+    sourceFactIds: [randomUUID()],
+    embedding: embedText(question),
+    confidence: 0.9,
+    source: "generated",
+  };
+}
+
+interface Fixture {
+  customerId: string;
+  businessId: string;
+  kbId: string;
+  pack: QAPack;
+}
+
+async function seed(opts: { approved?: boolean } = {}): Promise<Fixture> {
+  const batch = await db.one<{ id: string }>(
+    "INSERT INTO ingest_batches (vendor, licence_ref, record_count, cost_cents, checksum) VALUES ('d','LIC',1,0,'x') RETURNING id",
+  );
+  const biz = await db.one<{ id: string }>(
+    `INSERT INTO businesses (source_vendor, source_batch_id, name, country_code, region_code, segment, vertical, phone_e164, city)
+     VALUES ('d',$1,'Route Plumbing','AE','R3','no_site','plumber','+971500000000','Dubai') RETURNING id`,
+    [batch.id],
+  );
+  const cust = await db.one<{ id: string }>(
+    `INSERT INTO customers (business_id, region_code, legal_name, contact_email, locale, timezone, status)
+     VALUES ($1,'R3','Route Plumbing',$2,'en-GB','Asia/Dubai','active') RETURNING id`,
+    [biz.id, `routes_${randomUUID()}@example.com`],
+  );
+  const kb = await db.one<{ id: string }>(
+    `INSERT INTO knowledge_bases (business_id, customer_id) VALUES ($1,$2) RETURNING id`,
+    [biz.id, cust.id],
+  );
+  for (const [key, type, value, status] of [
+    ["area_1", "area", "Bur Dubai", "verified"],
+    ["service_1", "service", "Boiler installation", "verified"],
+    // Deliberately unverified: a certification we found on their site and could
+    // not confirm. Nothing may assert it.
+    ["credential_1", "credential", "Public liability insurance", "claimed_unverified"],
+  ] as [string, string, string, string][]) {
+    await db.query(
+      `INSERT INTO kb_facts (kb_id, fact_key, type, value, status, source_url, retrieved_at)
+       VALUES ($1,$2,$3,$4,$5,'https://example.test', now())`,
+      [kb.id, key, type, value, status],
+    );
+  }
+  const pack: QAPack = {
+    id: randomUUID(),
+    kbId: kb.id,
+    businessId: biz.id,
+    customerId: cust.id,
+    version: 1,
+    vertical: "plumber",
+    playbookVersion: "test",
+    embeddingProvider: "adw-hashed-ngram-v1",
+    pairs: PAIRS.map(([q, a]) => pair(q!, a!)),
+    coverage: { byTopic: {}, byVerticalTemplate: { answered: 0, total: 0, ratio: 0 }, factsUsed: 4, factsAvailable: 6 },
+    templateFallbacks: [],
+    gaps: [],
+    excluded: [],
+    thin: true,
+    extendedOnboarding: true,
+    createdAt: new Date(),
+    ...(opts.approved === false ? {} : { approvedAt: new Date(), approvedBy: "owner@example.com" }),
+  };
+  await persistQAPack(db, pack);
+  if (opts.approved !== false) {
+    await db.query(`UPDATE qa_packs SET approved_at = now(), approved_by = 'owner@example.com' WHERE id = $1`, [pack.id]);
+  }
+  forgetPack(pack.id);
+  return { customerId: cust.id, businessId: biz.id, kbId: kb.id, pack };
+}
+
+const json = (body: unknown): RequestInit => ({
+  method: "POST",
+  body: JSON.stringify(body),
+  headers: { "content-type": "application/json" },
+});
+
+// ---------------------------------------------------------------------------
+
+describe("POST /agent/turn", () => {
+  it("answers from the pack", async () => {
+    const { customerId } = await seed();
+    const app = appAs(null);
+    const opened = await app.request("/agent/session", json({ customerId }));
+    expect(opened.status).toBe(200);
+    const { sessionId } = (await opened.json()) as { sessionId: string };
+
+    const res = await app.request("/agent/turn", json({ sessionId, question: "What are your opening hours?" }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body["answer"]).toBe("We're open Monday to Friday, 8am to 5pm.");
+    expect(body["answeredFrom"]).toBe("pack");
+  });
+
+  it("⛔ never returns the retrieval score or the pair id", async () => {
+    // Both are the customer's evidence and both are a similarity oracle: a
+    // caller that can see the score can binary-search the pack's contents.
+    const { customerId } = await seed();
+    const app = appAs(null);
+    const { sessionId } = (await (await app.request("/agent/session", json({ customerId }))).json()) as {
+      sessionId: string;
+    };
+    const body = (await (
+      await app.request("/agent/turn", json({ sessionId, question: "What areas do you cover?" }))
+    ).json()) as Record<string, unknown>;
+    expect(body["retrievalScore"]).toBeUndefined();
+    expect(body["pairId"]).toBeUndefined();
+    // The turn record still has them — that is where they belong.
+    const row = await db.one<{ pair_id: string | null; retrieval_score: string | null }>(
+      `SELECT pair_id, retrieval_score FROM agent_turns WHERE session_id = $1`,
+      [sessionId],
+    );
+    expect(row.pair_id).not.toBeNull();
+    expect(row.retrieval_score).not.toBeNull();
+  });
+
+  it("refuses and logs the gap when nothing answers", async () => {
+    const { customerId } = await seed();
+    const app = appAs(null);
+    const { sessionId } = (await (await app.request("/agent/session", json({ customerId }))).json()) as {
+      sessionId: string;
+    };
+    const body = (await (
+      await app.request("/agent/turn", json({ sessionId, question: "Do you fit underfloor heating?" }))
+    ).json()) as Record<string, unknown>;
+    expect(body["refused"]).toBe(true);
+    const gaps = await db.query(`SELECT question FROM agent_gaps WHERE customer_id = $1`, [customerId]);
+    expect(gaps.rowCount).toBe(1);
+  });
+
+  it("is idempotent when the caller repeats a turn index", async () => {
+    const { customerId } = await seed();
+    const app = appAs(null);
+    const { sessionId } = (await (await app.request("/agent/session", json({ customerId }))).json()) as {
+      sessionId: string;
+    };
+    const q = { sessionId, question: "Do you install boilers?", turnIndex: 0 };
+    await app.request("/agent/turn", json(q));
+    await app.request("/agent/turn", json(q));
+    const turns = await db.query(`SELECT id FROM agent_turns WHERE session_id = $1`, [sessionId]);
+    expect(turns.rowCount).toBe(1);
+  });
+
+  it("⛔ 404s for a customer whose pack is not approved", async () => {
+    const { customerId } = await seed({ approved: false });
+    const res = await appAs(null).request("/agent/session", json({ customerId }));
+    expect(res.status).toBe(404);
+  });
+
+  it("rejects an over-long question rather than truncating it", async () => {
+    const { customerId } = await seed();
+    const app = appAs(null);
+    const { sessionId } = (await (await app.request("/agent/session", json({ customerId }))).json()) as {
+      sessionId: string;
+    };
+    const res = await app.request("/agent/turn", json({ sessionId, question: "a".repeat(2000) }));
+    expect(res.status).toBe(413);
+  });
+});
+
+describe("POST /api/enquiry — the no-JS path", () => {
+  it("answers a plain form post with a page a browser can render", async () => {
+    const { customerId } = await seed();
+    const form = new FormData();
+    form.set("customerId", customerId);
+    form.set("question", "What are your opening hours?");
+    const res = await appAs(null).request("/api/enquiry", { method: "POST", body: form });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    const html = await res.text();
+    expect(html).toContain("Monday to Friday");
+    expect(html).toContain("viewport");
+  });
+
+  it("answers JSON when asked for JSON", async () => {
+    const { customerId } = await seed();
+    const res = await appAs(null).request(
+      "/api/enquiry",
+      json({ customerId, question: "What areas do you cover?" }),
+    );
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(String(body["answer"])).toContain("Deira");
+  });
+});
+
+describe("MCP", () => {
+  it("advertises only what the vertical and the calendar allow", async () => {
+    const { customerId } = await seed();
+    const res = await appAs(null).request(`/.well-known/mcp?customerId=${customerId}`);
+    expect(res.status).toBe(200);
+    const manifest = (await res.json()) as { tools: { name: string }[] };
+    const names = manifest.tools.map((t) => t.name);
+    expect(names).toContain("get_business_info");
+    // No calendar connected, so booking is not advertised — an assistant must
+    // not be told it can do something that will then fail.
+    expect(names).not.toContain("book_appointment");
+  });
+
+  it("⛔ refuses an assistant exactly what it refuses a person", async () => {
+    // The whole reason handleMcpCall takes the refusal checker by injection.
+    // If the two surfaces could diverge, this one becomes the way around them.
+    const { customerId } = await seed();
+    const res = await appAs(null).request(
+      "/.well-known/mcp",
+      json({ customerId, tool: "book_appointment", arguments: { start: "x", end: "y", contact: "z" } }),
+    );
+    const body = (await res.json()) as { ok: boolean; reason?: string };
+    expect(body.ok).toBe(false);
+    expect(body.reason).toBe("not_available");
+  });
+
+  it("returns 200 for a refusal so an assistant does not retry it forever", async () => {
+    const { customerId } = await seed();
+    const res = await appAs(null).request("/.well-known/mcp", json({ customerId, tool: "get_services" }));
+    expect(res.status).toBe(200);
+  });
+
+  it("404s an unknown tool", async () => {
+    const { customerId } = await seed();
+    const res = await appAs(null).request("/.well-known/mcp", json({ customerId, tool: "delete_everything" }));
+    expect(res.status).toBe(404);
+  });
+
+  it("⛔ only discloses verified credentials", async () => {
+    // The fixture's insurance fact is claimed_unverified. An assistant asking
+    // for business info must not be handed it as fact.
+    const { customerId } = await seed();
+    const res = await appAs(null).request("/.well-known/mcp", json({ customerId, tool: "get_business_info" }));
+    const body = (await res.json()) as { ok: boolean; data: Record<string, unknown> };
+    expect(body.ok).toBe(true);
+    expect(JSON.stringify(body.data)).not.toMatch(/public liability/i);
+  });
+});
+
+describe("the gap list", () => {
+  it("requires authentication", async () => {
+    const { customerId } = await seed();
+    const res = await appAs(null).request(`/agent/${customerId}/gaps`);
+    expect(res.status).toBe(401);
+  });
+
+  it("shows the owner what was asked and how often", async () => {
+    const { customerId } = await seed();
+    const app = appAs(null);
+    const { sessionId } = (await (await app.request("/agent/session", json({ customerId }))).json()) as {
+      sessionId: string;
+    };
+    for (let i = 0; i < 2; i++) {
+      await app.request("/agent/turn", json({ sessionId, question: "Do you fit underfloor heating?", turnIndex: i }));
+    }
+    const res = await appAs(OWNER).request(`/agent/${customerId}/gaps`);
+    const body = (await res.json()) as { gaps: { question: string; timesAsked: number }[] };
+    expect(body.gaps[0]?.question).toBe("Do you fit underfloor heating?");
+    expect(body.gaps[0]?.timesAsked).toBe(2);
+  });
+
+  it("⛔ never promotes an answer without a human", async () => {
+    const { customerId } = await seed();
+    const app = appAs(null);
+    const { sessionId } = (await (await app.request("/agent/session", json({ customerId }))).json()) as {
+      sessionId: string;
+    };
+    await app.request("/agent/turn", json({ sessionId, question: "Do you fit underfloor heating?" }));
+    const gap = await db.one<{ id: string; status: string }>(
+      `SELECT id, status FROM agent_gaps WHERE customer_id = $1`,
+      [customerId],
+    );
+    // Answering it is an authenticated action, and the row stays 'open' until
+    // someone takes it.
+    expect(gap.status).toBe("open");
+    const denied = await appAs(null).request(`/agent/gaps/${gap.id}/approve`, json({ answer: "Yes we do." }));
+    expect(denied.status).toBe(401);
+
+    const ok = await appAs(OWNER).request(`/agent/gaps/${gap.id}/approve`, json({ answer: "Yes, we fit underfloor heating." }));
+    expect(ok.status).toBe(200);
+    const after = await db.one<{ status: string; approved_by: string | null }>(
+      `SELECT status, approved_by FROM agent_gaps WHERE id = $1`,
+      [gap.id],
+    );
+    expect(after.status).toBe("approved");
+    expect(after.approved_by).toBe(OWNER.email);
+  });
+
+  it("⛔ applies the refusal policy to the owner's own words", async () => {
+    // An owner may not instruct their agent to guarantee an arrival time any
+    // more than we may. The rule is about what the agent says, not who wrote it.
+    const { customerId } = await seed();
+    const app = appAs(null);
+    const { sessionId } = (await (await app.request("/agent/session", json({ customerId }))).json()) as {
+      sessionId: string;
+    };
+    await app.request("/agent/turn", json({ sessionId, question: "Do you fit underfloor heating?" }));
+    const gap = await db.one<{ id: string }>(`SELECT id FROM agent_gaps WHERE customer_id = $1`, [customerId]);
+    const res = await appAs(OWNER).request(
+      `/agent/gaps/${gap.id}/approve`,
+      json({ answer: "Yes — and we guarantee we'll be there within the hour." }),
+    );
+    expect(res.status).toBe(422);
+  });
+});

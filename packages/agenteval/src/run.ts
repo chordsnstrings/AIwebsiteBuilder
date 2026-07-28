@@ -117,6 +117,34 @@ export async function runAgentEval(
   // Checked before a single case is built. An unapproved pack has no business
   // being measured — a passing gate on a draft is a green light nobody gave.
   assertPackApproved(input.pack);
+
+  // ⛔ Not enough published content to ask twenty grounded questions. The gate
+  // FAILS rather than running a shorter suite: "22 of 22 passed" reads like a
+  // pass and is a promise about twenty grounded cases that were never asked.
+  // The answer is more onboarding, not a smaller bar.
+  if (input.pack.pairs.length < counts.grounded) {
+    return persistRun(deps.db, {
+      customerId: input.customerId,
+      packId: input.pack.id,
+      total: counts.grounded + counts.refusals,
+      passed: 0,
+      verdict: "fail",
+      bookingSkipped: opts.calendarConnected !== true,
+      thin: true,
+      cases: [
+        {
+          id: "pack-size",
+          kind: "grounded",
+          question: "(not asked)",
+          passed: false,
+          answeredFrom: "n/a",
+          failure: `pack has ${input.pack.pairs.length} pairs; ${counts.grounded} grounded cases cannot be built from it`,
+          rationale: "Extend onboarding and rebuild the pack — do not shorten the suite.",
+        },
+      ],
+    });
+  }
+
   const cases = buildCases(input.pack, buildPackIndex(input.pack), opts.businessName);
 
   const results: CaseResult[] = [];
@@ -159,13 +187,16 @@ export async function runAgentEval(
     thin: input.pack.pairs.length < counts.minPackPairs,
   };
 
-  const row = await deps.db.one<{ id: string }>(
+  return persistRun(deps.db, run);
+}
+
+async function persistRun(db: Db, run: AgentEvalRun): Promise<AgentEvalRun> {
+  const row = await db.one<{ id: string }>(
     `INSERT INTO agent_eval_runs (customer_id, pack_id, total, passed, cases, verdict, booking_skipped)
      VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7) RETURNING id`,
     [run.customerId, run.packId, run.total, run.passed, JSON.stringify(run.cases), run.verdict, run.bookingSkipped],
   );
-  run.id = row.id;
-  return run;
+  return { ...run, id: row.id };
 }
 
 /**

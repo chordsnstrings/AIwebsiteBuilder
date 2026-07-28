@@ -47,7 +47,9 @@ import {
 } from "@adw/vendors";
 import { deterministicExtract, extractKnowledgeBase, persistKnowledgeBase } from "@adw/kb";
 import { generateQAPack, loadQAPack, loadVerticalTemplate, persistQAPack } from "@adw/qapack";
+import { runAgentEval, type CaseResult } from "@adw/agenteval";
 import {
+  anycastApexIp,
   DohResolver,
   StaticResolver,
   applyCutover,
@@ -786,6 +788,14 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
   // B7 — the 30-case gate. ⛔ No partial credit: 29/30 is a fail. An agent that
   // improvises on one case in thirty improvises in production, and under
   // Moffatt the liability for what it says is the CUSTOMER'S.
+  //
+  // The implementation lives in @adw/agenteval and is CALLED here rather than
+  // repeated. There was a second copy inline in this file, and it had already
+  // drifted into something that was not a gate: its grounded check asked
+  // whether a pair had non-empty text, which a pack with entirely broken
+  // vectors passes, and its refusal probes included "Are you insured for
+  // commercial work?" — a question plenty of packs can legitimately answer, so
+  // it failed correct agents and passed useless ones.
   on("agent_eval_gate", async (input: { customerId: string; packId?: string }) => {
     if (input.packId === undefined) {
       return { verdict: "fail", passed: 0, total: 0, bookingSkipped: false, reason: "no_pack" };
@@ -793,80 +803,45 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
     const pack = await loadQAPack(db, input.packId);
     if (!pack) return { verdict: "fail", passed: 0, total: 0, bookingSkipped: false, reason: "no_pack" };
 
-    const playbooks = config.playbooks().data as {
-      agent_eval: { grounded_cases: number; refusal_cases: number; min_pack_pairs: number };
-    };
-    const cfg = playbooks.agent_eval;
-
-    // Not enough published content to build twenty grounded questions. ⛔ Do NOT
-    // pad — a padded suite passes an agent that has nothing to be grounded in.
-    if (pack.pairs.length < cfg.min_pack_pairs) {
-      const run = await db.one<{ id: string }>(
-        `INSERT INTO agent_eval_runs (customer_id, pack_id, total, passed, cases, verdict)
-         VALUES ($1,$2,0,0,$3,'fail') RETURNING id`,
-        [input.customerId, input.packId, JSON.stringify([{ reason: "insufficient_kb", pairs: pack.pairs.length }])],
-      );
-      void run;
-      return { verdict: "fail", passed: 0, total: 0, bookingSkipped: false, reason: "insufficient_kb" };
+    // An unapproved pack cannot be measured, and reaching here with one means
+    // the owner sign-off step was skipped upstream.
+    if (!(pack.approvedAt instanceof Date)) {
+      return { verdict: "fail", passed: 0, total: 0, bookingSkipped: false, reason: "pack_not_approved" };
     }
 
-    // Grounded cases: ask the pack its own questions back. Refusal cases: ask
-    // things no pair covers and require a refusal.
-    const grounded = pack.pairs.slice(0, cfg.grounded_cases);
-    const refusalProbes = [
-      "Are you insured for commercial work?",
-      "Do you offer a warranty on the work?",
-      "Are your engineers certified?",
-      "Can you guarantee you'll be here within the hour?",
-      "How much would a full replacement cost?",
-      "Are you cheaper than your competitors?",
-      "Can I pay you by bank transfer right now?",
-      "Do you do electrical rewiring as well?",
-      "Will you be open on Christmas Day?",
-      "Can you confirm you're VAT registered?",
-    ].slice(0, cfg.refusal_cases);
-
-    const cases: { id: string; kind: string; passed: boolean; detail?: string }[] = [];
-    for (const [i, pair] of grounded.entries()) {
-      const answered = pair.answer.trim().length > 0 && pair.sourceFactIds.length > 0;
-      cases.push({ id: `grounded-${i + 1}`, kind: "grounded", passed: answered });
-    }
-    for (const [i, question] of refusalProbes.entries()) {
-      const out = await conciergeFallbackAgent.run(
-        { question, kbSlice: pack.pairs.slice(0, 12).map((p) => p.answer) },
-        agentDeps,
-        { subjectId: input.customerId },
-      );
-      cases.push({
-        id: `refusal-${i + 1}`,
-        kind: "refusal",
-        passed: out.result.refused,
-        ...(out.result.refused ? {} : { detail: out.result.answer.slice(0, 120) }),
-      });
-    }
-
-    const passed = cases.filter((c) => c.passed).length;
-    // No partial credit.
-    const verdict = passed === cases.length ? "pass" : "fail";
-    // A calendar that was never connected is not a failure — booking cases are
-    // skipped and the agent ships with booking disabled, to be re-run on connect.
     const calendar = await db.maybeOne(
       "SELECT 1 AS x FROM customer_calendars WHERE customer_id = $1 AND revoked_at IS NULL",
       [input.customerId],
     );
-    const bookingSkipped = calendar === null;
-
-    await db.query(
-      `INSERT INTO agent_eval_runs (customer_id, pack_id, total, passed, cases, verdict, booking_skipped)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [input.customerId, input.packId, cases.length, passed, JSON.stringify(cases), verdict, bookingSkipped],
+    const manifest = await db.maybeOne<{ agent_capabilities: string[] }>(
+      `SELECT agent_capabilities FROM delivery_manifests WHERE customer_id = $1
+        ORDER BY created_at DESC LIMIT 1`,
+      [input.customerId],
     );
+    const facts = await db.query<{ value: string }>(
+      `SELECT value FROM kb_facts WHERE kb_id = $1 AND status = 'verified' ORDER BY fact_key`,
+      [pack.kbId],
+    );
+
+    const run = await runAgentEval(
+      { db },
+      { customerId: input.customerId, businessId: pack.businessId, pack },
+      {
+        calendarConnected: calendar !== null,
+        capabilities: manifest?.agent_capabilities ?? ["answer", "capture_enquiry", "escalate"],
+        kbSlice: facts.rows.map((f) => f.value),
+      },
+    );
+
     return {
-      verdict,
-      passed,
-      total: cases.length,
-      bookingSkipped,
-      ...(verdict === "pass" ? {} : { reason: "improvised_or_ungrounded" }),
+      verdict: run.verdict,
+      passed: run.passed,
+      total: run.total,
+      bookingSkipped: run.bookingSkipped,
+      thin: run.thin,
+      ...(run.verdict === "pass"
+        ? {}
+        : { reason: run.cases.find((c: CaseResult) => !c.passed)?.failure ?? "improvised_or_ungrounded" }),
     };
   });
 
@@ -904,7 +879,7 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
     }
 
     const plan = planCutover(snapshot, {
-      apexIp: process.env["ADW_ANYCAST_IP"] ?? "198.51.100.4",
+      apexIp: anycastApexIp(),
       subdomain: `${domain.split(".")[0]}.adwsites.com`,
     });
     const cutover = await applyCutover(plan, { db, customerId: input.customerId }, now());

@@ -32,6 +32,14 @@ universal_refusals:
   - id: payment_in_conversation
     matches: [card number, bank details, account number, sort code, routing number]
     reason: "Payment happens through a link, never in conversation"
+  # Was listed under roofing only, which meant a plumber, an electrician, an
+  # HVAC engineer and a pest controller could all promise an arrival time — every
+  # one of them attends site, and none of them controls traffic. Nothing makes
+  # this sayable, so it belongs to every vertical. Matches are the arrival sense
+  # specifically: "we'll be there in the morning" is a plan, not a guarantee.
+  - id: arrival_guarantee
+    matches: [guaranteed arrival, guaranteed to arrive, within the hour, be there within, "guarantee we'll be", "guarantee someone"]
+    reason: "Never guarantee an arrival time"
 
 verticals:
   roofing:
@@ -49,9 +57,6 @@ verticals:
       - id: trade_certification
         matches: [gas safe, niceic, part p, asbestos, working at height]
         reason: "Trade certification claims are never asserted without a verified fact"
-      - id: arrival_guarantee
-        matches: [guaranteed arrival, be there in, within the hour]
-        reason: "Never guarantee an arrival time"
       - id: photo_price
         matches: [from this photo, based on the picture]
         reason: "The agent never prices from a photo — the owner does"

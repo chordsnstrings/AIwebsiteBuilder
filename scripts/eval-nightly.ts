@@ -10,6 +10,9 @@ import { config } from "../packages/config/src/index.ts";
 import { probeCoverage, runAllProbes, evaluateSignals, heartbeatMissed, emitHeartbeat } from "../packages/sentinel/src/index.ts";
 
 const url = process.env.DATABASE_URL ?? "postgres://adw_admin@127.0.0.1:5433/adw";
+/** Retrieval turns needed in the window before the hit rate means anything. */
+const MIN_HIT_RATE_SAMPLE = 50;
+
 const db: Db = await createDb({ backend: "pg", url });
 await migrate(db);
 const vault = new LocalPgBackend(db, new LocalKeyWrapper(process.env.ADW_VAULT_MASTER_KEY ?? "0".repeat(64)));
@@ -128,13 +131,24 @@ const checks: Check[] = [
       // grounded than the design assumes.
       const target = (config.playbooks().data as { retrieval: { hit_rate_target_launch: number } }).retrieval
         .hit_rate_target_launch;
+      // ⛔ The denominator is retrieval ATTEMPTS, not all turns. A booking turn
+      // and a hard refusal never consulted the pack; counting them as hits
+      // (which this check used to do for `state_machine`) reports the router's
+      // behaviour as the pack's, and a busy booking flow would mask a pack that
+      // answers nothing.
       const row = await db.maybeOne<{ total: string; hits: string }>(
         `SELECT count(*) AS total,
-                count(*) FILTER (WHERE answered_from IN ('pack','pack_hedged','state_machine')) AS hits
-           FROM agent_turns WHERE created_at >= now() - interval '7 days'`,
+                count(*) FILTER (WHERE answered_from IN ('pack','pack_hedged')) AS hits
+           FROM agent_turns
+          WHERE route = 'retrieval' AND created_at >= now() - interval '7 days'`,
       );
       const total = Number(row?.total ?? 0);
-      if (total === 0) return { ok: true, detail: "no agent turns in the window" };
+      // Below the minimum sample the rate is noise, and a check that can go red
+      // on four turns gets muted — after which it protects nothing. The count is
+      // always reported, so "not enough data" is visibly different from "fine".
+      if (total < MIN_HIT_RATE_SAMPLE) {
+        return { ok: true, detail: `${total} retrieval turns in the window — below the ${MIN_HIT_RATE_SAMPLE} needed to judge` };
+      }
       const rate = Number(row?.hits ?? 0) / total;
       return {
         ok: rate >= target,

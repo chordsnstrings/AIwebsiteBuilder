@@ -117,6 +117,33 @@ export function supportsDomainConnect(provider: string | null): boolean {
 // 3. Plan — exactly two records
 // ---------------------------------------------------------------------------
 
+/**
+ * The apex the customer's domain is pointed at.
+ *
+ * ⛔ There is no default in production. The previous fallback was
+ * `198.51.100.4` — an RFC 5737 TEST-NET-2 documentation address — and a cutover
+ * run with `ADW_ANYCAST_IP` unset would have pointed a live business's apex at
+ * a black hole while every check downstream still passed: the plan validates,
+ * two records change, the mail-record alarm stays quiet, `verifyCutover`
+ * confirms the records resolve to exactly what we asked for. The site is simply
+ * gone, and the first person to notice is the customer.
+ *
+ * This value also has to be anycast and permanent: it ends up in zone files at
+ * registrars we do not control, so it can never be renumbered.
+ */
+export function anycastApexIp(env: NodeJS.ProcessEnv = process.env): string {
+  const ip = env["ADW_ANYCAST_IP"];
+  if (ip !== undefined && /^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return ip;
+  const mode = env["ADW_ENV"] ?? "production";
+  if (mode === "local" || mode === "test") return "198.51.100.4";
+  throw new Error(
+    "Refusing to cut over DNS: ADW_ANYCAST_IP is unset or is not an IPv4 address. " +
+      "Without it the apex would be pointed at a documentation address and the customer's site " +
+      "would silently disappear — every check downstream would still pass. Set it to the anycast " +
+      "IP serving customer sites; it must never be renumbered once a customer's zone points at it.",
+  );
+}
+
 export interface CutoverTarget {
   /** Our anycast IP, for the apex A record. */
   apexIp: string;

@@ -69,9 +69,15 @@ importers:
 
   apps/api:
     dependencies:
+      '@adw/agenteval':
+        specifier: workspace:*
+        version: link:../../packages/agenteval
       '@adw/agents':
         specifier: workspace:*
         version: link:../../packages/agents
+      '@adw/architect':
+        specifier: workspace:*
+        version: link:../../packages/architect
       '@adw/auth':
         specifier: workspace:*
         version: link:../../packages/auth
@@ -81,6 +87,9 @@ importers:
       '@adw/compliance':
         specifier: workspace:*
         version: link:../../packages/compliance
+      '@adw/concierge':
+        specifier: workspace:*
+        version: link:../../packages/concierge
       '@adw/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -96,9 +105,18 @@ importers:
       '@adw/gateway':
         specifier: workspace:*
         version: link:../../packages/gateway
+      '@adw/kb':
+        specifier: workspace:*
+        version: link:../../packages/kb
+      '@adw/mcp':
+        specifier: workspace:*
+        version: link:../../packages/mcp
       '@adw/orchestrator':
         specifier: workspace:*
         version: link:../../packages/orchestrator
+      '@adw/qapack':
+        specifier: workspace:*
+        version: link:../../packages/qapack
       '@adw/registry':
         specifier: workspace:*
         version: link:../../packages/registry
@@ -220,15 +238,24 @@ importers:
 
   apps/worker:
     dependencies:
+      '@adw/agenteval':
+        specifier: workspace:*
+        version: link:../../packages/agenteval
       '@adw/agents':
         specifier: workspace:*
         version: link:../../packages/agents
+      '@adw/architect':
+        specifier: workspace:*
+        version: link:../../packages/architect
       '@adw/billing':
         specifier: workspace:*
         version: link:../../packages/billing
       '@adw/compliance':
         specifier: workspace:*
         version: link:../../packages/compliance
+      '@adw/concierge':
+        specifier: workspace:*
+        version: link:../../packages/concierge
       '@adw/config':
         specifier: workspace:*
         version: link:../../packages/config
