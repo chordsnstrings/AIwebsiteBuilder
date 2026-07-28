@@ -536,13 +536,22 @@ export const qaGenerateAgent = defineAgent({
       credential: ["licen", "certif", "insur", "accredit", "qualified", "registered"],
     };
     const wanted = Object.entries(topics).find(([, cues]) => cues.some((c) => q.includes(c)))?.[0];
-    const hit =
-      (wanted !== undefined ? input.facts.find((f) => f.factKey === wanted) : undefined) ??
-      input.facts.find((f) => {
-        const v = f.value.toLowerCase();
-        return q.split(/\W+/).some((w) => w.length > 3 && v.includes(w));
-      });
-    // No fact answers it -> the question belongs in the gap list, not the pack.
+    if (wanted !== undefined) {
+      // The question asks for a specific attribute, so ONLY that attribute can
+      // answer it. Knowing a business does roof replacement is not knowing what
+      // it charges for one — matching on shared words would answer a price
+      // question with a service name, which is a price we invented.
+      const exact = input.facts.find((f) => f.factKey === wanted);
+      return exact
+        ? { answer: exact.value, sourceFactIds: [exact.id], confidence: 0.9 }
+        : { answer: null, sourceFactIds: [], confidence: 0 };
+    }
+    // No attribute asked for: an open question, where topical overlap is a
+    // reasonable signal.
+    const hit = input.facts.find((f) => {
+      const v = f.value.toLowerCase();
+      return q.split(/\W+/).some((w) => w.length > 3 && v.includes(w));
+    });
     if (!hit) return { answer: null, sourceFactIds: [], confidence: 0 };
     return { answer: hit.value, sourceFactIds: [hit.id], confidence: 0.9 };
   },
@@ -621,8 +630,21 @@ export const conciergeFallbackAgent = defineAgent({
     }),
   simulate: (input) => {
     const q = input.question.toLowerCase();
+    // Attribute questions are answerable only by a slice that actually carries
+    // that attribute. "We install boilers" does not answer "how much is a new
+    // boiler" — and answering it anyway is a price the business never quoted.
+    const attributes: { cues: string[]; present: RegExp }[] = [
+      { cues: ["how much", "price", "cost", "charge", "fee", "rate"], present: /[£$€]\s?\d|\bper hour\b|\bfrom \d/ },
+      { cues: ["insur", "licen", "certif", "accredit", "registered", "qualified"], present: /\b(insured|licen[sc]ed|certified|accredited|registered)\b/ },
+      { cues: ["warrant", "guarantee"], present: /\b(warrant|guarantee)/ },
+      { cues: ["within the hour", "how soon", "how quickly", "arrival"], present: /\bwithin \d|\bsame day\b|\bhours?\b/ },
+      { cues: ["cheaper than", "better than", "compared to", "versus"], present: /$^/ },
+    ];
+    const asked = attributes.find((a) => a.cues.some((c) => q.includes(c)));
     const grounded = input.kbSlice.filter((f) =>
-      q.split(/\W+/).some((w) => w.length > 3 && f.toLowerCase().includes(w)),
+      asked
+        ? asked.present.test(f.toLowerCase())
+        : q.split(/\W+/).some((w) => w.length > 3 && f.toLowerCase().includes(w)),
     );
     if (grounded.length === 0) {
       return {

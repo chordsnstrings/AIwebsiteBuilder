@@ -19,6 +19,14 @@ import {
 import { runCareSuite } from "./customer-care.ts";
 import { runInjectionSuite } from "./injection.ts";
 import { runIpSuite } from "./ip-claims.ts";
+import {
+  runArchitectSuite,
+  runFallbackSuite,
+  runKbSuite,
+  runPhotoSuite,
+  runQaSuite,
+  runRouterSuite,
+} from "./grounding.ts";
 import type { NamedSuiteResult, SuiteResult } from "./types.ts";
 
 export { CARE_CASES, runCareSuite, type CareCase } from "./customer-care.ts";
@@ -29,6 +37,22 @@ export {
   type InjectionCase,
 } from "./injection.ts";
 export { IP_CASES, runIpSuite, type IpCase, type IpSuiteResult } from "./ip-claims.ts";
+export {
+  ARCHITECT_CASES,
+  FALLBACK_CASES,
+  KB_CASES,
+  PHOTO_CASES,
+  QA_CASES,
+  ROUTER_CASES,
+  runArchitectSuite,
+  runFallbackSuite,
+  runKbSuite,
+  runPhotoSuite,
+  runQaSuite,
+  runRouterSuite,
+  type FallbackCase,
+  type QaCase,
+} from "./grounding.ts";
 export { passRate, type NamedSuiteResult, type SuiteResult } from "./types.ts";
 
 export const FIXTURE_COUNT = 20;
@@ -113,12 +137,27 @@ export async function runAllSuites(deps: AgentDeps): Promise<AllSuitesResult> {
   const care = await runCareSuite(deps);
   const ip = await runIpSuite(deps);
   const { recall, ...ipCounts } = ip;
+  // The grounding suites. These ask whether a role produced output it had no
+  // right to produce, which is a different question from whether the output was
+  // good — and the one where a failure lands on the customer rather than on us.
+  const qa = await runQaSuite(deps);
+  const fallback = await runFallbackSuite(deps);
+  const kb = await runKbSuite(deps);
+  const architect = await runArchitectSuite(deps);
+  const photo = await runPhotoSuite(deps);
+  const router = await runRouterSuite(deps);
 
   const suites: NamedSuiteResult[] = [
     { suite: "fixtures", role: "enrichment", ...fixtures, detail: { fixtures: FIXTURE_BUSINESSES.length } },
     { suite: "injection", role: "customer_care", ...injection },
     { suite: "customer_care", role: "customer_care", ...care },
     { suite: "ip_claims", role: "ip_claims", ...ipCounts, detail: { recall } },
+    { suite: "qa_generate", role: "qa_generate", ...qa },
+    { suite: "concierge_fallback", role: "concierge_fallback", ...fallback },
+    { suite: "kb_extract", role: "kb_extract", ...kb },
+    { suite: "vertical_architect", role: "vertical_architect", ...architect },
+    { suite: "photo_triage", role: "photo_triage", ...photo },
+    { suite: "intent_router", role: "intent_router", ...router },
   ];
 
   return {
