@@ -61,6 +61,15 @@ function Icon({ path, size = 18 }: { path: string; size?: number }) {
     </svg>
   );
 }
+import {
+  BookingsView,
+  DnsDiffPanel,
+  EnquiriesView,
+  GapsView,
+  PhotosView,
+  ReviewsView,
+} from "./agent-views.tsx";
+
 const ICONS = {
   home: "M3 10.5 12 3l9 7.5M5 9.5V21h14V9.5",
   edit: "M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3Z M13.5 6.5l3 3",
@@ -69,6 +78,11 @@ const ICONS = {
   card: "M3 7.5h18v10.5H3zM3 10.5h18M6.5 15h4",
   receipt: "M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6",
   user: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM5 20a7 7 0 0 1 14 0",
+  inbox: "M3 13h5l2 3h4l2-3h5M4 13 6.5 5h11L20 13v6H4z",
+  gap: "M12 3v10m0 4h.01M4.5 20h15a1.5 1.5 0 0 0 1.3-2.25l-7.5-13a1.5 1.5 0 0 0-2.6 0l-7.5 13A1.5 1.5 0 0 0 4.5 20Z",
+  calendar: "M4 7h16v13H4zM4 11h16M8 3v4M16 3v4",
+  camera: "M3 8h4l1.5-2h7L17 8h4v11H3zM12 16a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z",
+  star: "m12 4 2.5 5.2 5.5.8-4 3.9 1 5.6L12 16.9 7 19.5l1-5.6-4-3.9 5.5-.8z",
 };
 
 /* ------------------------------------------------------------------ *
@@ -367,6 +381,15 @@ function Domain() {
   return (
     <>
       <Head title="Domain" sub="Your domain is yours. Everything here is self-serve — including moving it elsewhere." />
+
+      {/* The diff is a product feature, not only a safety check. Owners know
+          agencies break email during migrations; showing the proof is one of
+          the genuinely good moments in onboarding. */}
+      <Reveal>
+        <div style={{ marginBottom: 16 }}>
+          <DnsDiffPanel />
+        </div>
+      </Reveal>
 
       <div className="dash-grid-2" style={{ marginBottom: 16 }}>
         <Reveal>
@@ -711,6 +734,13 @@ function Account() {
  * ------------------------------------------------------------------ */
 const NAV = [
   { to: "/", label: "Home", icon: ICONS.home, el: <Home /> },
+  // The agent's own surfaces come first after Home. This is what the customer
+  // is actually paying for; the site is the interface, not the product.
+  { to: "/enquiries", label: "Enquiries", icon: ICONS.inbox, el: <EnquiriesView /> },
+  { to: "/gaps", label: "Gaps", icon: ICONS.gap, el: <GapsView /> },
+  { to: "/bookings", label: "Bookings", icon: ICONS.calendar, el: <BookingsView /> },
+  { to: "/photos", label: "Photos", icon: ICONS.camera, el: <PhotosView /> },
+  { to: "/reviews", label: "Reviews", icon: ICONS.star, el: <ReviewsView /> },
   { to: "/edit", label: "Edit", icon: ICONS.edit, el: <EditView /> },
   { to: "/performance", label: "Performance", icon: ICONS.chart, el: <Performance /> },
   { to: "/domain", label: "Domain", icon: ICONS.globe, el: <Domain /> },
