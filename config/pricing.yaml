@@ -1,8 +1,16 @@
-# Build fees, MRR, addon prices and discount floors per region (spec §69.3).
-# PR-gated. Sensitive change class. Discount floors are clamped in code after
-# the Finance model returns — never instructed in a prompt.
+# Setup & activation fees, MRR, addon prices and discount floors per region
+# (spec §44). PR-gated. Sensitive change class. Discount floors are clamped in
+# code after the Finance model returns — never instructed in a prompt.
+#
+# ⛔ `setup_fee_cents` is the AGENT SETUP AND ACTIVATION fee. It is never a
+# website fee and must never be described as one. The website is included and
+# costs us cents; the market prices that at $16/month and 92–98% already have
+# one, so a website setup fee cannot be defended. What is being charged for is
+# real and nobody else does it: extracting a knowledge base with provenance per
+# fact, generating and binding the Q&A pack, running the per-customer eval gate,
+# connecting a calendar, and publishing the machine-facing surface.
 R1:
-  build_fee_cents: 34900
+  setup_fee_cents: 39900   # agent setup & activation
   mrr_cents: 6500
   discount_floor_pct: 0.15
   annual_discount_pct: 0.16
@@ -10,9 +18,11 @@ R1:
     receptionist: { cents: 4900, target_attach: 0.25 }
     seo: { cents: 9900, target_attach: 0.12 }
     booking: { cents: 1900, target_attach: 0.20 }
+    voice: { cents: 9900, target_attach: 0.10 }      # metered; materially higher cost
+    b2b_leads: { cents: 14900, target_attach: 0.08 }
 
 R2:
-  build_fee_cents: 32900
+  setup_fee_cents: 37900   # agent setup & activation
   mrr_cents: 6000
   discount_floor_pct: 0.15
   annual_discount_pct: 0.16
@@ -22,7 +32,7 @@ R2:
     booking: { cents: 1900, target_attach: 0.20 }
 
 R3:
-  build_fee_cents: 44900
+  setup_fee_cents: 44900   # agent setup & activation
   mrr_cents: 7500
   discount_floor_pct: 0.12
   annual_discount_pct: 0.16
@@ -32,7 +42,7 @@ R3:
     booking: { cents: 2900, target_attach: 0.20 }
 
 R4:
-  build_fee_cents: 12900
+  setup_fee_cents: 14900   # agent setup & activation
   mrr_cents: 2200
   discount_floor_pct: 0.10
   annual_discount_pct: 0.16

@@ -17,7 +17,7 @@ describe("config loaders", () => {
   });
   it("loads pricing with discount floors", () => {
     const { data } = config.pricing();
-    expect(data.R1!.build_fee_cents).toBe(34900);
+    expect(data.R1!.setup_fee_cents).toBe(39900);
     expect(data.R4!.billing_interval_allowed).toEqual(["year"]);
   });
   it("loads registry with all pinned rails", () => {

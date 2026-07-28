@@ -71,7 +71,7 @@ const thresholdsSchema = z.object({
 
 // --- Pricing -----------------------------------------------------------------
 const pricingRegion = z.object({
-  build_fee_cents: z.number(),
+  setup_fee_cents: z.number(),
   mrr_cents: z.number(),
   discount_floor_pct: z.number(),
   annual_discount_pct: z.number().optional(),
@@ -149,6 +149,16 @@ export const config = {
   templates: () => {
     const raw = readFileSync(join(CONFIG_DIR, "templates.yaml"), "utf8");
     return { data: parse(raw), version: "templates" };
+  },
+  /**
+   * Vertical playbooks (§43). Sensitive change class: the refusal sets in here
+   * are what stop a customer's agent from creating a regulatory problem for
+   * them, and the Architect may only classify AGAINST this file — a capability
+   * it proposes that is not listed fails the build.
+   */
+  playbooks: () => {
+    const raw = readFileSync(join(CONFIG_DIR, "playbooks.yaml"), "utf8");
+    return { data: parse(raw), version: "playbooks@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
   },
   _resetCache: () => {
     _cache = {};

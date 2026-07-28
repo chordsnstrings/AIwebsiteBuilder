@@ -86,7 +86,7 @@ describe("§36 REFUND keyword handler (rule, not agent)", () => {
       "SELECT amount_cents, reason, requested_via, auto_approved FROM refunds WHERE id = $1",
       [res.refundId],
     );
-    expect(refund.amount_cents).toBe(config.pricing().data.R1!.build_fee_cents);
+    expect(refund.amount_cents).toBe(config.pricing().data.R1!.setup_fee_cents);
     expect(refund.reason).toBe("guarantee");
     expect(refund.requested_via).toBe("email_keyword");
     expect(refund.auto_approved).toBe(true);

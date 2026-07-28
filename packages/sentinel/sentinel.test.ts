@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
 import { createDb, migrate, type Db } from "@adw/db";
 import {
   aggregate,
@@ -110,9 +111,17 @@ describe("alert routing", () => {
 
 describe("dead man's switch", () => {
   it("detects a missed heartbeat (alerted by absence)", async () => {
+    // Scoped to its own source. The shared test database carries beats from
+    // every other suite, so asserting against the global latest beat would
+    // pass or fail depending on what else ran — which is not a test.
+    const source = `sentinel-test-${randomUUID()}`;
     const t0 = new Date("2026-07-27T12:00:00Z");
-    await emitHeartbeat(db, t0);
-    expect(await heartbeatMissed(db, new Date(t0.getTime() + 60_000))).toBe(false);
-    expect(await heartbeatMissed(db, new Date(t0.getTime() + 4 * 60_000))).toBe(true);
+    await emitHeartbeat(db, t0, source);
+    expect(await heartbeatMissed(db, new Date(t0.getTime() + 60_000), 3 * 60_000, source)).toBe(false);
+    expect(await heartbeatMissed(db, new Date(t0.getTime() + 4 * 60_000), 3 * 60_000, source)).toBe(true);
+  });
+
+  it("reports a miss when a source has never beaten at all", async () => {
+    expect(await heartbeatMissed(db, new Date(), 3 * 60_000, `never-${randomUUID()}`)).toBe(true);
   });
 });

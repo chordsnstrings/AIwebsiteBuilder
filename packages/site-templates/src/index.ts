@@ -9,6 +9,21 @@ export {
   type RenderOptions,
 } from "./render.ts";
 
+/**
+ * The machine surface (§38.3) — the differentiator. 9.6% of the market publishes
+ * Service schema and 24.7% publishes a price; this is what puts a customer in
+ * the 11.6% that clears both.
+ */
+export {
+  buildJsonLd,
+  renderLlmsTxtV3,
+  machineSurfaceHead,
+  MACHINE_PATHS,
+  type MachineSurfaceInput,
+  type ServiceOffering,
+  type OpeningHours,
+} from "./machine-surface.ts";
+
 /** Build a reviewer-gate artifact from a rendered preview (demo helper). */
 export { buildArtifactFromHtml } from "./artifact.ts";
 

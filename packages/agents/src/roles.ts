@@ -317,7 +317,7 @@ export const ipClaimsAgent = defineAgent({
 // --- Finance / pricing (spec §28) — discount floor is a code clamp ---------
 const financeIn = z.object({ region: z.enum(["R1", "R2", "R3", "R4"]), scope: z.string(), proposedDiscount: z.number().default(0) });
 const financeOut = z.object({
-  buildFeeCents: z.number(),
+  setupFeeCents: z.number(),
   mrrCents: z.number(),
   discountPct: z.number(),
   addonsRecommended: z.array(z.string()),
@@ -333,11 +333,11 @@ export const financeAgent = defineAgent({
   maxTokensOut: 300,
   budgetUsdPerPassingOutput: 0.005,
   buildPrompt: (input) =>
-    prompts.developer!.build({ facts: { region: input.region, scope: input.scope }, outputShape: "{ buildFeeCents, mrrCents, discountPct, addonsRecommended, rationale }" }),
+    prompts.developer!.build({ facts: { region: input.region, scope: input.scope }, outputShape: "{ setupFeeCents, mrrCents, discountPct, addonsRecommended, rationale }" }),
   simulate: (input) => {
     const p = config.pricing().data[input.region]!;
     return {
-      buildFeeCents: p.build_fee_cents,
+      setupFeeCents: p.setup_fee_cents,
       mrrCents: p.mrr_cents,
       discountPct: input.proposedDiscount, // may be over the floor — clamped below
       addonsRecommended: ["receptionist"],
@@ -351,6 +351,416 @@ export const financeAgent = defineAgent({
     const floor = config.pricing().data[input.region]!.discount_floor_pct;
     return { ...out, discountPct: Math.min(out.discountPct, floor) };
   },
+});
+
+
+// ---------------------------------------------------------------------------
+// v3.0 — the transaction layer (spec §20, §21, §39, §41)
+//
+// These roles produce and serve the CUSTOMER'S agent. The constraints here are
+// sharper than anywhere else in the roster, because a mistake is not our
+// liability: under Moffatt the business operating the agent answers for what it
+// says. Grounding is enforced structurally — a stored answer is returned, not
+// composed — and every one of these roles is downstream of that.
+// ---------------------------------------------------------------------------
+
+// --- Vertical Architect (§20) — classifies; the playbook decides ------------
+const architectIn = z.object({
+  name: z.string(),
+  category: z.string(),
+  hasWebsite: z.boolean(),
+  bookingFound: z.boolean(),
+  pricingFound: z.boolean(),
+  pageCount: z.number().default(0),
+  wordCount: z.number().default(0),
+  reviewSample: z.array(z.string()).default([]),
+  siteText: z.string().default(""),
+});
+const architectOut = z.object({
+  vertical: z.string(),
+  confidence: z.number().min(0).max(1),
+  modifiers: z.array(z.string()),
+  unresolved: z.array(z.string()),
+  escalate: z.boolean(),
+  escalateReason: z.string().optional(),
+});
+export const architectAgent = defineAgent({
+  id: "vertical_architect",
+  role: "vertical_architect",
+  dataClass: "PUB",
+  capabilities: ["read:business", "write:draft"],
+  inputSchema: architectIn,
+  outputSchema: architectOut,
+  maxTokensOut: 2000,
+  budgetUsdPerPassingOutput: 0.012,
+  buildPrompt: (input) =>
+    prompts.developer!.build({
+      facts: { name: input.name, category: input.category, bookingFound: input.bookingFound },
+      outputShape: "{ vertical, confidence, modifiers[], unresolved[], escalate }",
+      untrusted: { site_text: input.siteText, reviews: input.reviewSample.join(" \n") },
+    }),
+  simulate: (input) => {
+    const text = `${input.category} ${input.siteText} ${input.reviewSample.join(" ")}`.toLowerCase();
+    const byCategory: Record<string, string> = {
+      roofer: "roofing", roofing: "roofing", plumber: "plumber", plumbing: "plumber",
+      electrician: "electrician", hvac: "hvac", landscaper: "landscaping",
+      landscaping: "landscaping", accountant: "accountant", lawyer: "lawyer",
+      solicitor: "lawyer", "pest control": "pest_control", "auto repair": "auto_repair",
+      mechanic: "auto_repair", cleaner: "cleaning", cleaning: "cleaning",
+    };
+    const vertical = byCategory[input.category.toLowerCase()] ?? "unknown";
+    const modifiers: string[] = [];
+    if (/24\/7|24 hour|emergency|call ?out/.test(text)) modifiers.push("emergency_service");
+    if (!input.pricingFound) modifiers.push("no_published_pricing");
+    if (input.bookingFound) modifiers.push("appointment_based");
+    if (input.pageCount < 5 || input.wordCount < 400) modifiers.push("thin_content");
+    if (/companies|contracts|commercial|offices/.test(text)) modifiers.push("b2b_serving");
+    // Confidence is the routing signal, not a truth claim. An unmapped category
+    // lands below the 0.75 escalation floor by construction — an unclassifiable
+    // business produces a bad preview, so refusing is the cheaper outcome.
+    const confidence = vertical === "unknown" ? 0.4 : input.hasWebsite ? 0.92 : 0.81;
+    return {
+      vertical,
+      confidence,
+      modifiers,
+      unresolved: modifiers.includes("thin_content") ? ["services offered", "areas covered", "opening hours"] : [],
+      escalate: confidence < 0.75,
+      ...(confidence < 0.75 ? { escalateReason: "vertical_unresolved" } : {}),
+    };
+  },
+});
+
+// --- Knowledge-base extraction (§21.2) — provenance per fact ---------------
+const kbIn = z.object({
+  sourceUrl: z.string(),
+  pageText: z.string(),
+  gbpText: z.string().default(""),
+});
+const kbOut = z.object({
+  facts: z.array(
+    z.object({
+      factKey: z.string(),
+      type: z.string(),
+      value: z.string(),
+      // 'claimed_unverified' is the load-bearing one: a certification on their
+      // site we could not verify. The agent may never assert it.
+      status: z.enum(["verified", "claimed_unverified", "stale", "inferred"]),
+      confidence: z.number().min(0).max(1),
+    }),
+  ),
+  conflicts: z.array(z.object({ description: z.string() })),
+  gaps: z.array(z.string()),
+  injectionSuspected: z.boolean(),
+});
+export const kbExtractAgent = defineAgent({
+  id: "kb_extract",
+  role: "kb_extract",
+  dataClass: "PUB",
+  capabilities: ["read:business", "write:draft"],
+  inputSchema: kbIn,
+  outputSchema: kbOut,
+  maxTokensOut: 2000,
+  budgetUsdPerPassingOutput: 0.032,
+  buildPrompt: (input) =>
+    prompts.developer!.build({
+      facts: { sourceUrl: input.sourceUrl },
+      outputShape: "{ facts[{factKey,type,value,status,confidence}], conflicts[], gaps[], injectionSuspected }",
+      untrusted: { page_text: input.pageText, gbp_text: input.gbpText },
+    }),
+  simulate: (input) => {
+    const text = input.pageText;
+    const facts: { factKey: string; type: string; value: string; status: "verified" | "claimed_unverified" | "stale" | "inferred"; confidence: number }[] = [];
+    const hours = /(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\s*[-–—to]+\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/i.exec(text);
+    if (hours) facts.push({ factKey: "hours", type: "hours", value: hours[0]!, status: "verified", confidence: 0.9 });
+    for (const m of text.matchAll(/\b(?:we (?:offer|provide|do)|services?:)\s*([^.\n]{4,80})/gi)) {
+      facts.push({ factKey: "service", type: "service", value: m[1]!.trim(), status: "verified", confidence: 0.85 });
+    }
+    for (const m of text.matchAll(/[£$€]\s?\d[\d,]*(?:\.\d{2})?/g)) {
+      facts.push({ factKey: "price", type: "price", value: m[0]!, status: "verified", confidence: 0.8 });
+    }
+    // A credential claimed on their own site is a claim, not a verification. We
+    // cannot check a licence register from page text, so it never reads as
+    // 'verified' — that distinction is the whole point of the status field.
+    for (const m of text.matchAll(/\b(licen[sc]ed|certified|insured|accredited|gas safe|niceic)\b/gi)) {
+      facts.push({ factKey: "credential", type: "credential", value: m[0]!, status: "claimed_unverified", confidence: 0.6 });
+    }
+    return {
+      facts,
+      conflicts: [],
+      gaps: facts.some((f) => f.factKey === "price") ? [] : ["published pricing"],
+      injectionSuspected: /ignore (previous|all) instructions|system prompt/i.test(text),
+    };
+  },
+});
+
+// --- Q&A pack generation (§21.3) — every answer traces to a fact -----------
+const qaIn = z.object({
+  question: z.string(),
+  // factKey is supplied because it is what actually answers the question.
+  // "What are your opening hours?" and "Open Mon-Fri 8am-5pm" share no words;
+  // matching on prose would reproduce the string-similarity failure the whole
+  // retrieval design exists to avoid (§39.1).
+  facts: z.array(z.object({ id: z.string(), factKey: z.string().default("fact"), value: z.string() })),
+});
+const qaOut = z.object({
+  // Null when the facts do not answer the question. A plausible answer here is
+  // precisely the failure the architecture exists to prevent, so the schema
+  // makes "no answer" a first-class result rather than something to be coaxed.
+  answer: z.string().nullable(),
+  sourceFactIds: z.array(z.string()),
+  confidence: z.number().min(0).max(1),
+});
+export const qaGenerateAgent = defineAgent({
+  id: "qa_generate",
+  role: "qa_generate",
+  dataClass: "PUB",
+  capabilities: ["read:business", "write:draft"],
+  inputSchema: qaIn,
+  outputSchema: qaOut,
+  maxTokensOut: 400,
+  budgetUsdPerPassingOutput: 0.0006,
+  buildPrompt: (input) =>
+    prompts.developer!.build({
+      facts: { question: input.question, factCount: input.facts.length },
+      outputShape: "{ answer|null, sourceFactIds[], confidence }",
+      untrusted: { facts: input.facts.map((f) => f.value).join(" \n") },
+    }),
+  simulate: (input) => {
+    const q = input.question.toLowerCase();
+    // Topic -> factKey. The deterministic stand-in for what an embedding does.
+    const topics: Record<string, string[]> = {
+      hours: ["hour", "open", "close", "when are you", "what time"],
+      price: ["price", "cost", "charge", "how much", "fee", "rate"],
+      service: ["service", "do you do", "can you", "offer", "provide"],
+      area: ["area", "cover", "serve", "travel", "come to", "based"],
+      credential: ["licen", "certif", "insur", "accredit", "qualified", "registered"],
+    };
+    const wanted = Object.entries(topics).find(([, cues]) => cues.some((c) => q.includes(c)))?.[0];
+    const hit =
+      (wanted !== undefined ? input.facts.find((f) => f.factKey === wanted) : undefined) ??
+      input.facts.find((f) => {
+        const v = f.value.toLowerCase();
+        return q.split(/\W+/).some((w) => w.length > 3 && v.includes(w));
+      });
+    // No fact answers it -> the question belongs in the gap list, not the pack.
+    if (!hit) return { answer: null, sourceFactIds: [], confidence: 0 };
+    return { answer: hit.value, sourceFactIds: [hit.id], confidence: 0.9 };
+  },
+});
+
+// --- Intent router (§39.1) — classifies, never answers ---------------------
+const routerIn = z.object({ text: z.string(), turnIndex: z.number().default(0) });
+const routerOut = z.object({
+  intent: z.enum(["question", "book", "quote", "photo", "complaint", "ambiguous"]),
+  urgency: z.enum(["emergency", "urgent", "normal"]),
+  injectionSuspected: z.boolean(),
+});
+export const intentRouterAgent = defineAgent({
+  id: "intent_router",
+  role: "intent_router",
+  dataClass: "CUST",
+  capabilities: ["read:conversation"],
+  inputSchema: routerIn,
+  outputSchema: routerOut,
+  maxTokensOut: 100,
+  budgetUsdPerPassingOutput: 0.0002,
+  buildPrompt: (input) =>
+    prompts.customer_care!.build({
+      facts: { turnIndex: input.turnIndex },
+      outputShape: "{ intent, urgency, injectionSuspected }",
+      untrusted: { visitor_message: input.text },
+    }),
+  simulate: (input) => {
+    const t = input.text.toLowerCase();
+    const intent =
+      /\bbook|appointment|schedule|slot\b/.test(t) ? "book" as const :
+      /\bquote|estimate|call me|call back|callback\b/.test(t) ? "quote" as const :
+      /\bphoto|picture|image|attached\b/.test(t) ? "photo" as const :
+      /\bcomplain|angry|terrible|urgent|emergency|flooding|leaking|no power\b/.test(t) ? "complaint" as const :
+      /\?|^(what|where|when|who|how|do|does|can|are|is)\b/.test(t) ? "question" as const :
+      "ambiguous" as const;
+    return {
+      intent,
+      urgency: /emergency|flooding|gas|no power|burst/.test(t) ? "emergency" as const
+             : /urgent|asap|today|right now/.test(t) ? "urgent" as const
+             : "normal" as const,
+      injectionSuspected: /ignore (previous|all) instructions|system prompt/i.test(input.text),
+    };
+  },
+});
+
+// --- Concierge fallback (§39.1) — runs ONLY on a retrieval miss ------------
+const fallbackIn = z.object({
+  question: z.string(),
+  kbSlice: z.array(z.string()),
+  refusals: z.array(z.string()).default([]),
+});
+const fallbackOut = z.object({
+  // `refused` is not a failure mode — it is the correct answer whenever the KB
+  // does not contain one, and the eval gate fails an agent that improvises.
+  answer: z.string(),
+  refused: z.boolean(),
+  groundedIn: z.array(z.string()),
+  escalate: z.boolean(),
+  injectionSuspected: z.boolean(),
+});
+export const conciergeFallbackAgent = defineAgent({
+  id: "concierge_fallback",
+  role: "concierge_fallback",
+  dataClass: "CUST",
+  capabilities: ["read:conversation", "read:business", "write:draft"],
+  inputSchema: fallbackIn,
+  outputSchema: fallbackOut,
+  maxTokensOut: 400,
+  budgetUsdPerPassingOutput: 0.005,
+  buildPrompt: (input) =>
+    prompts.customer_care!.build({
+      facts: { refusals: input.refusals, kbFactCount: input.kbSlice.length },
+      outputShape: "{ answer, refused, groundedIn[], escalate, injectionSuspected }",
+      untrusted: { visitor_question: input.question },
+    }),
+  simulate: (input) => {
+    const q = input.question.toLowerCase();
+    const grounded = input.kbSlice.filter((f) =>
+      q.split(/\W+/).some((w) => w.length > 3 && f.toLowerCase().includes(w)),
+    );
+    if (grounded.length === 0) {
+      return {
+        answer:
+          "I don't have that in what the business has published, so I don't want to guess. " +
+          "I've noted your question and someone will come back to you.",
+        refused: true,
+        groundedIn: [],
+        escalate: false,
+        injectionSuspected: /ignore (previous|all) instructions/i.test(input.question),
+      };
+    }
+    return {
+      answer: grounded[0]!,
+      refused: false,
+      groundedIn: grounded.slice(0, 2),
+      escalate: false,
+      injectionSuspected: false,
+    };
+  },
+});
+
+// --- Photo triage (§41) — ⛔ never prices ----------------------------------
+const photoIn = z.object({
+  imageDescription: z.string(),
+  vertical: z.string(),
+});
+const photoOut = z.object({
+  whatItIs: z.string(),
+  apparentScope: z.string(),
+  visibleComplications: z.array(z.string()),
+  // Stating what the photo does NOT show is the difference between an
+  // assessment and a guess — a ceiling stain does not show the leak.
+  notDeterminable: z.array(z.string()),
+  urgent: z.boolean(),
+  suggestedReply: z.string(),
+});
+export const photoTriageAgent = defineAgent({
+  id: "photo_triage",
+  role: "photo_triage",
+  dataClass: "CUST",
+  capabilities: ["read:conversation", "write:draft"],
+  inputSchema: photoIn,
+  outputSchema: photoOut,
+  maxTokensOut: 500,
+  budgetUsdPerPassingOutput: 0.003,
+  buildPrompt: (input) =>
+    prompts.developer!.build({
+      facts: { vertical: input.vertical },
+      // Text rendered inside an image is an injection vector text scanning
+      // misses entirely, so the image description arrives as untrusted content.
+      outputShape: "{ whatItIs, apparentScope, visibleComplications[], notDeterminable[], urgent, suggestedReply }",
+      untrusted: { image_description: input.imageDescription },
+    }),
+  simulate: (input) => {
+    const d = input.imageDescription.toLowerCase();
+    const urgent = /exposed wir|gas|structural|collapse|sparking|smoke/.test(d);
+    return {
+      whatItIs: input.imageDescription.slice(0, 80),
+      apparentScope: "Localised, from what is visible in the frame",
+      visibleComplications: urgent ? ["visible safety hazard"] : [],
+      notDeterminable: ["the extent behind the visible surface", "the underlying cause", "access and working height"],
+      urgent,
+      suggestedReply:
+        "Thanks for the photo. I can see the area you've flagged. I can't tell from the image " +
+        "what's behind it, so the owner will confirm scope and price.",
+    };
+  },
+  // ⛔ The agent never prices. A price cannot leak out of this role because the
+  // output schema has no field for one — the constraint is structural rather
+  // than a prompt instruction that could be talked past.
+});
+
+// --- Review responder (§40) — drafts only, owner approves ------------------
+const reviewIn = z.object({ reviewText: z.string(), rating: z.number().min(1).max(5), businessName: z.string() });
+const reviewOut = z.object({ draft: z.string(), tone: z.enum(["thankful", "apologetic", "neutral"]), escalate: z.boolean() });
+export const reviewResponderAgent = defineAgent({
+  id: "review_responder",
+  role: "review_responder",
+  dataClass: "CUST",
+  capabilities: ["read:customer", "write:draft"],
+  inputSchema: reviewIn,
+  outputSchema: reviewOut,
+  maxTokensOut: 300,
+  budgetUsdPerPassingOutput: 0.002,
+  buildPrompt: (input) =>
+    prompts.customer_care!.build({
+      facts: { rating: input.rating, businessName: input.businessName },
+      outputShape: "{ draft, tone, escalate }",
+      untrusted: { review_text: input.reviewText },
+    }),
+  simulate: (input) => ({
+    draft:
+      input.rating >= 4
+        ? `Thanks for taking the time to leave this — glad we could help. — ${input.businessName}`
+        : `Sorry this fell short. We'd like to put it right; please get in touch directly. — ${input.businessName}`,
+    tone: input.rating >= 4 ? ("thankful" as const) : ("apologetic" as const),
+    // A legal threat inside a review is not something to draft a reply to.
+    escalate: /lawyer|sue|legal|trading standards|ombudsman/i.test(input.reviewText),
+  }),
+});
+
+// --- B2B lead sourcing (§40.2) — ⛔ never sends ----------------------------
+const sourcingIn = z.object({
+  targetProfile: z.string(),
+  serviceArea: z.string(),
+  candidateName: z.string(),
+  candidateContext: z.string().default(""),
+});
+const sourcingOut = z.object({
+  qualified: z.boolean(),
+  rationale: z.string(),
+  suggestedOpening: z.string(),
+  researchedContext: z.array(z.string()),
+});
+export const leadSourcingAgent = defineAgent({
+  id: "lead_sourcing",
+  role: "lead_sourcing",
+  dataClass: "CUST",
+  // ⛔ No send:gated. One customer's list quality must never touch the fleet's
+  // reputation, and the protection is that no code path exists — not a policy.
+  capabilities: ["read:business", "write:draft"],
+  inputSchema: sourcingIn,
+  outputSchema: sourcingOut,
+  maxTokensOut: 400,
+  budgetUsdPerPassingOutput: 0.004,
+  buildPrompt: (input) =>
+    prompts.developer!.build({
+      facts: { targetProfile: input.targetProfile, serviceArea: input.serviceArea },
+      outputShape: "{ qualified, rationale, suggestedOpening, researchedContext[] }",
+      untrusted: { candidate_context: input.candidateContext },
+    }),
+  simulate: (input) => ({
+    qualified: input.candidateContext.length > 0,
+    rationale: `Matches ${input.targetProfile} in ${input.serviceArea}`,
+    suggestedOpening: `Noticed ${input.candidateName} covers ${input.serviceArea} — worth a conversation.`,
+    researchedContext: input.candidateContext ? [input.candidateContext.slice(0, 120)] : [],
+  }),
 });
 
 // --- Lighter roles (ux, retention, dunning, researcher, pr, orchestrator,
@@ -396,4 +806,13 @@ export const allAgents = {
   vendor_orchestrator: orchestratorAgent,
   sentinel: sentinelAgent,
   ceo: ceoAgent,
+  // v3.0 — the transaction layer.
+  vertical_architect: architectAgent,
+  kb_extract: kbExtractAgent,
+  qa_generate: qaGenerateAgent,
+  intent_router: intentRouterAgent,
+  concierge_fallback: conciergeFallbackAgent,
+  photo_triage: photoTriageAgent,
+  review_responder: reviewResponderAgent,
+  lead_sourcing: leadSourcingAgent,
 };

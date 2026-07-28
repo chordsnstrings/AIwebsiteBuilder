@@ -91,14 +91,29 @@ export function aggregate(
 // external service that monitors nothing else. Three missed heartbeats and that
 // service alerts the human directly. You are alerted by absence, not presence.
 // ---------------------------------------------------------------------------
-export async function emitHeartbeat(db: Db, now = new Date()): Promise<void> {
-  await db.query("INSERT INTO heartbeats (source, beat_at) VALUES ('sentinel', $1)", [now]);
+/**
+ * The source a heartbeat belongs to. Named rather than hardcoded because more
+ * than one thing needs watching by absence — the Sentinel itself, and (once the
+ * cutover controller runs unattended) the DNS verifier. A switch that can only
+ * observe one source silently reports on whichever wrote last.
+ */
+export const HEARTBEAT_SOURCE = "sentinel";
+
+export async function emitHeartbeat(db: Db, now = new Date(), source = HEARTBEAT_SOURCE): Promise<void> {
+  await db.query("INSERT INTO heartbeats (source, beat_at) VALUES ($2, $1)", [now, source]);
 }
 
-export async function heartbeatMissed(db: Db, now = new Date(), thresholdMs = 3 * 60_000): Promise<boolean> {
+export async function heartbeatMissed(
+  db: Db,
+  now = new Date(),
+  thresholdMs = 3 * 60_000,
+  source = HEARTBEAT_SOURCE,
+): Promise<boolean> {
   const row = await db.maybeOne<{ beat_at: string }>(
-    "SELECT beat_at FROM heartbeats WHERE source='sentinel' ORDER BY beat_at DESC LIMIT 1",
+    "SELECT beat_at FROM heartbeats WHERE source = $1 ORDER BY beat_at DESC LIMIT 1",
+    [source],
   );
+  // No beat at all is a miss. Absence is the signal.
   if (!row) return true;
   return now.getTime() - new Date(row.beat_at).getTime() > thresholdMs;
 }

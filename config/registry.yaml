@@ -134,3 +134,76 @@ roles:
     data_class: CUST
     eval_suite: ceo
     pinned: true
+
+  # --- v3.0 product roles ---------------------------------------------------
+  # The transaction layer. These roles produce and serve the customer's agent:
+  # what their business has published (kb_extract), pre-answered and indexed
+  # (qa_generate), what they receive (vertical_architect), and how a visitor's
+  # message is routed (intent_router) or answered when retrieval misses
+  # (concierge_fallback).
+  vertical_architect:
+    candidates: ["modelark/seed-2-0-lite", "modelark/glm-5-2", "google/gemini-3-6-flash", "modelark/seed-2-0-pro"]
+    escalation: ["modelark/seed-2-0-pro", "google/gemini-3-1-pro"]
+    selection_metric: cost_per_pass
+    re_eval_cadence: monthly
+    data_class: PUB
+    eval_suite: vertical_architect
+  kb_extract:
+    candidates: ["modelark/seed-2-0-mini", "modelark/seed-2-0-lite", "google/gemini-flash-lite", "modelark/deepseek-v4-flash"]
+    escalation: ["modelark/seed-2-0-lite", "google/gemini-flash-lite"]
+    selection_metric: cost_per_pass
+    re_eval_cadence: monthly
+    data_class: PUB
+    eval_suite: kb_extract
+  qa_generate:
+    candidates: ["modelark/seed-2-0-lite", "modelark/glm-5-2", "google/gemini-3-6-flash", "modelark/deepseek-v4-flash"]
+    escalation: ["modelark/glm-5-2", "google/gemini-3-6-flash"]
+    selection_metric: cost_per_pass
+    re_eval_cadence: monthly
+    data_class: PUB
+    eval_suite: qa_generate
+  # Classifies and routes. It never answers — an intent router that answers is
+  # just an ungrounded agent with extra steps.
+  intent_router:
+    candidates: ["modelark/seed-2-0-mini", "google/gemini-flash-lite", "modelark/deepseek-v4-flash", "modelark/seed-2-0-lite"]
+    escalation: ["modelark/seed-2-0-lite", "google/gemini-flash-lite"]
+    selection_metric: cost_per_pass
+    re_eval_cadence: monthly
+    data_class: CUST
+    eval_suite: intent_router
+  # Runs ONLY on a retrieval miss, and must refuse rather than improvise. Recall
+  # on the refusal set is what is being selected for, so this is not a pure cost
+  # race — a cheaper model that improvises is not cheaper.
+  concierge_fallback:
+    candidates: ["modelark/seed-2-0-pro", "anthropic/sonnet-5", "google/gemini-3-1-pro", "modelark/glm-5-2"]
+    escalation: ["anthropic/sonnet-5", "google/gemini-3-1-pro"]
+    selection_metric: recall_then_cost
+    re_eval_cadence: weekly
+    data_class: CUST
+    eval_suite: concierge_fallback
+    status: pending
+  # Vision. ⛔ Never prices — it assesses and states what the photo does NOT show.
+  photo_triage:
+    candidates: ["modelark/seed-2-1-pro", "google/gemini-3-1-pro", "anthropic/sonnet-5", "modelark/seed-2-0-pro"]
+    escalation: ["google/gemini-3-1-pro", "anthropic/sonnet-5"]
+    selection_metric: cost_per_pass
+    re_eval_cadence: monthly
+    data_class: CUST
+    eval_suite: photo_triage
+  # Drafts only. The owner approves every response before it is published.
+  review_responder:
+    candidates: ["modelark/seed-2-0-lite", "modelark/glm-5-2", "google/gemini-3-6-flash", "modelark/seed-2-0-pro"]
+    escalation: ["modelark/seed-2-0-pro", "google/gemini-3-6-flash"]
+    selection_metric: cost_per_pass
+    re_eval_cadence: monthly
+    data_class: CUST
+    eval_suite: review_responder
+  # Sources and researches B2B prospects for a customer's dashboard.
+  # ⛔ Never sends — their complaint rate must never touch our reputation.
+  lead_sourcing:
+    candidates: ["modelark/seed-2-0-lite", "modelark/deepseek-v4-flash", "google/gemini-3-6-flash", "modelark/seed-2-0-mini"]
+    escalation: ["modelark/seed-2-0-pro", "google/gemini-3-6-flash"]
+    selection_metric: cost_per_pass
+    re_eval_cadence: monthly
+    data_class: CUST
+    eval_suite: lead_sourcing

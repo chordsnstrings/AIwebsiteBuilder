@@ -6,6 +6,7 @@
 // AI-visibility claim depends on it). Preview mode adds the disclaimer banner,
 // noindex, the consent checkbox and the "this isn't for me" suppression link.
 import { config } from "@adw/config";
+import { buildJsonLd, machineSurfaceHead, type MachineSurfaceInput } from "./machine-surface.ts";
 import {
   DEFAULT_LAYOUT,
   LAYOUT_SECTIONS,
@@ -47,6 +48,12 @@ export interface RenderOptions {
   // --- Template-family variants (spec §59). All optional: omitting every one of
   // them reproduces the pre-§59 output byte for byte, so existing callers and
   // their goldens are untouched. ---
+  /**
+   * Structured facts for the machine surface. Supplying it upgrades the page
+   * from "has schema" to "is transactable" — Service per offering, Offer where
+   * a price is published, hours, coverage, verified credentials.
+   */
+  machine?: MachineSurfaceInput;
   familyDef?: TemplateFamily;
   colorSystem?: string; // ColorSystem id within familyDef.tokens
   typePairing?: string; // TypePairing id within familyDef.tokens
@@ -181,14 +188,32 @@ export function renderSite(opts: RenderOptions): string {
   const b = opts.business;
   const isPreview = opts.mode === "preview";
 
-  const schema = {
-    "@context": "https://schema.org",
-    "@type": "LocalBusiness",
-    name: b.name,
-    telephone: b.phone,
-    address: { "@type": "PostalAddress", addressLocality: b.city },
-    ...(b.rating ? { aggregateRating: { "@type": "AggregateRating", ratingValue: b.rating, reviewCount: b.reviewCount ?? 0 } } : {}),
-  };
+  // The machine surface is the product (§38.3). When the caller supplies the
+  // structured facts the knowledge base extracted — offerings, hours, coverage,
+  // verified credentials — we emit the full graph: one Service per offering,
+  // Offer only where a price was genuinely published. Without them we fall back
+  // to the bare LocalBusiness node, which is what the market already has and
+  // what the Reviewer's machine-surface gates will flag.
+  const schema = opts.machine
+    ? buildJsonLd({
+        ...opts.machine,
+        name: opts.machine.name || b.name,
+        category: opts.machine.category || b.category,
+        city: opts.machine.city || b.city,
+        phone: opts.machine.phone || b.phone,
+        ...(opts.machine.rating === undefined && b.rating !== undefined ? { rating: b.rating } : {}),
+        ...(opts.machine.reviewCount === undefined && b.reviewCount !== undefined
+          ? { reviewCount: b.reviewCount }
+          : {}),
+      })
+    : {
+        "@context": "https://schema.org",
+        "@type": "LocalBusiness",
+        name: b.name,
+        telephone: b.phone,
+        address: { "@type": "PostalAddress", addressLocality: b.city },
+        ...(b.rating ? { aggregateRating: { "@type": "AggregateRating", ratingValue: b.rating, reviewCount: b.reviewCount ?? 0 } } : {}),
+      };
 
   const banner = isPreview
     ? `<div class="banner" data-label-version="${esc(opts.labelVersion)}">Unofficial preview created by ${esc(opts.legalEntity)} — not affiliated with this business. You pay nothing until you approve this. 30-day money-back guarantee.</div>`
@@ -275,7 +300,7 @@ ${consent}
 ${isPreview ? '<meta name="robots" content="noindex, nofollow">' : ""}
 <title>${esc(b.name)} — ${esc(b.category)} in ${esc(b.city)}</title>
 <meta name="description" content="${esc(opts.copy.headline)}">
-<link rel="alternate" type="text/plain" href="/llms.txt">
+${machineSurfaceHead()}
 <style>${styles}</style>
 <script type="application/ld+json">${JSON.stringify(schema)}</script>
 </head>

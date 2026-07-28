@@ -10,7 +10,13 @@ export type RoleId =
   | "enrichment" | "site_scoring" | "preview_gen" | "outreach_draft" | "customer_care"
   | "developer" | "reviewer_patch" | "ux_review" | "ip_claims" | "finance_pricing"
   | "retention" | "dunning" | "researcher" | "pr_report" | "vendor_orchestrator"
-  | "sentinel" | "ceo";
+  | "sentinel" | "ceo"
+  // v3.0 — the transaction layer. Six of the twenty-five roles in the roster are
+  // deterministic code with no model at all (the Compliance Gate, the Reviewer,
+  // the agent eval gate, the booking and lead-capture state machines, the DNS
+  // cutover controller) and correctly have no entry here.
+  | "vertical_architect" | "kb_extract" | "qa_generate" | "intent_router"
+  | "concierge_fallback" | "photo_triage" | "review_responder" | "lead_sourcing";
 
 export type ModelRef = string; // e.g. "modelark/seed-2-0-pro"
 export type DataClass = "PUB" | "PUBLISHABLE" | "CUST" | "PAY";

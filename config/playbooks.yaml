@@ -1,0 +1,276 @@
+# Vertical playbooks (software documentation §43). Config, not code.
+#
+# Change class: SENSITIVE — PR + compliance owner. The refusal sets in here are
+# the difference between an agent that protects a customer and one that creates
+# a regulatory problem for them, and the Architect may only CLASSIFY against
+# this file. A capability the model proposes that is not listed here fails the
+# build; it does not become a runtime decision.
+#
+# Ordered by the MEASURED booking gap. The lower the coverage, the better the
+# opportunity — a vertical above 40% is already owned by vertical SaaS and the
+# gap we sell against does not exist there.
+version: 1
+reviewed_by: "Counsel — Rivera & Osei LLP"
+reviewed_at: "2026-07-28"
+
+# ⛔ MUST NOT launch into a vertical whose booking coverage exceeds this.
+max_booking_coverage: 0.40
+
+# Refusals every vertical inherits. Never assert a licence, certification,
+# insurance, award or accreditation absent from the knowledge base — even where
+# inference seems reasonable.
+universal_refusals:
+  - id: unverified_credential
+    matches: [licence, license, certified, certification, insured, insurance, accredited, accreditation, award]
+    reason: "Not in the knowledge base as a verified fact"
+  - id: unpublished_price
+    matches: [price, cost, quote, "how much", charge]
+    reason: "Only prices the business has published may be stated"
+  - id: competitor_comparison
+    matches: [better than, cheaper than, versus, compared to]
+    reason: "Never comment on a named competitor"
+  - id: payment_in_conversation
+    matches: [card number, bank details, account number, sort code, routing number]
+    reason: "Payment happens through a link, never in conversation"
+
+verticals:
+  roofing:
+    label: "Roofing"
+    booking_coverage: 0.000
+    booking_model: quote_request
+    photo_triage: true
+    pricing: never_published
+    event_triggers: [storm, high_wind]
+    integrations: [xero_qbo, stripe]
+    site_modules: [hero, services, service_area, gallery, about, emergency, contact]
+    agent_capabilities: [answer, capture_enquiry, photo_triage, escalate, mcp]
+    dashboard_panels: [enquiries, gap_list, photo_queue, reviews, value_report, dns_diff]
+    refusals:
+      - id: trade_certification
+        matches: [gas safe, niceic, part p, asbestos, working at height]
+        reason: "Trade certification claims are never asserted without a verified fact"
+      - id: arrival_guarantee
+        matches: [guaranteed arrival, be there in, within the hour]
+        reason: "Never guarantee an arrival time"
+      - id: photo_price
+        matches: [from this photo, based on the picture]
+        reason: "The agent never prices from a photo — the owner does"
+
+  accountant:
+    label: "Accountant"
+    booking_coverage: 0.067
+    booking_model: consultation_slot
+    photo_triage: false
+    pricing: fee_structure_only
+    event_triggers: [tax_deadline]
+    integrations: [calendar, esign]
+    site_modules: [hero, services, credentials, about, contact]
+    agent_capabilities: [answer, capture_enquiry, book, escalate, mcp]
+    dashboard_panels: [enquiries, bookings, gap_list, reviews, value_report, dns_diff]
+    refusals:
+      - id: tax_advice
+        matches: [should i claim, can i deduct, will i owe, tax advice]
+        reason: "Never give tax advice — this is regulated"
+      - id: outcome_prediction
+        matches: [you will get, guaranteed refund, will save you]
+        reason: "Never predict an outcome"
+
+  lawyer:
+    label: "Lawyer"
+    booking_coverage: 0.095
+    booking_model: consultation_slot
+    photo_triage: false
+    pricing: never_published
+    event_triggers: [filing_date]
+    integrations: [calendar, esign]
+    site_modules: [hero, services, credentials, about, contact]
+    agent_capabilities: [answer, capture_enquiry, book, escalate, mcp]
+    dashboard_panels: [enquiries, bookings, gap_list, reviews, value_report, dns_diff]
+    refusals:
+      - id: legal_advice
+        matches: [do i have a case, should i sue, am i liable, legal advice]
+        reason: "Never give legal advice — this is regulated"
+      - id: case_outcome
+        matches: [we will win, you will win, guaranteed outcome]
+        reason: "Never predict a case outcome"
+      - id: fee_quote
+        matches: [how much will it cost, what are your fees]
+        reason: "Fees are never published for this vertical"
+
+  pest_control:
+    label: "Pest control"
+    booking_coverage: 0.133
+    booking_model: callout_request
+    photo_triage: true
+    pricing: callout_fee
+    event_triggers: [seasonal_infestation]
+    integrations: [xero_qbo, stripe]
+    site_modules: [hero, services, service_area, about, emergency, contact]
+    agent_capabilities: [answer, capture_enquiry, photo_triage, escalate, mcp]
+    dashboard_panels: [enquiries, gap_list, photo_queue, reviews, value_report, dns_diff]
+    refusals:
+      - id: treatment_claim
+        matches: [safe for children, non-toxic, guaranteed eradication]
+        reason: "Treatment safety and efficacy claims are regulated"
+
+  landscaping:
+    label: "Landscaping"
+    booking_coverage: 0.143
+    booking_model: quote_request
+    photo_triage: true
+    pricing: rarely_published
+    event_triggers: [spring, storm_cleanup]
+    integrations: [xero_qbo, stripe]
+    site_modules: [hero, services, service_area, gallery, about, contact]
+    agent_capabilities: [answer, capture_enquiry, photo_triage, escalate, mcp]
+    dashboard_panels: [enquiries, gap_list, photo_queue, reviews, value_report, dns_diff]
+    refusals: []
+
+  electrician:
+    label: "Electrician"
+    booking_coverage: 0.154
+    booking_model: callout_request
+    photo_triage: true
+    pricing: callout_plus_hourly
+    event_triggers: []
+    integrations: [xero_qbo, stripe]
+    site_modules: [hero, services, service_area, about, emergency, contact]
+    agent_capabilities: [answer, capture_enquiry, photo_triage, escalate, mcp]
+    dashboard_panels: [enquiries, gap_list, photo_queue, reviews, value_report, dns_diff]
+    refusals:
+      - id: electrical_certification
+        matches: [niceic, part p, napit, elecsa, 18th edition]
+        reason: "Electrical certification claims are never asserted without a verified fact"
+      - id: diy_guidance
+        matches: [can i do it myself, how do i wire, is it safe to]
+        reason: "Never give electrical work guidance — safety-critical"
+
+  plumber:
+    label: "Plumber"
+    booking_coverage: 0.231
+    booking_model: callout_request
+    photo_triage: true
+    pricing: callout_plus_hourly
+    event_triggers: [freeze]
+    integrations: [xero_qbo, stripe]
+    site_modules: [hero, services, service_area, about, emergency, contact]
+    agent_capabilities: [answer, capture_enquiry, photo_triage, escalate, mcp]
+    dashboard_panels: [enquiries, gap_list, photo_queue, reviews, value_report, dns_diff]
+    refusals:
+      - id: gas_certification
+        matches: [gas safe, corgi, gas certified]
+        reason: "Gas certification claims are never asserted without a verified fact"
+
+  hvac:
+    label: "HVAC"
+    booking_coverage: 0.238
+    booking_model: quote_plus_service_slot
+    photo_triage: true
+    pricing: service_plans
+    event_triggers: [heatwave, cold_snap]
+    integrations: [xero_qbo, stripe]
+    site_modules: [hero, services, service_area, about, emergency, contact]
+    agent_capabilities: [answer, capture_enquiry, book, photo_triage, escalate, mcp]
+    dashboard_panels: [enquiries, bookings, gap_list, photo_queue, reviews, value_report, dns_diff]
+    refusals:
+      - id: refrigerant_certification
+        matches: [f-gas, epa 608, refrigerant certified]
+        reason: "Refrigerant handling certification is never asserted without a verified fact"
+
+  auto_repair:
+    label: "Auto repair"
+    booking_coverage: 0.278
+    booking_model: instant_book
+    photo_triage: true
+    pricing: menu_pricing
+    event_triggers: [mot_reminder]
+    integrations: [booking, stripe]
+    site_modules: [hero, services, about, contact]
+    agent_capabilities: [answer, capture_enquiry, book, photo_triage, escalate, mcp]
+    dashboard_panels: [enquiries, bookings, gap_list, photo_queue, reviews, value_report, dns_diff]
+    refusals:
+      - id: diagnosis_claim
+        matches: [it is definitely, the problem is, you need a new]
+        reason: "Never diagnose without inspection"
+
+  cleaning:
+    label: "Cleaning"
+    booking_coverage: 0.417
+    booking_model: instant_book
+    photo_triage: false
+    pricing: per_hour_or_room
+    event_triggers: []
+    integrations: [booking, stripe]
+    site_modules: [hero, services, service_area, about, contact]
+    agent_capabilities: [answer, capture_enquiry, book, escalate, mcp]
+    dashboard_panels: [enquiries, bookings, gap_list, reviews, value_report, dns_diff]
+    refusals: []
+
+# ⛔ Prohibited. Vertical SaaS already owns the booking layer; the transactability
+# gap we sell against does not exist here. Listed rather than omitted so the
+# Architect refuses explicitly instead of falling through to a default.
+prohibited:
+  dentist:
+    label: "Dentist"
+    booking_coverage: 0.500
+    reason: "Dental practice-management software owns booking"
+  hair_salon:
+    label: "Hair salon"
+    booking_coverage: 0.818
+    reason: "Fresha and Booksy own booking"
+
+# Modifiers reshape the baseline. Detected, never assumed.
+modifiers:
+  emergency_service:
+    detect: ["24/7", "24 hour", emergency, "call out", callout]
+    effects: { adds_modules: [emergency], agent_capabilities: [urgency_triage], escalation: sms }
+  multi_location:
+    detect_field: gbp_location_count_gt_1
+    effects: { adds_modules: [location_picker], booking: routes_by_branch }
+  franchise:
+    detect_field: franchise_register_match
+    effects: { escalate: true, reason: "Brand assets and copy are centrally controlled" }
+  regulated_trade:
+    detect: [gas, electrical, asbestos, medical, legal, financial]
+    effects: { ip_screen: mandatory, refusals: hard }
+  no_published_pricing:
+    detect_field: site_audit_pricing_found_false
+    effects: { removes_modules: [pricing], booking: quote_request_only }
+  appointment_based:
+    detect_field: site_audit_booking_found_true
+    effects: { booking: instant_book, integrations_priority: [calendar] }
+  seasonal:
+    detect_field: review_volume_variance_gt_2x
+    effects: { event_triggers: enabled }
+  b2b_serving:
+    detect: [companies, contracts, offices, commercial, "b2b"]
+    effects: { adds_panels: [b2b_leads], qa_topics: [invoice_terms] }
+  thin_content:
+    detect_field: pages_lt_5_or_words_lt_400
+    effects: { qa_pack: vertical_template_fallback, onboarding: extended }
+
+# Escalate rather than guess.
+escalation:
+  min_confidence: 0.75
+  target_rate_max: 0.06     # above this the playbooks are too narrow
+
+# Retrieval thresholds (§39.1). ⛔ Start high and lower with evidence — a
+# confidently wrong answer is worse than an admission of ignorance, and it is
+# the customer's liability, not ours.
+retrieval:
+  verbatim_min: 0.82        # return the stored answer as written
+  hedged_min: 0.65          # return it with a hedge + offer the owner
+  # below hedged_min → miss → fallback, and log the exact question as a gap
+  hit_rate_target_launch: 0.80
+  hit_rate_target_m3: 0.93
+  rrf_k: 60                 # reciprocal-rank fusion constant
+  vector_weight: 1.0
+  bm25_weight: 1.0
+
+# The per-customer agent eval gate (§47.2). ⛔ No partial credit.
+agent_eval:
+  grounded_cases: 20        # questions from their own published content
+  refusal_cases: 10         # questions outside the KB — refused without improvising
+  pass_requires: all
+  min_pack_pairs: 40        # below this, flag thin and extend onboarding
+  target_pack_pairs: 150

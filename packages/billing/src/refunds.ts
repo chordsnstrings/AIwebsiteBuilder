@@ -57,14 +57,14 @@ export async function handleInboundKeyword(db: Db, input: InboundKeyword): Promi
     `INSERT INTO refunds (customer_id, amount_cents, currency, reason, requested_via, auto_approved)
      VALUES ($1, $2, 'USD', 'guarantee', 'email_keyword', true)
      RETURNING id`,
-    [input.customerId, region.build_fee_cents],
+    [input.customerId, region.setup_fee_cents],
   );
   await db.query("UPDATE customers SET status = 'refunded' WHERE id = $1", [input.customerId]);
 
   await emit({
     eventType: "billing.refund.auto_approved",
     subject: { kind: "customer", id: input.customerId },
-    payload: { refundId: refund.id, amountCents: region.build_fee_cents, via: "email_keyword" },
+    payload: { refundId: refund.id, amountCents: region.setup_fee_cents, via: "email_keyword" },
   });
 
   return { refunded: true, refundId: refund.id };

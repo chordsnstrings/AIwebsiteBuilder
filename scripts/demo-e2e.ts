@@ -142,7 +142,7 @@ step(`5. Reply classified: intent ${care.result.intentScore}, stage ${care.resul
 
 // --- 6. Finance quote (discount clamped) ---
 const quote = await financeAgent.run({ region: "R1", scope: "standard", proposedDiscount: 0.5 }, deps, { subjectId: lead.id });
-step(`6. Quote: $${(quote.result.buildFeeCents / 100).toFixed(0)} build + $${(quote.result.mrrCents / 100).toFixed(0)}/mo, discount clamped to ${(quote.result.discountPct * 100).toFixed(0)}%.`);
+step(`6. Quote: $${(quote.result.setupFeeCents / 100).toFixed(0)} setup + $${(quote.result.mrrCents / 100).toFixed(0)}/mo, discount clamped to ${(quote.result.discountPct * 100).toFixed(0)}%.`);
 
 // --- 7. Full build through the durable workflow engine ---
 // Registered from the PRODUCTION activity registry, not from stubs written here.
