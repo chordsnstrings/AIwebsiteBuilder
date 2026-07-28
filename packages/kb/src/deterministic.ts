@@ -7,6 +7,7 @@
 // that fills a blank from world knowledge; a pattern that does not match
 // produces no fact, which becomes a gap, which becomes an onboarding question.
 import type { CrawledPage, ExtractorFn, GbpRecord, RawFact, ReviewSample } from "./types.ts";
+import { STAFF_ROLE_RE } from "./personal.ts";
 import {
   detectLanguage,
   expandDayRange,
@@ -59,8 +60,6 @@ const CREDENTIAL_RES: RegExp[] = [
   /\b(?:member|members)\s+of\s+the\s+[a-z ]{3,40}/i,
 ];
 
-const ROLE_RE =
-  /\b(owner|co-?founder|founder|director|manager|principal|partner|technician|engineer|plumber|electrician|roofer|stylist|colourist|therapist|dentist|hygienist|nurse|receptionist|apprentice|surveyor|accountant|solicitor|paralegal|groomer|mechanic|practice manager|head of [a-z]+|senior [a-z]+|lead [a-z]+)\b/i;
 const STAFF_LINE_RE =
   /^([\p{Lu}][\p{L}'’-]+(?:\s+[\p{Lu}][\p{L}'’-]+){0,2})\s*(?:[—–-]|,)\s*(.{3,60})$/u;
 
@@ -138,9 +137,11 @@ function extractHours(page: CrawledPage, lang: string): RawFact[] {
   // bare range is still their published opening time; it is tagged 'general'
   // because we cannot say which day it applies to.
   if (out.length === 0) {
-    for (const line of lines(page.text)) {
-      if (!HOURS_LABEL_RE.test(line)) continue;
-      const m = BARE_RANGE_RE.exec(line);
+    const all = lines(page.text);
+    for (let i = 0; i < all.length; i++) {
+      if (!HOURS_LABEL_RE.test(all[i] ?? "")) continue;
+      // The label and the times are as often on two lines as on one.
+      const m = BARE_RANGE_RE.exec(all[i] ?? "") ?? BARE_RANGE_RE.exec(all[i + 1] ?? "");
       if (m === null) continue;
       const range = normalizeTimeRange(m[1] ?? "", m[2] ?? "");
       if (range !== null) push("general", range);
@@ -236,7 +237,7 @@ function extractStaff(page: CrawledPage, lang: string): RawFact[] {
     const m = STAFF_LINE_RE.exec(line);
     const name = m?.[1];
     const role = m?.[2]?.trim();
-    if (name === undefined || role === undefined || !ROLE_RE.test(role)) continue;
+    if (name === undefined || role === undefined || !STAFF_ROLE_RE.test(role)) continue;
     out.push({
       type: "staff", value: `${name} — ${role}`, factKey: `staff:${lang}:${slugify(name)}`, lang,
       sourceUrl: page.url, retrievedAt: page.retrievedAt, confidence: 0.8,

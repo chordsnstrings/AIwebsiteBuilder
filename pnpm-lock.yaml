@@ -235,18 +235,30 @@ importers:
       '@adw/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@adw/dns':
+        specifier: workspace:*
+        version: link:../../packages/dns
       '@adw/fleet':
         specifier: workspace:*
         version: link:../../packages/fleet
       '@adw/gate':
         specifier: workspace:*
         version: link:../../packages/gate
+      '@adw/kb':
+        specifier: workspace:*
+        version: link:../../packages/kb
+      '@adw/mcp':
+        specifier: workspace:*
+        version: link:../../packages/mcp
       '@adw/orchestrator':
         specifier: workspace:*
         version: link:../../packages/orchestrator
       '@adw/provenance':
         specifier: workspace:*
         version: link:../../packages/provenance
+      '@adw/qapack':
+        specifier: workspace:*
+        version: link:../../packages/qapack
       '@adw/registry':
         specifier: workspace:*
         version: link:../../packages/registry
@@ -513,6 +525,9 @@ importers:
       '@adw/db':
         specifier: workspace:*
         version: link:../db
+      '@adw/kb':
+        specifier: workspace:*
+        version: link:../kb
 
   packages/registry:
     dependencies:

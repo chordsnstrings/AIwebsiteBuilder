@@ -197,11 +197,21 @@ describe("runSuites harness wiring", () => {
     );
     const results = await runSuites(deps());
 
+    // Every suite the tree defines must produce an eval_runs row. Asserted as
+    // an exact set rather than a subset: a suite that silently stops running is
+    // indistinguishable from one that passes, and that is the failure mode the
+    // whole harness exists to prevent.
     expect(results.map((r) => r.suite).sort()).toEqual([
+      "concierge_fallback",
       "customer_care",
       "fixtures",
       "injection",
+      "intent_router",
       "ip_claims",
+      "kb_extract",
+      "photo_triage",
+      "qa_generate",
+      "vertical_architect",
     ]);
     for (const r of results) {
       expect(r.failures, `${r.suite} failures`).toEqual([]);

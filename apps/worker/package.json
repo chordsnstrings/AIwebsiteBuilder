@@ -26,6 +26,10 @@
     "@adw/reviewer-gates": "workspace:*",
     "@adw/vendors": "workspace:*",
     "@adw/registry": "workspace:*",
-    "@adw/provenance": "workspace:*"
+    "@adw/provenance": "workspace:*",
+    "@adw/kb": "workspace:*",
+    "@adw/qapack": "workspace:*",
+    "@adw/dns": "workspace:*",
+    "@adw/mcp": "workspace:*"
   }
 }
