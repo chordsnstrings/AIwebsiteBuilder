@@ -1,0 +1,426 @@
+/* Alder & Stone — design study.
+   Look and feel only; the backend comes after. Fonts load from Google here for
+   speed of iteration — production self-hosts them, because config/allowlists.yaml
+   permits 'self' and cdn.adwsites.com and nothing else. */
+
+/* ---------------------------------------------------------------- tokens -- */
+:root {
+  /* Warm near-black with a green cast — never pure #000, which reads cheap
+     against photography. */
+  --ink:        #15170F;
+  --ink-80:     rgba(21, 23, 15, 0.80);
+  --ink-55:     rgba(21, 23, 15, 0.55);
+  --ink-30:     rgba(21, 23, 15, 0.30);
+  --ink-12:     rgba(21, 23, 15, 0.12);
+
+  --paper:      #F6F4EE;
+  --paper-2:    #EFEBE1;
+  --moss:       #46523C;
+  --clay:       #8A6A4B;
+  --line:       rgba(21, 23, 15, 0.14);
+
+  /* Fluid scale. The display sizes are deliberately large — the page has very
+     few words, so the ones there are have to carry it. */
+  --step--1: clamp(0.82rem, 0.79rem + 0.14vw, 0.90rem);
+  --step-0:  clamp(1.00rem, 0.96rem + 0.20vw, 1.12rem);
+  --step-1:  clamp(1.25rem, 1.15rem + 0.50vw, 1.55rem);
+  --step-2:  clamp(1.65rem, 1.40rem + 1.20vw, 2.40rem);
+  --step-3:  clamp(2.20rem, 1.60rem + 2.90vw, 4.20rem);
+  --step-4:  clamp(2.80rem, 1.70rem + 4.40vw, 5.40rem);
+
+  --gutter:  clamp(1.25rem, 0.80rem + 2.20vw, 3.50rem);
+  --measure: 34ch;
+  --max:     1440px;
+
+  --ease:    cubic-bezier(0.22, 0.61, 0.36, 1);
+  --slow:    720ms;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: var(--step-0);
+  line-height: 1.6;
+  font-feature-settings: "kern" 1, "liga" 1, "cv11" 1;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+img { max-width: 100%; height: auto; display: block; }
+a { color: inherit; }
+
+::selection { background: var(--moss); color: var(--paper); }
+
+:focus-visible {
+  outline: 2px solid var(--moss);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+.wrap { width: 100%; max-width: var(--max); margin-inline: auto; padding-inline: var(--gutter); }
+.narrow { max-width: 62ch; }
+
+/* -------------------------------------------------------------- typography -- */
+.display,
+h1, h2, h3 {
+  font-family: "Instrument Serif", "Iowan Old Style", Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.015em;
+  line-height: 1.02;
+  margin: 0;
+  text-wrap: balance;
+}
+h1 { font-size: var(--step-4); }
+h2 { font-size: var(--step-3); }
+h3 { font-size: var(--step-1); letter-spacing: -0.01em; line-height: 1.15; }
+
+p { margin: 0 0 1.1em; text-wrap: pretty; }
+.lede { font-size: var(--step-1); line-height: 1.42; color: var(--ink-80); max-width: 46ch; }
+
+/* Small caps label — the connective tissue of the whole layout. */
+.eyebrow {
+  font-size: var(--step--1);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-55);
+  margin: 0 0 1.4rem;
+  font-weight: 500;
+}
+.eyebrow--rule { display: flex; align-items: center; gap: 1rem; }
+.eyebrow--rule::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+.serif-note {
+  font-family: "Instrument Serif", Georgia, serif;
+  font-size: var(--step-1);
+  line-height: 1.35;
+  color: var(--ink-80);
+}
+
+/* ------------------------------------------------------------------- nav -- */
+.nav {
+  position: sticky; top: 0; z-index: 50;
+  background: color-mix(in srgb, var(--paper) 86%, transparent);
+  backdrop-filter: saturate(1.4) blur(14px);
+  border-bottom: 1px solid transparent;
+  transition: border-color 300ms var(--ease), background 300ms var(--ease);
+}
+.nav[data-stuck="true"] { border-bottom-color: var(--line); }
+.nav__in {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 2rem;
+  padding-block: 1.05rem;
+}
+.brand {
+  font-family: "Instrument Serif", Georgia, serif;
+  font-size: 1.32rem; letter-spacing: -0.01em; text-decoration: none; white-space: nowrap;
+}
+.brand span { color: var(--ink-55); }
+.nav__links { display: flex; gap: clamp(1rem, 2.4vw, 2.4rem); align-items: baseline; }
+.nav__links a {
+  font-size: var(--step--1); letter-spacing: 0.10em; text-transform: uppercase;
+  text-decoration: none; color: var(--ink-55); padding-block: 0.35rem;
+  position: relative; transition: color 240ms var(--ease);
+}
+.nav__links a::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
+  background: currentColor; transform: scaleX(0); transform-origin: left;
+  transition: transform 320ms var(--ease);
+}
+.nav__links a:hover { color: var(--ink); }
+.nav__links a:hover::after { transform: scaleX(1); }
+.nav__links a[aria-current="page"] { color: var(--ink); }
+.nav__links a[aria-current="page"]::after { transform: scaleX(1); background: var(--moss); }
+@media (max-width: 640px) {
+  .nav__links { gap: 0.95rem; }
+  .nav__links a { letter-spacing: 0.06em; }
+  .nav__links a[data-optional] { display: none; }
+}
+
+/* ------------------------------------------------------------------ ask -- */
+/* The hero. Questions are the product, so they are the first thing on the page
+   and the largest thing on the page. */
+/* Split hero. The first draft was a single centred column and the h1 broke to
+   three lines — "Ask / us / anything." — which pushed the answer below the fold.
+   The answer appearing without a scroll IS the demonstration, so the type came
+   down a step and the photograph took the space that was empty anyway. */
+.ask {
+  padding-block: clamp(2.5rem, 1.5rem + 3.5vw, 4.5rem) clamp(2.5rem, 1.5rem + 4vw, 5rem);
+}
+.ask__grid { display: grid; gap: clamp(2.5rem, 1rem + 5vw, 4rem); align-items: center; }
+.ask__media { display: none; }
+
+@media (min-width: 1000px) {
+  /* No padding on the section itself — the photograph runs to the top of the
+     viewport under the translucent nav, and the text column carries its own
+     inset instead. A band of paper above the image reads as a mistake. */
+  .ask { padding: 0; }
+  .ask__grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.82fr);
+    gap: clamp(3rem, 1rem + 5vw, 6rem);
+    align-items: center;
+    min-height: min(88vh, 860px);
+  }
+  .ask__text {
+    padding-left: max(var(--gutter), calc((100vw - var(--max)) / 2 + var(--gutter)));
+    padding-block: clamp(2rem, 1rem + 3vw, 4rem);
+  }
+  .ask__media { display: block; align-self: stretch; }
+  .ask__media img { width: 100%; height: 100%; min-height: 620px; object-fit: cover; }
+}
+/* Two lines, deliberately: "Ask us / anything." One line wastes the drama and
+   three pushes the answer under the fold, which is the one thing the hero has
+   to prove. The break is explicit in the markup — `text-wrap: balance` kept
+   choosing three, and a display headline is a design decision, not a
+   suggestion to the layout engine. */
+.ask__head { max-width: none; }
+.ask h1 { text-wrap: nowrap; }
+.ask h1 em {
+  font-style: normal;
+  color: var(--moss);
+  /* A hand-drawn underline rather than a rule — softer, and it survives at
+     display sizes where a border looks like a mistake. */
+  background-image: linear-gradient(var(--moss), var(--moss));
+  background-size: 100% 2px; background-repeat: no-repeat; background-position: 0 92%;
+  padding-bottom: 0.06em;
+}
+.ask__sub { margin-top: 1.3rem; max-width: 42ch; color: var(--ink-55); font-size: var(--step-0); }
+
+.askbox {
+  margin-top: clamp(1.6rem, 1rem + 2vw, 2.4rem);
+  max-width: 640px;
+}
+.askbox__field {
+  display: flex; align-items: center; gap: 0.6rem;
+  border-bottom: 1.5px solid var(--ink-30);
+  padding-block: 0.85rem;
+  transition: border-color 260ms var(--ease);
+}
+.askbox__field:focus-within { border-bottom-color: var(--moss); }
+.askbox input {
+  flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink);
+  font: inherit; font-size: var(--step-1); padding: 0;
+}
+.askbox input::placeholder { color: var(--ink-30); }
+.askbox input:focus { outline: none; }
+.askbox__send {
+  flex: none; border: 0; background: none; cursor: pointer; color: var(--ink-55);
+  padding: 0.4rem; border-radius: 50%; display: grid; place-items: center;
+  transition: color 220ms var(--ease), transform 220ms var(--ease);
+}
+.askbox__send:hover { color: var(--moss); transform: translateX(3px); }
+
+.chips { display: flex; flex-wrap: wrap; gap: 0.55rem; margin-top: 1.4rem; }
+.chip {
+  border: 1px solid var(--line); background: transparent; color: var(--ink-80);
+  border-radius: 999px; padding: 0.5rem 1.05rem; font: inherit; font-size: var(--step--1);
+  cursor: pointer; white-space: nowrap;
+  transition: background 240ms var(--ease), border-color 240ms var(--ease),
+              color 240ms var(--ease), transform 240ms var(--ease);
+}
+.chip:hover { background: var(--ink); border-color: var(--ink); color: var(--paper); transform: translateY(-1px); }
+
+.answer {
+  margin-top: 1.6rem; max-width: 60ch;
+  display: grid; grid-template-rows: 0fr;
+  transition: grid-template-rows 520ms var(--ease);
+}
+.answer[data-open="true"] { grid-template-rows: 1fr; }
+.answer__in { overflow: hidden; }
+.answer__card {
+  border-left: 2px solid var(--moss);
+  padding: 0.15rem 0 0.15rem 1.35rem;
+  opacity: 0; transform: translateY(8px);
+  transition: opacity 460ms var(--ease) 90ms, transform 460ms var(--ease) 90ms;
+}
+.answer[data-open="true"] .answer__card { opacity: 1; transform: none; }
+.answer__card p { font-size: var(--step-1); line-height: 1.45; margin-bottom: 0.7rem; }
+.answer__meta { font-size: var(--step--1); color: var(--ink-55); margin: 0; }
+/* A refusal is styled differently on purpose — it is a feature, not an error. */
+.answer__card[data-kind="refusal"] { border-left-color: var(--clay); }
+.answer__card[data-kind="refusal"] .answer__meta { color: var(--clay); }
+
+/* ---------------------------------------------------------------- media -- */
+.bleed { width: 100%; }
+.bleed img { width: 100%; object-fit: cover; }
+.bleed--tall img { aspect-ratio: 16 / 9; }
+@media (max-width: 700px) { .bleed--tall img { aspect-ratio: 4 / 5; } }
+
+.figure { margin: 0; }
+.figure figcaption {
+  display: flex; justify-content: space-between; gap: 1rem;
+  margin-top: 0.85rem; font-size: var(--step--1); color: var(--ink-55);
+  border-top: 1px solid var(--line); padding-top: 0.7rem;
+}
+.figure figcaption b { font-weight: 500; color: var(--ink); }
+
+/* ------------------------------------------------------------- sections -- */
+.section { padding-block: clamp(4rem, 2.5rem + 6vw, 9rem); }
+.section--tight { padding-block: clamp(2.5rem, 1.5rem + 4vw, 5rem); }
+.section--paper2 { background: var(--paper-2); }
+
+.split {
+  display: grid; gap: clamp(2rem, 1rem + 4vw, 5rem);
+  grid-template-columns: 1fr;
+}
+@media (min-width: 900px) {
+  .split { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: start; }
+  .split--reverse > :first-child { order: 2; }
+}
+
+.stat-row {
+  display: grid; gap: clamp(1.5rem, 1rem + 2vw, 3rem);
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  border-top: 1px solid var(--line); padding-top: 2rem;
+}
+.stat b {
+  display: block; font-family: "Instrument Serif", Georgia, serif;
+  font-size: var(--step-2); font-weight: 400; letter-spacing: -0.02em; line-height: 1;
+}
+.stat span { display: block; margin-top: 0.5rem; font-size: var(--step--1); color: var(--ink-55); }
+
+/* Work grid — asymmetric on purpose, but the first version left holes big
+   enough that it read as broken rather than composed. Two fixes: the images
+   carry fixed aspect ratios so the grid is driven by the layout instead of by
+   whatever shape the photograph happened to be, and the second column is
+   dropped by a third of its height so the eye zigzags instead of scanning a
+   row. */
+.work-grid { display: grid; gap: clamp(1.5rem, 1rem + 3vw, 3.5rem); }
+.work-grid img { width: 100%; object-fit: cover; }
+.work-grid figure:nth-of-type(1) img { aspect-ratio: 4 / 3; }
+.work-grid figure:nth-of-type(2) img { aspect-ratio: 3 / 4; }
+.work-grid figure:nth-of-type(3) img { aspect-ratio: 3 / 2; }
+
+@media (min-width: 860px) {
+  .work-grid {
+    grid-template-columns: repeat(12, 1fr);
+    align-items: start;
+    row-gap: clamp(2rem, 1rem + 4vw, 5rem);
+  }
+  .work-grid > *:nth-child(1) { grid-column: 1 / span 7;  grid-row: 1; }
+  .work-grid > *:nth-child(2) { grid-column: 9 / span 4;  grid-row: 1 / span 2; margin-top: 22%; }
+  .work-grid > *:nth-child(3) { grid-column: 1 / span 6;  grid-row: 2; }
+  .work-grid > *:nth-child(4) { grid-column: 9 / span 4;  grid-row: 3; }
+}
+
+.list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.list li { border-bottom: 1px solid var(--line); }
+.list a, .list > div {
+  display: grid; gap: 0.35rem 2rem; padding-block: clamp(1.4rem, 1rem + 1vw, 2.1rem);
+  text-decoration: none; align-items: baseline;
+}
+@media (min-width: 780px) {
+  .list a, .list > div { grid-template-columns: 1.2fr 2fr auto; }
+}
+.list h3 { transition: color 240ms var(--ease); }
+.list a:hover h3 { color: var(--moss); }
+.list p { margin: 0; color: var(--ink-55); }
+.list .meta { font-size: var(--step--1); color: var(--ink-30); letter-spacing: 0.08em; text-transform: uppercase; }
+
+/* Pull quote over the frost photograph, which has negative space on the right. */
+.quote-media { position: relative; }
+.quote-media img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+/* The frost photograph is bright frozen grass on the LEFT and dark blue blur on
+   the RIGHT. The first version put dark type on the bright half and it was
+   genuinely unreadable. The type belongs on the dark half, in paper, with a
+   scrim behind it — legibility over a photograph is never left to luck. */
+.quote-media::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(to left, rgba(12, 20, 28, 0.62) 0%, rgba(12, 20, 28, 0.34) 42%, transparent 72%);
+}
+.quote-media blockquote {
+  margin: 0; position: absolute; inset: 0; z-index: 1;
+  display: grid; align-content: center; justify-items: end;
+  padding-inline: clamp(1.5rem, 6vw, 7rem);
+}
+.quote-media blockquote > p {
+  font-family: "Instrument Serif", Georgia, serif;
+  font-size: clamp(1.5rem, 0.9rem + 2.4vw, 3.2rem); line-height: 1.14;
+  max-width: 17ch; color: var(--paper); margin: 0; text-align: right;
+}
+.quote-media cite {
+  display: block; margin-top: 1.2rem; font-style: normal; text-align: right;
+  font-size: var(--step--1); letter-spacing: 0.14em; text-transform: uppercase;
+  color: rgba(246, 244, 238, 0.66);
+}
+@media (max-width: 700px) {
+  .quote-media img { aspect-ratio: 4 / 5; }
+  .quote-media::after {
+    background: linear-gradient(to top, rgba(12, 20, 28, 0.68) 0%, rgba(12, 20, 28, 0.25) 55%, transparent 85%);
+  }
+  .quote-media blockquote { align-content: end; justify-items: start; padding-bottom: 2.5rem; }
+  .quote-media blockquote > p, .quote-media cite { text-align: left; }
+}
+
+/* ---------------------------------------------------------------- forms -- */
+.field { display: grid; gap: 0.45rem; margin-bottom: 1.5rem; }
+.field label { font-size: var(--step--1); letter-spacing: 0.10em; text-transform: uppercase; color: var(--ink-55); }
+.field input, .field textarea, .field select {
+  font: inherit; color: var(--ink); background: transparent;
+  border: 0; border-bottom: 1px solid var(--ink-30); padding: 0.7rem 0;
+  transition: border-color 240ms var(--ease);
+}
+.field input:focus, .field textarea:focus, .field select:focus {
+  outline: none; border-bottom-color: var(--moss);
+}
+.field textarea { resize: vertical; min-height: 7rem; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 0.6rem;
+  background: var(--ink); color: var(--paper); border: 1px solid var(--ink);
+  padding: 0.95rem 1.7rem; border-radius: 999px; cursor: pointer;
+  font: inherit; font-size: var(--step--1); letter-spacing: 0.10em; text-transform: uppercase;
+  text-decoration: none;
+  transition: background 260ms var(--ease), color 260ms var(--ease), transform 260ms var(--ease);
+}
+.btn:hover { background: var(--moss); border-color: var(--moss); transform: translateY(-1px); }
+.btn--ghost { background: transparent; color: var(--ink); }
+.btn--ghost:hover { background: var(--ink); color: var(--paper); }
+
+/* --------------------------------------------------------------- footer -- */
+.footer { background: var(--ink); color: var(--paper); padding-block: clamp(3.5rem, 2rem + 5vw, 6.5rem); }
+.footer a { color: inherit; text-decoration: none; }
+.footer .eyebrow { color: rgba(246, 244, 238, 0.5); }
+.footer__grid { display: grid; gap: 2.5rem; grid-template-columns: 1fr; }
+@media (min-width: 820px) { .footer__grid { grid-template-columns: 1.4fr 1fr 1fr; } }
+.footer h2 { font-size: var(--step-2); max-width: 14ch; }
+.footer ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; }
+.footer ul a { color: rgba(246, 244, 238, 0.72); transition: color 220ms var(--ease); }
+.footer ul a:hover { color: var(--paper); }
+.footer__base {
+  margin-top: clamp(2.5rem, 1.5rem + 3vw, 4.5rem); padding-top: 1.6rem;
+  border-top: 1px solid rgba(246, 244, 238, 0.16);
+  display: flex; flex-wrap: wrap; gap: 1rem 2rem; justify-content: space-between;
+  font-size: var(--step--1); color: rgba(246, 244, 238, 0.5);
+}
+/* The machine surface, stated plainly. It is the actual product and most
+   businesses cannot claim it. */
+.footer__machine { display: flex; flex-wrap: wrap; gap: 0.5rem 1.4rem; align-items: center; }
+.footer__machine code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82em;
+  color: rgba(246, 244, 238, 0.72);
+}
+
+/* --------------------------------------------------------------- motion -- */
+@media (prefers-reduced-motion: no-preference) {
+  [data-reveal] { opacity: 0; transform: translateY(18px); }
+  [data-reveal].is-in {
+    opacity: 1; transform: none;
+    transition: opacity var(--slow) var(--ease), transform var(--slow) var(--ease);
+    transition-delay: calc(var(--i, 0) * 80ms);
+  }
+  /* ⛔ The LCP element is never entrance-animated — it would delay the largest
+     paint by exactly the animation duration. */
+  .ask h1, .ask__sub, .askbox { opacity: 1 !important; transform: none !important; }
+}
+
+.skip {
+  position: absolute; left: -9999px; top: 0; background: var(--ink); color: var(--paper);
+  padding: 0.8rem 1.2rem; z-index: 100;
+}
+.skip:focus { left: 0; }

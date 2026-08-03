@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en-US">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contact — Alder &amp; Stone</title>
+<meta name="description" content="Book a site visit with Alder & Stone, Portland.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<nav class="nav">
+  <div class="wrap nav__in">
+    <a class="brand" href="index.html">Alder &amp; Stone</a>
+    <div class="nav__links">
+      <a href="work.html">Work</a>
+      <a href="services.html">Services</a>
+      <a href="studio.html" data-optional>Studio</a>
+      <a href="contact.html" aria-current="page">Contact</a>
+    </div>
+  </div>
+</nav>
+<main id="main">
+
+  <section class="section" style="padding-bottom:0">
+    <div class="wrap">
+      <p class="eyebrow">Contact</p>
+      <h1 style="max-width:16ch">Book a site visit.</h1>
+      <p class="lede" style="margin-top:1.8rem">Ninety minutes, on site, $180 — and it comes off the design fee if you go ahead. Tell us a little about the space and we will come back within two working days.</p>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:clamp(2.5rem,1.5rem+3vw,4rem)">
+    <div class="wrap split">
+      <div data-reveal>
+        <p class="eyebrow eyebrow--rule">Studio</p>
+        <ul style="list-style:none;margin:1.5rem 0 0;padding:0;display:grid;gap:1.1rem;color:var(--ink-55)">
+          <li><a href="mailto:studio@alderandstone.example" style="color:var(--ink)">studio@alderandstone.example</a></li>
+          <li><a href="tel:+15035550148" style="color:var(--ink)">+1 503 555 0148</a></li>
+          <li>812 SE Morrison St<br>Portland, OR 97214</li>
+          <li>Mon–Fri, 8.00–17.30</li>
+        </ul>
+        <p class="serif-note" style="margin-top:2.5rem">
+          We work across Portland and out to Lake Oswego and West Linn. Beyond about
+          25 miles, design only.
+        </p>
+      </div>
+
+      <form data-reveal style="--i:1" onsubmit="event.preventDefault();this.querySelector('[data-sent]').hidden=false;">
+        <div class="field">
+          <label for="name">Your name</label>
+          <input id="name" name="name" type="text" required autocomplete="name">
+        </div>
+        <div class="field">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" required autocomplete="email">
+        </div>
+        <div class="field">
+          <label for="phone">Phone</label>
+          <input id="phone" name="phone" type="tel" autocomplete="tel">
+        </div>
+        <div class="field">
+          <label for="where">Where is the garden?</label>
+          <input id="where" name="where" type="text" placeholder="Neighbourhood is enough">
+        </div>
+        <div class="field">
+          <label for="about">About the space</label>
+          <textarea id="about" name="about" placeholder="Size, what is there now, what you would like to do with it."></textarea>
+        </div>
+        <button class="btn" type="submit">Request a site visit</button>
+        <p data-sent hidden style="margin-top:1.2rem;color:var(--moss)">
+          Thank you — that is with the studio. Someone will reply within two working days.
+        </p>
+      </form>
+    </div>
+  </section>
+
+
+  <section class="section section--tight" data-ask>
+    <div class="wrap">
+      <p class="eyebrow eyebrow--rule">Still wondering something?</p>
+      <div class="askbox" style="margin-top:1.5rem">
+        <form data-ask-form autocomplete="off">
+          <div class="askbox__field">
+            <label class="skip" for="q2">Your question</label>
+            <input id="q2" name="q" type="text" placeholder="Ask Alder &amp; Stone a question&hellip;" />
+            <button class="askbox__send" type="submit" aria-label="Ask">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13M12 5l7 7-7 7"/></svg>
+            </button>
+          </div>
+        </form>
+        <div class="chips">
+          <button class="chip" data-chip type="button">What does a garden design cost?</button>
+          <button class="chip" data-chip type="button">Do you maintain gardens after they are built?</button>
+          <button class="chip" data-chip type="button">Can you work with an existing garden?</button>
+        </div>
+        <div class="answer" data-answer data-open="false">
+          <div class="answer__in">
+            <div class="answer__card" data-answer-card data-kind="answer">
+              <p data-answer-body></p>
+              <p class="answer__meta" data-answer-meta></p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+<footer class="footer">
+  <div class="wrap">
+    <div class="footer__grid">
+      <div>
+        <p class="eyebrow">Start a garden</p>
+        <h2>Tell us about the space.</h2>
+        <p style="margin-top:1.8rem"><a class="btn" href="contact.html">Book a site visit</a></p>
+      </div>
+      <div>
+        <p class="eyebrow">Studio</p>
+        <ul>
+          <li><a href="mailto:studio@alderandstone.example">studio@alderandstone.example</a></li>
+          <li><a href="tel:+15035550148">+1 503 555 0148</a></li>
+          <li>812 SE Morrison St<br>Portland, OR 97214</li>
+        </ul>
+      </div>
+      <div>
+        <p class="eyebrow">Pages</p>
+        <ul>
+          <li><a href="work.html">Work</a></li>
+          <li><a href="services.html">Services</a></li>
+          <li><a href="studio.html">Studio</a></li>
+          <li><a href="contact.html">Contact</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer__base">
+      <span>© 2026 Alder &amp; Stone. Landscape contractor LCB #9921.</span>
+      <span class="footer__machine">
+        <span>Readable by machines:</span>
+        <code>/llms.txt</code><code>/.well-known/mcp</code><code>Service schema</code>
+      </span>
+    </div>
+  </div>
+</footer>
+<script src="assets/site.js" defer></script>
+</body>
+</html>
