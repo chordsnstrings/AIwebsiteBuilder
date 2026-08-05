@@ -7,6 +7,19 @@ the model gets wrong, written as rules it can be checked against.
 Every clause here traces to an observed failure. Nothing is here because it
 sounded like good practice.
 
+**Two kinds of clause, and the difference matters.**
+
+⛔ marks an **invariant** — a rule that exists because breaking it produced a
+measurable defect, and one that is checked by script after you generate. These
+are not open to interpretation and there is no design argument that beats them.
+
+Everything else is **direction**: register, composition, rhythm, palette,
+motion vocabulary. Those are yours. You are the design agent — choose what suits
+this business rather than reaching for what is safe, and say what you chose in a
+comment so a human can review the reasoning rather than only the result.
+
+The invariants exist so that the freedom is safe, not to remove it.
+
 ---
 
 ## 0. Output format
@@ -27,45 +40,39 @@ no placeholder comments standing in for markup you did not write.
 
 ---
 
-## 1. The hero — the clause most often broken
+## 1. The hero
 
-⛔ The hero is **not** a headline over a photograph. It is a QUESTION BOX.
+⛔ **Invariant — you do not get a vote on this.** The question box is the
+primary element of the hero. It is not a card floating on a photograph, not a
+band under a headline, and not below the fold. Left to itself the model
+produces a big headline, a full-bleed image and a CTA — the conventional
+pattern, and the exact thing this product is not. It has done so even when told
+in capitals not to.
 
-Left to itself the model produces a big headline, a full-bleed image and a
-CTA — the conventional pattern, and the exact thing this product is not.
-It has done so even when told in capitals not to. So the hero is specified
-structurally rather than described:
+⛔ **Invariant — measurable.** At a 1440×1000 viewport, tapping a suggested
+question must reveal the whole answer **without scrolling**. Budget the vertical
+space so this holds. It is the demonstration the entire page exists to make, and
+an answer below the fold is a failed hero regardless of how the page looks.
 
-**Above 1000px it is a two-column split.**
+⛔ **Invariant.** Any text sitting on a photograph needs a scrim. Name which
+part of the image is dark, put the text there, and put a gradient behind it.
 
-- Left column: text and question interface, on the plain page background.
-  ⛔ NOT over a photograph. No text of any kind overlaps an image in the hero.
-- Right column: exactly one photograph, running full-bleed to the right edge of
-  the viewport and the full height of the hero. It starts at the top of the
-  viewport, under the header — a band of background above it reads as a mistake.
+**Everything else about the hero is yours to decide.** Choose the composition
+that suits this business, this vertical's register, and these photographs.
+Four archetypes that satisfy the invariants — pick one, or propose your own:
 
-**Left column contents, in this order:**
+- **Split** — text and question interface on the page background at left, one
+  full-height photograph bleeding off the right edge. Calm, editorial, safe.
+- **Stage** — question interface centred on plain background with generous air,
+  photography beginning immediately below the fold. Confident; needs strong type.
+- **Frame** — question interface on the background, a photograph inset within a
+  wide margin beside or beneath it. Quieter; suits verticals with weak imagery.
+- **Typographic** — no hero photograph at all. Type, rule and space carry it.
+  Legitimate and often stronger where the trade has no photography worth
+  showing, or where the register is restraint (regulated professions).
 
-1. One line of small letterspaced uppercase label text.
-2. The `h1`. **Four words maximum.** It is an invitation to ask, not a claim
-   about the business. Largest text on the page.
-3. One supporting sentence, 30 words or fewer.
-4. The question input: a single line with a **bottom border only**. No box, no
-   rounded rectangle, no drop shadow, no filled background. The placeholder is a
-   real example question, not "Type here".
-5. The suggested questions as small outlined pills.
-6. The answer region, directly beneath the pills.
-
-**The measurable requirement:**
-
-⛔ At a 1440×1000 viewport, tapping a suggested question must reveal the whole
-answer **without scrolling**. Budget the vertical space so this holds. This is
-why the layout is a split and not a full-bleed image — it is the demonstration
-the entire page exists to make, and an answer below the fold is a failed hero.
-
-Below 1000px the columns stack: text first, photograph beneath it.
-
----
+⛔ State which you chose and why in a comment at the top of the stylesheet, in
+one sentence. A choice nobody can see is a choice nobody can review.
 
 ## 2. Answers and refusals
 
@@ -127,23 +134,27 @@ a palette **from** them. Do not ignore them, and do not use them raw.
 
 ---
 
-## 5. Microanimation
+## 5. Motion
 
-Every interactive element responds. The page is calm at rest and never moves on
-its own.
+Every interactive element responds to being touched. The page is calm at rest
+and never moves on its own.
 
-**Required:**
+**Choose a motion vocabulary that matches the register.** A regulated
+profession wants motion you barely notice — a border colour, a 200ms fade. A
+trade selling on how things look can afford a photographic band drifting
+against the scroll and images that scale under the cursor. ⛔ Do not apply the
+same vocabulary to both: motion is tone, and identical motion across two
+different registers is the clearest sign of a template.
 
-| Element | Behaviour |
-|---|---|
-| Nav link hover | Underline wipes in from the left, 300ms |
-| Suggested pill hover | Fills with ink, label inverts, lifts 1px, 240ms |
-| Button hover | Background shifts, lifts 1px, 260ms |
-| Input focus | Bottom border changes colour, 260ms |
-| Answer reveal | Height opens via `grid-template-rows: 0fr → 1fr`, content fades and rises 8px behind it |
-| Section entrance | Fades and rises 18px on scroll, IntersectionObserver, staggered ~80ms per sibling |
-| Gallery image hover | Scales to 1.03 inside `overflow: hidden`, 600ms |
-| Sticky header | Gains a hairline bottom border once scrolled |
+**What must respond, however you choose to do it:** navigation links, suggested
+question pills, buttons, the question input on focus, the answer as it appears,
+sections as they enter, images in a gallery, the header once scrolled.
+
+**Techniques that work, to draw on rather than to follow:**
+underline wipes · fills that invert a label · 1px lifts · border colour on focus ·
+`grid-template-rows: 0fr → 1fr` for opening height without measuring it ·
+IntersectionObserver entrances with a stagger · scale inside `overflow: hidden` ·
+a hairline appearing on a sticky header · a photographic band drifting on scroll.
 
 **Rules:**
 
@@ -151,13 +162,39 @@ its own.
   `left`, `margin`, or `box-shadow` — they force layout on every frame.
 - One shared easing custom property. Interaction 180–300ms, entrance 500–700ms.
 - ⛔ Everything sits behind `@media (prefers-reduced-motion: no-preference)`.
-  With motion reduced, the page renders complete and static — not invisible.
+  With motion reduced the page renders complete and static — not invisible.
   This is the commonest way an entrance animation ships as a blank page.
 - ⛔ The LCP element is never entrance-animated. It delays the largest paint by
   exactly the animation duration.
-- **Forbidden:** parallax, scroll-jacking, carousels, auto-playing anything,
-  bounce and elastic easings, spinners, counters that tick up, text that types
-  itself, cursor followers, hover effects that move layout.
+
+**Parallax — permitted where it earns its place.** A photographic band that
+drifts against the scroll adds depth to a page carrying strong imagery, and the
+verticals that sell on how things look are exactly where it belongs. It is a
+design decision, not a default: use it where the photography deserves it and
+leave it out where it would be noise.
+
+When you use it:
+
+- ⛔ `transform: translate3d(0, …, 0)` only, written inside a
+  `requestAnimationFrame` callback. Never assign to `top`, `margin` or
+  `background-position` on scroll — that is layout thrash on every frame and it
+  is what gives parallax its reputation.
+- ⛔ Read scroll position inside the frame, never in the scroll handler. The
+  handler sets a flag; the frame does the work.
+- ⛔ Displacement stays under about 15% of the element's height. More and edges
+  tear away from their container on a fast flick.
+- ⛔ The moving element sits in a container with `overflow: hidden` and a fixed
+  `aspect-ratio`, so nothing reflows and cumulative layout shift stays at zero.
+- ⛔ Never on the LCP element or the hero photograph — the largest paint must
+  not wait on a scroll handler.
+- ⛔ Disabled entirely under `prefers-reduced-motion: reduce`, sitting at rest.
+- ⛔ Off below 640px. On a phone it costs battery and jank and buys nothing at
+  that viewport height.
+
+**Still forbidden:** scroll-jacking, hijacked or smoothed native scrolling,
+carousels, auto-playing video or audio, bounce and elastic easings, spinners,
+counters that tick up, text that types itself, cursor followers, and any hover
+effect that moves layout rather than paint.
 
 ---
 
@@ -209,3 +246,34 @@ its own.
   defect.
 - Form inputs have real `<label>` elements, visually hidden if the design needs
   the placeholder to carry the label.
+
+---
+
+## 10. ⛔ Do not produce the house style
+
+An earlier version of this contract dictated one hero composition and one motion
+vocabulary. Nine trades were generated against it and the result was nine
+recognisably identical sites — a roofer in Idaho and a Melbourne law firm with
+the same layout, the same rhythm and the same movement. The registers written in
+the vertical brief were flattened by the contract that was supposed to serve
+them.
+
+So, last and load-bearing:
+
+- The **register in the vertical brief is authoritative** for tone, weight and
+  restraint. Where this contract leaves a choice open, the register decides it —
+  not your defaults.
+- Two sites from two different verticals must not be recognisably the same
+  template. Different hero archetype, different type register, different rhythm,
+  different motion vocabulary. If a reader could swap the photographs and the
+  words between them and notice nothing else, you have failed.
+- Two sites in the SAME vertical must differ too. Vary section order, the
+  proportion of type to image, where the page breathes and where it is dense.
+- ⛔ Do not reach for the safe composition because it is safe. A split hero with
+  a photograph on the right is correct roughly a third of the time and is what
+  you will produce every time unless you decide otherwise.
+
+At the top of the stylesheet, in a comment of no more than four lines, state:
+the hero archetype you chose, the type pairing and why it suits this trade, the
+motion vocabulary in three words, and the contrast ratios you achieved. That
+comment is how a human reviews the decision rather than only the outcome.
