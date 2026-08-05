@@ -425,6 +425,15 @@ importers:
 
   packages/demo-data: {}
 
+  packages/designer:
+    dependencies:
+      '@adw/config':
+        specifier: workspace:*
+        version: link:../config
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+
   packages/dns:
     dependencies:
       '@adw/db':

@@ -160,6 +160,16 @@ export const config = {
     const raw = readFileSync(join(CONFIG_DIR, "playbooks.yaml"), "utf8");
     return { data: parse(raw), version: "playbooks@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
   },
+  /**
+   * The design catalogue (§59). Reviewed change class: the Designer may only
+   * CHOOSE from this file. A type pairing or hero archetype the model invents
+   * fails the build — enumerating the options is what turned "be different"
+   * from a request into a lookup.
+   */
+  designCatalogue: () => {
+    const raw = readFileSync(join(CONFIG_DIR, "design-catalogue.yaml"), "utf8");
+    return { data: parse(raw), version: "design@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
+  },
   _resetCache: () => {
     _cache = {};
   },

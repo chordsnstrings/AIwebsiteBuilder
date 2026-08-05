@@ -1,0 +1,182 @@
+# The design catalogue (§59). Config, not code.
+#
+# Change class: REVIEWED — PR plus a design owner. The Designer may only CHOOSE
+# from this file. A pairing, archetype or motion vocabulary the model invents
+# fails the build; adding one is a pull request, not a runtime decision.
+#
+# This exists because of a measured failure. When the design contract dictated a
+# single hero composition, nine trades generated nine identical sites. When the
+# choice was handed to the model in prose, layout varied but FOUR OF SIX picked
+# the same type pairing — the sameness moved down a level rather than going away.
+# A model asked to be different will still walk to the nearest attractor. So the
+# choice is enumerated here and diversity is enforced in code.
+version: 1
+reviewed_by: "Design — internal"
+reviewed_at: "2026-08-05"
+
+# ---------------------------------------------------------------------------
+# Hero archetypes. All satisfy the §1 invariants; they differ in composition.
+# ---------------------------------------------------------------------------
+hero_archetypes:
+  split:
+    label: "Split"
+    description: "Question interface at left on the page background, one photograph bleeding off the right edge, full height."
+    needs_photography: true
+    fold_budget_px: 620
+  stage:
+    label: "Stage"
+    description: "Question interface centred with generous air, photography beginning immediately below the fold."
+    needs_photography: false
+    fold_budget_px: 560
+  frame:
+    label: "Frame"
+    description: "Question interface on the background, a photograph inset within a wide margin beside or beneath it."
+    needs_photography: true
+    fold_budget_px: 600
+  typographic:
+    label: "Typographic"
+    description: "No hero photograph. Type, rule and space carry the composition."
+    needs_photography: false
+    fold_budget_px: 520
+  ledger:
+    label: "Ledger"
+    description: "Question interface beside a dense published-facts panel — prices, hours, coverage — set as a table. Suits trades that publish real numbers."
+    needs_photography: false
+    fold_budget_px: 580
+
+# ---------------------------------------------------------------------------
+# Type pairings, grouped by class. The vertical names permitted CLASSES; the
+# Designer picks a pairing within them. Enumerated so "be different" is a
+# lookup rather than a hope.
+# ---------------------------------------------------------------------------
+type_pairings:
+  editorial_serif:
+    - { id: instrument_inter,  display: "Instrument Serif", text: "Inter",        note: "High contrast, gallery-quiet" }
+    - { id: fraunces_inter,    display: "Fraunces",         text: "Inter",        note: "Soft-but-sharp, variable optical size" }
+    - { id: newsreader_inter,  display: "Newsreader",       text: "Inter",        note: "Bookish, real optical sizes" }
+    - { id: spectral_ibm,      display: "Spectral",         text: "IBM Plex Sans", note: "Warm, screen-native serif" }
+  classical_serif:
+    - { id: eb_garamond_inter, display: "EB Garamond",      text: "Inter",        note: "Old-style, unhurried authority" }
+    - { id: libre_caslon_ibm,  display: "Libre Caslon Text", text: "IBM Plex Sans", note: "Institutional, legal register" }
+    - { id: source_serif_source, display: "Source Serif 4", text: "Source Sans 3", note: "Neutral, professional, no period flavour" }
+  condensed_grotesk:
+    - { id: oswald_inter,      display: "Oswald",           text: "Inter",        note: "Signage weight, trade competence" }
+    - { id: archivo_narrow_archivo, display: "Archivo Narrow", text: "Archivo",   note: "Tight, industrial, sets loud" }
+    - { id: barlow_condensed_barlow, display: "Barlow Condensed", text: "Barlow", note: "Utility, slightly softened" }
+  neo_grotesk:
+    - { id: archivo_inter,     display: "Archivo",          text: "Inter",        note: "Heavy display weights, tabular figures" }
+    - { id: space_grotesk_inter, display: "Space Grotesk",  text: "Inter",        note: "Technical, engineered, quirky at size" }
+    - { id: manrope_inter,     display: "Manrope",          text: "Inter",        note: "Geometric, modern, calm" }
+  humanist_sans:
+    - { id: work_sans_inter,   display: "Work Sans",        text: "Inter",        note: "Friendly without being soft" }
+    - { id: plex_sans_plex,    display: "IBM Plex Sans",    text: "IBM Plex Sans", note: "One family, weight does the work" }
+    - { id: figtree_inter,     display: "Figtree",          text: "Inter",        note: "Warm, rounded terminals, approachable" }
+  slab:
+    - { id: roboto_slab_inter, display: "Roboto Slab",      text: "Inter",        note: "Sturdy, unfussy, reads as built" }
+    - { id: zilla_slab_inter,  display: "Zilla Slab",       text: "Inter",        note: "Squared slab, mechanical" }
+
+# ---------------------------------------------------------------------------
+# Motion vocabularies. Motion is tone: identical motion across two registers is
+# the clearest sign of a template.
+# ---------------------------------------------------------------------------
+motion_vocabularies:
+  still:
+    label: "Still"
+    description: "Colour and border transitions only. Nothing translates. Nothing enters."
+    parallax_allowed: false
+    entrance: none
+  hairline:
+    label: "Hairline"
+    description: "Rules draw in, borders shift, opacity fades. No displacement over 6px."
+    parallax_allowed: false
+    entrance: fade
+  measured:
+    label: "Measured"
+    description: "Fades with a short rise, staggered entrances, 1px lifts on hover."
+    parallax_allowed: false
+    entrance: fade_rise
+  photographic:
+    label: "Photographic"
+    description: "Slow entrances, image scale under the cursor, a band drifting against the scroll."
+    parallax_allowed: true
+    entrance: fade_rise_slow
+  mechanical:
+    label: "Mechanical"
+    description: "Fast, precise, no easing softness. Fills invert, edges snap, nothing floats."
+    parallax_allowed: false
+    entrance: fade
+
+density:
+  airy:      "Long vertical rhythm, few elements per screen, whitespace is the luxury signal."
+  balanced:  "Conventional rhythm. Sections read at a steady pace."
+  dense:     "Information-forward. Tables, lists and figures close together; whitespace between groups, not within them."
+
+# ---------------------------------------------------------------------------
+# Per-vertical permissions. The Designer chooses WITHIN these.
+# ⛔ `forbid` beats `allow` — a vertical that forbids photography cannot pick a
+# photographic archetype however well it argues for one.
+# ---------------------------------------------------------------------------
+verticals:
+  roofing:
+    archetypes: [split, frame, stage, ledger]
+    type_classes: [condensed_grotesk, slab, neo_grotesk]
+    motion: [measured, mechanical, photographic]
+    density: [balanced, dense]
+  plumber:
+    archetypes: [split, stage, ledger, frame]
+    type_classes: [humanist_sans, neo_grotesk, condensed_grotesk]
+    motion: [measured, mechanical, hairline]
+    density: [balanced, dense]
+  electrician:
+    archetypes: [ledger, split, frame, stage]
+    type_classes: [neo_grotesk, condensed_grotesk, humanist_sans]
+    motion: [mechanical, measured, hairline]
+    density: [dense, balanced]
+  hvac:
+    archetypes: [stage, split, frame, ledger]
+    type_classes: [humanist_sans, neo_grotesk, editorial_serif]
+    motion: [measured, photographic, hairline]
+    density: [airy, balanced]
+  pest_control:
+    archetypes: [typographic, stage, frame]
+    type_classes: [humanist_sans, editorial_serif, neo_grotesk]
+    motion: [hairline, measured, still]
+    density: [airy, balanced]
+    # ⛔ Bought with embarrassment. Discretion is the value proposition.
+    forbid: [photographic_motion, pest_imagery, alarming_colour]
+  landscaping:
+    archetypes: [split, frame, stage]
+    type_classes: [editorial_serif, humanist_sans, classical_serif]
+    motion: [photographic, measured]
+    density: [airy, balanced]
+  accountant:
+    archetypes: [typographic, ledger, stage]
+    type_classes: [classical_serif, editorial_serif, humanist_sans]
+    motion: [still, hairline, measured]
+    density: [balanced, dense]
+    forbid: [stock_people_photography, photographic_motion]
+  lawyer:
+    archetypes: [typographic, ledger, frame]
+    type_classes: [classical_serif, editorial_serif]
+    motion: [still, hairline]
+    density: [airy, balanced]
+    # ⛔ No gavels, scales, columns, library shelves or people. Ever.
+    forbid: [people_photography, legal_cliche_imagery, photographic_motion]
+  auto_repair:
+    archetypes: [ledger, stage, split]
+    type_classes: [neo_grotesk, condensed_grotesk, slab]
+    motion: [mechanical, measured]
+    density: [dense, balanced]
+
+# ---------------------------------------------------------------------------
+# ⛔ Diversity. Enforced in code, not requested in a prompt.
+# ---------------------------------------------------------------------------
+diversity:
+  # Two businesses in the same vertical must not receive the same combination
+  # within this window. Checked against stored manifests before a build starts.
+  window: 8
+  # The fields whose combination must be unique inside the window.
+  distinct_on: [hero_archetype, type_pairing]
+  # Below this many prior manifests the constraint cannot bind; it is not an
+  # error, it just has nothing to compare against yet.
+  min_history: 1
