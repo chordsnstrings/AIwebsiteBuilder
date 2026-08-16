@@ -1,5 +1,5 @@
 {
-  "name": "@adw/site-templates",
+  "name": "@adw/taxonomy",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -12,11 +12,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@adw/config": "workspace:*",
-    "@adw/designer": "workspace:*",
-    "@adw/taxonomy": "workspace:*"
-  },
-  "devDependencies": {
-    "@adw/reviewer-gates": "workspace:*"
+    "@adw/config": "workspace:*"
   }
 }

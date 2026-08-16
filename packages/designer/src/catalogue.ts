@@ -10,6 +10,7 @@
 // So the check is arithmetic over stored history, not a request in a prompt.
 
 import { config } from "@adw/config";
+import { primaryArchetype } from "@adw/taxonomy";
 import {
   DesignCatalogueError,
   DesignRepetitionError,
@@ -41,6 +42,8 @@ interface VerticalRow {
 }
 export interface Catalogue {
   version: number;
+  /** Per-archetype fallback, keyed A–J. Carries the 136 trades with no row. */
+  archetype_defaults?: Record<string, VerticalRow>;
   hero_archetypes: Record<string, ArchetypeRow>;
   type_pairings: Record<string, TypePairing[]>;
   motion_vocabularies: Record<string, MotionRow>;
@@ -59,15 +62,31 @@ export function loadCatalogue(): LoadedCatalogue {
   return { data: data as Catalogue, version };
 }
 
+/**
+ * The design rules for a vertical, falling back to its archetype.
+ *
+ * ⛔ Per-trade OVERRIDES the archetype wholesale; it never merges. Two rule sets
+ * merged give a site two opinions about density, which reads worse than either.
+ *
+ * The fallback is what makes 145 trades buildable from 9 hand-written rows plus
+ * 10 archetype defaults. A trade in no cluster still throws — an unknown trade
+ * resolving to a default would pick a register nobody chose, silently.
+ */
 export function verticalRules(vertical: string): VerticalRow {
-  const row = loadCatalogue().data.verticals[vertical];
-  if (row === undefined) {
-    throw new DesignCatalogueError(
-      `No design rules for vertical "${vertical}". Adding one is a pull request against ` +
-        "config/design-catalogue.yaml, not a runtime decision.",
-    );
-  }
-  return row;
+  const cat = loadCatalogue().data;
+  const own = cat.verticals[vertical];
+  if (own !== undefined) return own;
+
+  const code = primaryArchetype(vertical);
+  const fallback = code === undefined ? undefined : cat.archetype_defaults?.[code];
+  if (fallback !== undefined) return fallback;
+
+  throw new DesignCatalogueError(
+    `No design rules for vertical "${vertical}"` +
+      (code === undefined
+        ? " — and it is in no cluster in config/verticals.yaml, so there is no archetype to fall back to."
+        : ` and no archetype_defaults entry for archetype ${code}.`),
+  );
 }
 
 /** Every pairing this vertical is allowed to choose from, flattened. */

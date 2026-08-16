@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run"
@@ -16,6 +18,7 @@
     "@adw/prompts": "workspace:*",
     "@adw/config": "workspace:*",
     "@adw/vault": "workspace:*",
-    "zod": "^3.24.1"
+    "zod": "^3.24.1",
+    "@adw/taxonomy": "workspace:*"
   }
 }

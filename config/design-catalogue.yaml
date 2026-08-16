@@ -116,6 +116,72 @@ density:
 # ⛔ `forbid` beats `allow` — a vertical that forbids photography cannot pick a
 # photographic archetype however well it argues for one.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# ⛔ Per-ARCHETYPE defaults. A trade with no row of its own resolves here.
+#
+# Nine trades below have hand-written rules; config/verticals.yaml has 145.
+# Writing 145 rows would be 145 things to keep in sync and 136 chances to get a
+# refusal set wrong. The catalogue's own structure is 60 → 10 → 14, and this is
+# the 10.
+#
+# A per-trade row OVERRIDES its archetype default wholesale — never merges.
+# Merged design rules produce a site with two opinions about density.
+# ---------------------------------------------------------------------------
+archetype_defaults:
+  A:  # emergency trades — legible at 3am on a cracked phone
+    archetypes: [split, stage, ledger, frame]
+    type_classes: [condensed_grotesk, neo_grotesk, humanist_sans]
+    motion: [measured, mechanical]
+    density: [balanced, dense]
+  B:  # booked personal services
+    archetypes: [frame, stage, split, typographic]
+    type_classes: [editorial_serif, humanist_sans, neo_grotesk]
+    motion: [measured, hairline, photographic]
+    density: [airy, balanced]
+  C:  # regulated professions
+    archetypes: [typographic, ledger, frame]
+    type_classes: [classical_serif, editorial_serif]
+    motion: [still, hairline]
+    density: [airy, balanced]
+    forbid: [people_photography, legal_cliche_imagery, photographic_motion]
+  D:  # project trades — the work is the argument
+    archetypes: [split, frame, stage, ledger]
+    type_classes: [slab, condensed_grotesk, neo_grotesk]
+    motion: [measured, photographic, mechanical]
+    density: [balanced, dense]
+  E:  # recurring B2B — read by someone building a shortlist
+    archetypes: [ledger, typographic, frame, split]
+    type_classes: [neo_grotesk, humanist_sans, editorial_serif]
+    motion: [still, hairline, measured]
+    density: [dense, balanced]
+  F:  # hospitality and venues — photography IS the product
+    archetypes: [stage, frame, split]
+    type_classes: [editorial_serif, classical_serif, humanist_sans]
+    motion: [photographic, measured]
+    density: [airy, balanced]
+  G:  # clinical and health
+    archetypes: [typographic, frame, ledger, stage]
+    type_classes: [humanist_sans, editorial_serif, neo_grotesk]
+    motion: [still, hairline, measured]
+    density: [airy, balanced]
+    # ⛔ No stock clinicians, no stock patients, no motion over a body.
+    forbid: [stock_people_photography, photographic_motion]
+  H:  # education and training
+    archetypes: [split, typographic, stage, ledger]
+    type_classes: [humanist_sans, editorial_serif, neo_grotesk]
+    motion: [measured, hairline]
+    density: [balanced, airy]
+  I:  # property and lettings
+    archetypes: [stage, split, frame, ledger]
+    type_classes: [editorial_serif, neo_grotesk, humanist_sans]
+    motion: [photographic, measured]
+    density: [balanced, airy]
+  J:  # retail — the catalogue marks this a weak fit; keep it plain
+    archetypes: [typographic, stage, frame]
+    type_classes: [humanist_sans, neo_grotesk, editorial_serif]
+    motion: [still, hairline]
+    density: [airy, balanced]
+
 verticals:
   roofing:
     archetypes: [split, frame, stage, ledger]

@@ -1,0 +1,485 @@
+# The canonical vertical taxonomy — all 60 clusters from the master catalogue.
+#
+# ⛔ ONE source. Before this file the taxonomy lived in five places (playbooks,
+# design-catalogue, SITE_VERTICALS, the Architect's category map, protocols),
+# each listing a different subset of nine SMB trades, and every one of them
+# would have had to be edited to add a vertical. Everything now derives from
+# here.
+#
+# Two levels, because the catalogue and the code are at different grains:
+#
+#   CLUSTER  what the catalogue calls a vertical — "Emergency home services".
+#            60 of them, each carrying an archetype and a segment.
+#   TRADE    what a business actually is — "plumber". This is what a customer
+#            record holds, what a design is chosen for, and what a protocol is
+#            scoped to. The nine ids that predate this file are unchanged; they
+#            are sub-verticals of a cluster, not competitors to it.
+#
+# Archetypes (A–J) are the load-bearing key. The catalogue collapses 60 → 10 → 14
+# engines, and so does this system: design, register and playbook defaults are
+# chosen per ARCHETYPE, with per-trade overrides where a trade genuinely differs.
+# Sixty hand-written design rows would be sixty things to keep in sync.
+
+version: 1
+
+archetypes:
+  A: emergency_trades
+  B: booked_personal_services
+  C: regulated_professions
+  D: project_trades
+  E: recurring_b2b
+  F: hospitality_venues
+  G: clinical_health
+  H: education_training
+  I: property_lettings
+  J: retail_product_led
+
+# ---------------------------------------------------------------------------
+# What lead-data vendors actually call these businesses.
+#
+# ⛔ Synonyms only. Morphological variants — roofer/roofing, plumber/plumbing,
+# landscaper/landscaping — are handled by stemming in the resolver and must NOT
+# be listed here; a list that has to enumerate every ending is a list that will
+# be missing one. These are the words that share no stem with the trade id.
+# ---------------------------------------------------------------------------
+aliases:
+  auto_repair: [mechanic, garage, "car repair", "auto shop", "vehicle repair", "mot centre", "mot center"]
+  lawyer: [solicitor, attorney, "law firm", advocate, barrister, "legal services"]
+  accountant: [bookkeeper, cpa, "chartered accountant", "tax preparer"]
+  hvac: [aircon, "air conditioning", "heating and cooling", hvacr, furnace]
+  pest_control: [exterminator, "pest removal", fumigation]
+  cleaning: [cleaner, housekeeping, janitorial, "maid service"]
+  dentist: [dental, orthodontist, "dental practice", "dental surgery"]
+  physiotherapy: [physio, physiotherapist]
+  veterinary: [vet, "vet clinic", "animal hospital"]
+  estate_agent: [realtor, "real estate agent", "property agent"]
+  hair_salon: [hairdresser, "hair stylist", coiffure]
+  gym: ["fitness centre", "fitness center", "health club"]
+  restaurant: [eatery, bistro, diner, "food service"]
+  personal_trainer: ["pt studio", "fitness coach"]
+  it_msp: ["managed service provider", "it support", "it services"]
+  freight_forwarder: [logistics, "customs broker", shipping]
+  saas_and_software: [software, saas, "software company"]
+  telecom: [carrier, mvno, isp, "internet service provider"]
+
+clusters:
+  - id: emergency_home_services
+    n: 1
+    label: "Emergency home services"
+    segment: smb_local
+    archetypes: [A]
+    examples: "Plumbing, electrical, AC/HVAC, locksmith, pest, drainage, appliance repair"
+    trades: [plumber, electrician, hvac, locksmith, pest_control, drainage, appliance_repair]
+  - id: project_trades
+    n: 2
+    label: "Project trades"
+    segment: smb_local
+    archetypes: [D]
+    examples: "Builders, kitchen/bathroom fitters, landscaping, solar, flooring, painting"
+    trades: [roofing, landscaping, builder, kitchen_bathroom_fitter, solar_installer, flooring, painter_decorator]
+  - id: construction_and_fit_out
+    n: 3
+    label: "Construction & fit-out"
+    segment: smb_local
+    archetypes: [D, E]
+    examples: "Fit-out contractors, MEP, maintenance contractors"
+    trades: [fitout_contractor, mep_contractor, maintenance_contractor]
+  - id: cleaning_and_facilities
+    n: 4
+    label: "Cleaning & facilities"
+    segment: smb_local
+    archetypes: [E, B]
+    examples: "Residential cleaning, commercial cleaning, security, waste, grounds"
+    trades: [cleaning, commercial_cleaning, security_services, waste_management, grounds_maintenance]
+  - id: beauty_and_personal_care
+    n: 5
+    label: "Beauty & personal care"
+    segment: smb_local
+    archetypes: [B]
+    examples: "Salons, barbers, spas, nails, aesthetics, tattoo, massage"
+    trades: [hair_salon, barber, spa, nail_salon, aesthetics_clinic, tattoo_studio, massage_therapy]
+  - id: fitness_and_studios
+    n: 6
+    label: "Fitness & studios"
+    segment: smb_local
+    archetypes: [H, B]
+    examples: "Gyms, PTs, yoga, martial arts, dance"
+    trades: [gym, personal_trainer, yoga_studio, martial_arts, dance_studio]
+  - id: clinical_and_health
+    n: 7
+    label: "Clinical & health"
+    segment: smb_local
+    archetypes: [G]
+    examples: "Dental, private GP, physio, chiro, optician, aesthetic clinics"
+    trades: [dentist, private_gp, physiotherapy, chiropractor, optician, aesthetic_clinic]
+  - id: veterinary_and_pet
+    n: 8
+    label: "Veterinary & pet"
+    segment: smb_local
+    archetypes: [G, B]
+    examples: "Vets, grooming, boarding, pet relocation"
+    trades: [veterinary, pet_grooming, pet_boarding, pet_relocation]
+  - id: regulated_professions
+    n: 9
+    label: "Regulated professions"
+    segment: smb_local
+    archetypes: [C]
+    examples: "Law, accounting, tax, audit, IFA, surveyors, architects"
+    trades: [lawyer, accountant, tax_advisor, auditor, financial_adviser, surveyor, architect_practice]
+  - id: immigration_pro_and_visa_services
+    n: 10
+    label: "Immigration, PRO & visa services"
+    segment: smb_local
+    archetypes: [C]
+    examples: "Immigration consultants, typing centres, attestation, PRO services"
+    trades: [immigration_consultant, typing_centre, attestation_services, pro_services]
+  - id: education_and_training
+    n: 11
+    label: "Education & training"
+    segment: smb_local
+    archetypes: [H]
+    examples: "Tutoring, language schools, driving schools, vocational, music"
+    trades: [tutoring, language_school, driving_school, vocational_training, music_school]
+  - id: study_abroad_consulting
+    n: 12
+    label: "Study-abroad consulting"
+    segment: smb_local
+    archetypes: [C, H]
+    examples: "International education agencies (EduNomad-class)"
+    trades: [study_abroad_agency]
+  - id: nurseries_and_childcare
+    n: 13
+    label: "Nurseries & childcare"
+    segment: smb_local
+    archetypes: [H]
+    examples: "Nurseries, daycare, after-school programs"
+    trades: [childcare, nursery, after_school_club]
+  - id: restaurants_and_cafes
+    n: 14
+    label: "Restaurants & cafes"
+    segment: smb_local
+    archetypes: [F]
+    examples: "Restaurants, cafes, QSR"
+    trades: [restaurant, cafe, quick_service_restaurant]
+  - id: catering_and_cloud_kitchens
+    n: 15
+    label: "Catering & cloud kitchens"
+    segment: smb_local
+    archetypes: [F, D]
+    examples: "Event caterers, cloud kitchens"
+    trades: [event_caterer, cloud_kitchen]
+  - id: hotels_holiday_homes_and_venues
+    n: 16
+    label: "Hotels, holiday homes & venues"
+    segment: smb_local
+    archetypes: [F]
+    examples: "Hotels, B&Bs, holiday lets, wedding venues, event spaces"
+    trades: [hotel, bed_and_breakfast, holiday_let, wedding_venue, event_space]
+  - id: real_estate_brokerage
+    n: 17
+    label: "Real estate brokerage"
+    segment: smb_local
+    archetypes: [I]
+    examples: "Sales/leasing agents, holiday-let managers"
+    trades: [estate_agent, letting_agent, holiday_let_manager]
+  - id: property_and_block_management
+    n: 18
+    label: "Property & block management"
+    segment: smb_local
+    archetypes: [I, E]
+    examples: "Owners associations, building/HMO management"
+    trades: [owners_association, block_management, hmo_management]
+  - id: automotive_services
+    n: 19
+    label: "Automotive services"
+    segment: smb_local
+    archetypes: [A, B, D]
+    examples: "Garages, detailing, tinting, recovery, rental"
+    trades: [auto_repair, car_detailing, window_tinting, vehicle_recovery, car_rental]
+  - id: vehicle_trading_and_salvage
+    n: 20
+    label: "Vehicle trading & salvage"
+    segment: smb_local
+    archetypes: [D]
+    examples: "Used-car dealers, auction buyers, exporters"
+    trades: [used_car_dealer, auction_buyer, vehicle_exporter]
+  - id: retail_and_product_led
+    n: 21
+    label: "Retail & product-led"
+    segment: smb_local
+    archetypes: [J]
+    examples: "Florists, bakeries, furniture, bike shops, boutiques"
+    trades: [retail, florist, bakery, furniture_shop, bike_shop, boutique]
+  - id: b2b_services_and_agencies
+    n: 22
+    label: "B2B services & agencies"
+    segment: smb_local
+    archetypes: [E, C]
+    examples: "Marketing, IT/MSP, consulting"
+    trades: [marketing_agency, it_msp, consulting_firm]
+  - id: recruitment_and_staffing
+    n: 23
+    label: "Recruitment & staffing"
+    segment: smb_local
+    archetypes: [E, C]
+    examples: "Agencies, executive search, manpower supply"
+    trades: [recruitment_agency, executive_search, manpower_supply]
+  - id: events_and_creative_services
+    n: 24
+    label: "Events & creative services"
+    segment: smb_local
+    archetypes: [D, F]
+    examples: "Photographers, planners, AV, printing"
+    trades: [photographer, event_planner, av_production, printing]
+  - id: travel_and_tour_operators
+    n: 25
+    label: "Travel & tour operators"
+    segment: smb_local
+    archetypes: [D, F]
+    examples: "Agencies, DMCs, tour operators"
+    trades: [travel_agency, dmc, tour_operator]
+  - id: logistics_and_freight
+    n: 26
+    label: "Logistics & freight (SMB)"
+    segment: smb_local
+    archetypes: [D, E]
+    examples: "Forwarders, last-mile, movers"
+    trades: [freight_forwarder, last_mile_delivery, removals]
+  - id: insurance_and_financial_brokerage
+    n: 27
+    label: "Insurance & financial brokerage"
+    segment: smb_local
+    archetypes: [C]
+    examples: "Insurance brokers, mortgage brokers"
+    trades: [insurance_broker, mortgage_broker]
+  - id: hospitals_and_health_systems
+    n: 28
+    label: "Hospitals & health systems"
+    segment: enterprise_global
+    archetypes: [G]
+    examples: "Hospital groups, clinics networks, diagnostics chains"
+    trades: [hospitals_and_health_systems]
+  - id: pharma_and_biotech
+    n: 29
+    label: "Pharma & biotech"
+    segment: enterprise_global
+    archetypes: [C]
+    examples: "Pharma, biotech, CROs"
+    trades: [pharma_and_biotech]
+  - id: medical_devices_and_diagnostics
+    n: 30
+    label: "Medical devices & diagnostics"
+    segment: enterprise_global
+    archetypes: [E, G]
+    examples: "Device makers, diagnostic labs"
+    trades: [medical_devices_and_diagnostics]
+  - id: retail_banking_and_lending
+    n: 31
+    label: "Retail banking & lending"
+    segment: enterprise_global
+    archetypes: [C]
+    examples: "Banks, credit unions, lenders"
+    trades: [retail_banking_and_lending]
+  - id: wealth_and_asset_management
+    n: 32
+    label: "Wealth & asset management"
+    segment: enterprise_global
+    archetypes: [C]
+    examples: "Wealth managers, asset managers, family offices"
+    trades: [wealth_and_asset_management]
+  - id: insurance_carriers
+    n: 33
+    label: "Insurance carriers"
+    segment: enterprise_global
+    archetypes: [C]
+    examples: "P&C, life, health carriers"
+    trades: [insurance_carriers]
+  - id: payments_and_fintech
+    n: 34
+    label: "Payments & fintech"
+    segment: enterprise_global
+    archetypes: [E]
+    examples: "PSPs, acquirers, fintechs"
+    trades: [payments_and_fintech]
+  - id: saas_and_software
+    n: 35
+    label: "SaaS & software"
+    segment: enterprise_global
+    archetypes: [E]
+    examples: "B2B SaaS, dev tools, horizontal software"
+    trades: [saas_and_software]
+  - id: it_services_msp_and_cybersecurity
+    n: 36
+    label: "IT services, MSP & cybersecurity"
+    segment: enterprise_global
+    archetypes: [E]
+    examples: "MSPs, MSSPs, SOCs"
+    trades: [it_services_msp_and_cybersecurity]
+  - id: telecom
+    n: 37
+    label: "Telecom"
+    segment: enterprise_global
+    archetypes: [E]
+    examples: "Carriers, MVNOs, ISPs"
+    trades: [telecom]
+  - id: media_and_publishing
+    n: 38
+    label: "Media & publishing"
+    segment: enterprise_global
+    archetypes: [E]
+    examples: "News, magazines, digital media"
+    trades: [media_and_publishing]
+  - id: gaming
+    n: 39
+    label: "Gaming"
+    segment: enterprise_global
+    archetypes: [E]
+    examples: "Studios, publishers, platforms"
+    trades: [gaming]
+  - id: sports_clubs_and_leagues
+    n: 40
+    label: "Sports clubs & leagues"
+    segment: enterprise_global
+    archetypes: [F, H]
+    examples: "Clubs, leagues, federations"
+    trades: [sports_clubs_and_leagues]
+  - id: creator_economy_and_talent
+    n: 41
+    label: "Creator economy & talent"
+    segment: enterprise_global
+    archetypes: [E]
+    examples: "Creators, talent agencies, MCNs"
+    trades: [creator_economy_and_talent]
+  - id: e_commerce_and_marketplaces
+    n: 42
+    label: "E-commerce & marketplaces"
+    segment: enterprise_global
+    archetypes: [J, E]
+    examples: "D2C brands, marketplaces"
+    trades: [e_commerce_and_marketplaces]
+  - id: cpg_fmcg
+    n: 43
+    label: "CPG / FMCG"
+    segment: enterprise_global
+    archetypes: [E]
+    examples: "Consumer goods brands"
+    trades: [cpg_fmcg]
+  - id: manufacturing
+    n: 44
+    label: "Manufacturing"
+    segment: enterprise_global
+    archetypes: [D, E]
+    examples: "Discrete and process manufacturers"
+    trades: [manufacturing]
+  - id: automotive_and_aerospace_oem_suppliers
+    n: 45
+    label: "Automotive & aerospace OEM/suppliers"
+    segment: enterprise_global
+    archetypes: [E]
+    examples: "OEMs, tier suppliers"
+    trades: [automotive_and_aerospace_oem_suppliers]
+  - id: power_utilities
+    n: 46
+    label: "Power utilities"
+    segment: enterprise_global
+    archetypes: [E]
+    examples: "Electric, gas, water utilities"
+    trades: [power_utilities]
+  - id: renewables_and_ev_charging
+    n: 47
+    label: "Renewables & EV charging (CPOs)"
+    segment: enterprise_global
+    archetypes: [E]
+    examples: "Solar, wind, charge-point operators"
+    trades: [renewables_and_ev_charging]
+  - id: oil_gas_and_mining
+    n: 48
+    label: "Oil, gas & mining"
+    segment: enterprise_global
+    archetypes: [E]
+    examples: "Upstream, midstream, mining operators"
+    trades: [oil_gas_and_mining]
+  - id: agriculture_and_food_production
+    n: 49
+    label: "Agriculture & food production"
+    segment: enterprise_global
+    archetypes: [E]
+    examples: "Farms, cooperatives, processors"
+    trades: [agriculture_and_food_production]
+  - id: airlines_rail_and_transit
+    n: 50
+    label: "Airlines, rail & transit"
+    segment: enterprise_global
+    archetypes: [E]
+    examples: "Airlines, rail operators, transit authorities"
+    trades: [airlines_rail_and_transit]
+  - id: shipping_ports_and_enterprise_3pl
+    n: 51
+    label: "Shipping, ports & enterprise 3PL"
+    segment: enterprise_global
+    archetypes: [E]
+    examples: "Ocean carriers, ports, 3PLs"
+    trades: [shipping_ports_and_enterprise_3pl]
+  - id: hotel_chains_and_otas
+    n: 52
+    label: "Hotel chains & OTAs"
+    segment: enterprise_global
+    archetypes: [F]
+    examples: "Hotel groups, online travel agencies"
+    trades: [hotel_chains_and_otas]
+  - id: higher_ed_and_k_12_institutions
+    n: 53
+    label: "Higher ed & K-12 institutions"
+    segment: enterprise_global
+    archetypes: [H]
+    examples: "Universities, colleges, school systems"
+    trades: [higher_ed_and_k_12_institutions]
+  - id: corporate_training_and_edtech
+    n: 54
+    label: "Corporate training & edtech"
+    segment: enterprise_global
+    archetypes: [H]
+    examples: "L&D platforms, training providers"
+    trades: [corporate_training_and_edtech]
+  - id: government_and_public_sector
+    n: 55
+    label: "Government & public sector"
+    segment: enterprise_global
+    archetypes: [C, E]
+    examples: "Municipal, state, national agencies"
+    trades: [government_and_public_sector]
+  - id: nonprofits_and_faith_organizations
+    n: 56
+    label: "Nonprofits & faith organizations"
+    segment: enterprise_global
+    archetypes: [E]
+    examples: "Charities, foundations, congregations"
+    trades: [nonprofits_and_faith_organizations]
+  - id: enterprise_hr_and_payroll
+    n: 57
+    label: "Enterprise HR & payroll"
+    segment: enterprise_global
+    archetypes: [E]
+    examples: "In-house HR, payroll bureaus, PEOs"
+    trades: [enterprise_hr_and_payroll]
+  - id: in_house_legal_and_contracts
+    n: 58
+    label: "In-house legal & contracts"
+    segment: enterprise_global
+    archetypes: [C]
+    examples: "Corporate legal departments"
+    trades: [in_house_legal_and_contracts]
+  - id: investment_funds_and_pe_re
+    n: 59
+    label: "Investment funds & PE/RE"
+    segment: enterprise_global
+    archetypes: [C]
+    examples: "PE, VC, real-estate funds"
+    trades: [investment_funds_and_pe_re]
+  - id: capital_markets_and_brokerage
+    n: 60
+    label: "Capital markets & brokerage"
+    segment: enterprise_global
+    archetypes: [C]
+    examples: "Broker-dealers, exchanges, custodians"
+    trades: [capital_markets_and_brokerage]

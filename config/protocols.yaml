@@ -769,7 +769,7 @@ protocols:
     label: "Refusal received"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [immigration_consultant, typing_centre, attestation_services, pro_services]
     detection: manual
     triggers: []
     interlocks: []
@@ -813,7 +813,7 @@ protocols:
     label: "Visa refusal for a placed student"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [study_abroad_agency]
     detection: manual
     triggers: []
     interlocks: []
@@ -922,7 +922,7 @@ protocols:
     label: "Transport temperature excursion"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [event_caterer, cloud_kitchen]
     detection: manual
     triggers: []
     interlocks: []
@@ -936,7 +936,7 @@ protocols:
     label: "Overbooking - guest must be walked"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [hotel, bed_and_breakfast, holiday_let, wedding_venue, event_space]
     detection: manual
     triggers: []
     interlocks: []
@@ -990,7 +990,7 @@ protocols:
     label: "Emergency spend above authority"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [owners_association, block_management, hmo_management]
     detection: manual
     triggers: []
     interlocks: []
@@ -1031,7 +1031,7 @@ protocols:
     label: "Lien/finance discovered on title"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [used_car_dealer, auction_buyer, vehicle_exporter]
     detection: manual
     triggers: []
     interlocks: []
@@ -1045,7 +1045,7 @@ protocols:
     label: "Auction lot materially misdescribed"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [used_car_dealer, auction_buyer, vehicle_exporter]
     detection: manual
     triggers: []
     interlocks: []
@@ -1099,7 +1099,7 @@ protocols:
     label: "Placed candidate reneges pre-start"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [recruitment_agency, executive_search, manpower_supply]
     detection: manual
     triggers: []
     interlocks: []
@@ -1113,7 +1113,7 @@ protocols:
     label: "Right-to-work check fails"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [recruitment_agency, executive_search, manpower_supply]
     detection: manual
     triggers: []
     interlocks: []
@@ -1127,7 +1127,7 @@ protocols:
     label: "Rain decision for outdoor event"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [photographer, event_planner, av_production, printing]
     detection: manual
     triggers: []
     interlocks: []
@@ -1141,7 +1141,7 @@ protocols:
     label: "Venue double-books or cancels"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [photographer, event_planner, av_production, printing]
     detection: manual
     triggers: []
     interlocks: []
@@ -1155,7 +1155,7 @@ protocols:
     label: "Airline schedule change"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [travel_agency, dmc, tour_operator]
     detection: manual
     triggers: []
     interlocks: []
@@ -1169,7 +1169,7 @@ protocols:
     label: "Travel advisory changes mid-booking"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [travel_agency, dmc, tour_operator]
     detection: manual
     triggers: []
     interlocks: []
@@ -1183,7 +1183,7 @@ protocols:
     label: "Supplier insolvency"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [travel_agency, dmc, tour_operator]
     detection: manual
     triggers: []
     interlocks: []
@@ -1196,7 +1196,7 @@ protocols:
     label: "Traveller stranded / denied boarding"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [travel_agency, dmc, tour_operator]
     detection: manual
     triggers: []
     interlocks: []
@@ -1209,7 +1209,7 @@ protocols:
     label: "Non-disclosure discovered"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [insurance_broker, mortgage_broker]
     detection: manual
     triggers: []
     interlocks: []
@@ -1223,7 +1223,7 @@ protocols:
     label: "Critical result - clinician unreachable"
     severity: 1
     safety_critical: true
-    verticals: []
+    verticals: [hospitals_and_health_systems]
     detection: manual
     triggers: []
     interlocks: [no_advice, no_booking, no_triage]
@@ -1238,7 +1238,7 @@ protocols:
     label: "Patient absconds / leaves against advice"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [hospitals_and_health_systems]
     detection: manual
     triggers: []
     interlocks: []
@@ -1252,7 +1252,7 @@ protocols:
     label: "Shipment temperature excursion"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [pharma_and_biotech]
     detection: manual
     triggers: []
     interlocks: []
@@ -1266,7 +1266,7 @@ protocols:
     label: "Chain-of-custody breach on sample"
     severity: 1
     safety_critical: true
-    verticals: []
+    verticals: [medical_devices_and_diagnostics]
     detection: manual
     triggers: []
     interlocks: [no_advice, no_booking, no_triage]
@@ -1281,7 +1281,7 @@ protocols:
     label: "Critical value result"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [medical_devices_and_diagnostics]
     detection: manual
     triggers: []
     interlocks: []
@@ -1295,7 +1295,7 @@ protocols:
     label: "Instrument QC failure"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [medical_devices_and_diagnostics]
     detection: manual
     triggers: []
     interlocks: []
@@ -1309,7 +1309,7 @@ protocols:
     label: "Field safety notice required"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [medical_devices_and_diagnostics]
     detection: manual
     triggers: []
     interlocks: []
@@ -1323,7 +1323,7 @@ protocols:
     label: "Account holder deceased"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [retail_banking_and_lending]
     detection: manual
     triggers: []
     interlocks: []
@@ -1337,7 +1337,7 @@ protocols:
     label: "Garnishment/attachment order received"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [retail_banking_and_lending]
     detection: manual
     triggers: []
     interlocks: []
@@ -1351,7 +1351,7 @@ protocols:
     label: "Trade error identified"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [wealth_and_asset_management]
     detection: manual
     triggers: []
     interlocks: []
@@ -1365,7 +1365,7 @@ protocols:
     label: "Client requests unsuitable product"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [wealth_and_asset_management]
     detection: manual
     triggers: []
     interlocks: []
@@ -1379,7 +1379,7 @@ protocols:
     label: "Complaint with compensation implications"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [wealth_and_asset_management]
     detection: manual
     triggers: []
     interlocks: []
@@ -1393,7 +1393,7 @@ protocols:
     label: "Catastrophe event declared"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [insurance_carriers]
     detection: manual
     triggers: []
     interlocks: []
@@ -1407,7 +1407,7 @@ protocols:
     label: "Security incident affecting customers"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [saas_and_software]
     detection: manual
     triggers: []
     interlocks: []
@@ -1421,7 +1421,7 @@ protocols:
     label: "Public security-researcher disclosure"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [saas_and_software]
     detection: manual
     triggers: []
     interlocks: []
@@ -1435,7 +1435,7 @@ protocols:
     label: "Viral outage complaint thread"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [saas_and_software]
     detection: manual
     triggers: []
     interlocks: []
@@ -1449,7 +1449,7 @@ protocols:
     label: "P1 after-hours"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [it_services_msp_and_cybersecurity]
     detection: manual
     triggers: []
     interlocks: []
@@ -1463,7 +1463,7 @@ protocols:
     label: "Ransomware indicators at client"
     severity: 1
     safety_critical: true
-    verticals: []
+    verticals: [it_services_msp_and_cybersecurity]
     detection: manual
     triggers: []
     interlocks: [no_advice, no_booking, no_liability, no_triage]
@@ -1478,7 +1478,7 @@ protocols:
     label: "Port-out fraud signals"
     severity: 1
     safety_critical: true
-    verticals: []
+    verticals: [telecom]
     detection: manual
     triggers: []
     interlocks: [no_advice, no_booking, no_triage]
@@ -1493,7 +1493,7 @@ protocols:
     label: "Bereavement account closure"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [telecom]
     detection: manual
     triggers: []
     interlocks: []
@@ -1506,7 +1506,7 @@ protocols:
     label: "Mass outage complaint surge"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [telecom]
     detection: manual
     triggers: []
     interlocks: []
@@ -1519,7 +1519,7 @@ protocols:
     label: "Vulnerable customer disconnection risk"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [telecom]
     detection: manual
     triggers: []
     interlocks: []
@@ -1533,7 +1533,7 @@ protocols:
     label: "Correction/retraction needed"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [media_and_publishing]
     detection: manual
     triggers: []
     interlocks: []
@@ -1547,7 +1547,7 @@ protocols:
     label: "Legal takedown notice"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [media_and_publishing]
     detection: manual
     triggers: []
     interlocks: []
@@ -1561,7 +1561,7 @@ protocols:
     label: "Source requests anonymity retroactively"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [media_and_publishing]
     detection: manual
     triggers: []
     interlocks: []
@@ -1575,7 +1575,7 @@ protocols:
     label: "Streamer discovers exploit live"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [gaming]
     detection: manual
     triggers: []
     interlocks: []
@@ -1589,7 +1589,7 @@ protocols:
     label: "Minor-spend parental complaint"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [gaming]
     detection: manual
     triggers: []
     interlocks: []
@@ -1603,7 +1603,7 @@ protocols:
     label: "Match postponed"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [sports_clubs_and_leagues]
     detection: manual
     triggers: []
     interlocks: []
@@ -1616,7 +1616,7 @@ protocols:
     label: "Crowd incident"
     severity: 1
     safety_critical: true
-    verticals: []
+    verticals: [sports_clubs_and_leagues]
     detection: manual
     triggers: []
     interlocks: [no_advice, no_booking, no_triage]
@@ -1631,7 +1631,7 @@ protocols:
     label: "Player transfer rumour surge"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [sports_clubs_and_leagues]
     detection: manual
     triggers: []
     interlocks: []
@@ -1645,7 +1645,7 @@ protocols:
     label: "Academy trialist medical flag"
     severity: 1
     safety_critical: true
-    verticals: []
+    verticals: [sports_clubs_and_leagues]
     detection: manual
     triggers: []
     interlocks: [no_advice, no_booking, no_triage]
@@ -1660,7 +1660,7 @@ protocols:
     label: "Controversy flare-up"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [creator_economy_and_talent]
     detection: manual
     triggers: []
     interlocks: []
@@ -1674,7 +1674,7 @@ protocols:
     label: "Recall trace demanded"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [cpg_fmcg]
     detection: manual
     triggers: []
     interlocks: []
@@ -1688,7 +1688,7 @@ protocols:
     label: "Line-down - part shortage"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [manufacturing]
     detection: manual
     triggers: []
     interlocks: []
@@ -1702,7 +1702,7 @@ protocols:
     label: "Machine safety interlock tripped"
     severity: 1
     safety_critical: true
-    verticals: []
+    verticals: [manufacturing]
     detection: manual
     triggers: []
     interlocks: [no_advice, no_auto_resume, no_booking, no_triage]
@@ -1717,7 +1717,7 @@ protocols:
     label: "Customer line-stop threat"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [automotive_and_aerospace_oem_suppliers]
     detection: manual
     triggers: []
     interlocks: []
@@ -1731,7 +1731,7 @@ protocols:
     label: "Counterfeit part suspicion in chain"
     severity: 1
     safety_critical: true
-    verticals: []
+    verticals: [automotive_and_aerospace_oem_suppliers]
     detection: manual
     triggers: []
     interlocks: [no_advice, no_booking, no_triage]
@@ -1746,7 +1746,7 @@ protocols:
     label: "Life-support customer in outage area"
     severity: 1
     safety_critical: true
-    verticals: []
+    verticals: [power_utilities]
     detection: manual
     triggers: []
     interlocks: [no_advice, no_booking, no_triage]
@@ -1761,7 +1761,7 @@ protocols:
     label: "Wildfire/storm pre-emptive shutoff"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [power_utilities]
     detection: manual
     triggers: []
     interlocks: []
@@ -1775,7 +1775,7 @@ protocols:
     label: "Driver stranded at dead charger"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [renewables_and_ev_charging]
     detection: manual
     triggers: []
     interlocks: []
@@ -1788,7 +1788,7 @@ protocols:
     label: "Grid demand-response event called"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [renewables_and_ev_charging]
     detection: manual
     triggers: []
     interlocks: []
@@ -1802,7 +1802,7 @@ protocols:
     label: "Ground-fault safety alert"
     severity: 1
     safety_critical: true
-    verticals: []
+    verticals: [renewables_and_ev_charging]
     detection: manual
     triggers: []
     interlocks: [no_advice, no_booking, no_triage]
@@ -1817,7 +1817,7 @@ protocols:
     label: "Permit condition breach detected"
     severity: 1
     safety_critical: true
-    verticals: []
+    verticals: [oil_gas_and_mining]
     detection: manual
     triggers: []
     interlocks: [no_advice, no_booking, no_triage]
@@ -1832,7 +1832,7 @@ protocols:
     label: "Lost-time incident"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [oil_gas_and_mining]
     detection: manual
     triggers: []
     interlocks: []
@@ -1846,7 +1846,7 @@ protocols:
     label: "Disease outbreak nearby"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [agriculture_and_food_production]
     detection: manual
     triggers: []
     interlocks: []
@@ -1860,7 +1860,7 @@ protocols:
     label: "Contamination test failure"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [agriculture_and_food_production]
     detection: manual
     triggers: []
     interlocks: []
@@ -1874,7 +1874,7 @@ protocols:
     label: "Unaccompanied minor handoff"
     severity: 1
     safety_critical: true
-    verticals: []
+    verticals: [airlines_rail_and_transit]
     detection: manual
     triggers: []
     interlocks: [no_advice, no_booking, no_triage]
@@ -1889,7 +1889,7 @@ protocols:
     label: "Medical diversion"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [airlines_rail_and_transit]
     detection: manual
     triggers: []
     interlocks: []
@@ -1903,7 +1903,7 @@ protocols:
     label: "Lithium battery / dangerous goods found"
     severity: 1
     safety_critical: true
-    verticals: []
+    verticals: [airlines_rail_and_transit]
     detection: manual
     triggers: []
     interlocks: [no_advice, no_booking, no_triage]
@@ -1918,7 +1918,7 @@ protocols:
     label: "Reefer temperature deviation"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [shipping_ports_and_enterprise_3pl]
     detection: manual
     triggers: []
     interlocks: [no_liability]
@@ -1932,7 +1932,7 @@ protocols:
     label: "Dangerous-goods declaration mismatch"
     severity: 1
     safety_critical: true
-    verticals: []
+    verticals: [shipping_ports_and_enterprise_3pl]
     detection: manual
     triggers: []
     interlocks: [no_advice, no_booking, no_triage]
@@ -1947,7 +1947,7 @@ protocols:
     label: "VIP service failure"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [hotel_chains_and_otas]
     detection: manual
     triggers: []
     interlocks: []
@@ -1961,7 +1961,7 @@ protocols:
     label: "Death/serious incident in property"
     severity: 1
     safety_critical: true
-    verticals: []
+    verticals: [hotel_chains_and_otas]
     detection: manual
     triggers: []
     interlocks: [no_advice, no_booking, no_triage]
@@ -1976,7 +1976,7 @@ protocols:
     label: "Title-IX-class disclosure"
     severity: 1
     safety_critical: true
-    verticals: []
+    verticals: [higher_ed_and_k_12_institutions]
     detection: manual
     triggers: []
     interlocks: [no_advice, no_booking, no_disclosure, no_further_agent_contact, no_further_questions, no_triage]
@@ -1991,7 +1991,7 @@ protocols:
     label: "Campus emergency notification"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [higher_ed_and_k_12_institutions]
     detection: manual
     triggers: []
     interlocks: []
@@ -2005,7 +2005,7 @@ protocols:
     label: "Election-period comms restrictions begin"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [government_and_public_sector]
     detection: manual
     triggers: []
     interlocks: []
@@ -2019,7 +2019,7 @@ protocols:
     label: "Emergency declaration"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [government_and_public_sector]
     detection: manual
     triggers: []
     interlocks: []
@@ -2033,7 +2033,7 @@ protocols:
     label: "Misdirected citizen data"
     severity: 1
     safety_critical: true
-    verticals: []
+    verticals: [government_and_public_sector]
     detection: manual
     triggers: []
     interlocks: [no_advice, no_booking, no_triage]
@@ -2048,7 +2048,7 @@ protocols:
     label: "Volunteer incident"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [nonprofits_and_faith_organizations]
     detection: manual
     triggers: []
     interlocks: []
@@ -2062,7 +2062,7 @@ protocols:
     label: "Garnishment order received"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [enterprise_hr_and_payroll]
     detection: manual
     triggers: []
     interlocks: []
@@ -2076,7 +2076,7 @@ protocols:
     label: "Final-pay deadline (termination)"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [enterprise_hr_and_payroll]
     detection: manual
     triggers: []
     interlocks: []
@@ -2089,7 +2089,7 @@ protocols:
     label: "Payroll run fails pre-payday"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [enterprise_hr_and_payroll]
     detection: manual
     triggers: []
     interlocks: []
@@ -2102,7 +2102,7 @@ protocols:
     label: "Anonymous ethics report"
     severity: 1
     safety_critical: true
-    verticals: []
+    verticals: [enterprise_hr_and_payroll]
     detection: manual
     triggers: []
     interlocks: [no_advice, no_booking, no_disclosure, no_triage]
@@ -2117,7 +2117,7 @@ protocols:
     label: "Litigation hold required"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [in_house_legal_and_contracts]
     detection: manual
     triggers: []
     interlocks: []
@@ -2131,7 +2131,7 @@ protocols:
     label: "Regulatory inquiry lands"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [in_house_legal_and_contracts]
     detection: manual
     triggers: []
     interlocks: []
@@ -2145,7 +2145,7 @@ protocols:
     label: "Capital call default"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [investment_funds_and_pe_re]
     detection: manual
     triggers: []
     interlocks: []
@@ -2159,7 +2159,7 @@ protocols:
     label: "Key-person event"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [investment_funds_and_pe_re]
     detection: manual
     triggers: []
     interlocks: []
@@ -2173,7 +2173,7 @@ protocols:
     label: "Client complaint (regulated)"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [capital_markets_and_brokerage]
     detection: manual
     triggers: []
     interlocks: []
@@ -2187,7 +2187,7 @@ protocols:
     label: "Market-event comms surge"
     severity: 3
     safety_critical: false
-    verticals: []
+    verticals: [capital_markets_and_brokerage]
     detection: manual
     triggers: []
     interlocks: []

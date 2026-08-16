@@ -177,6 +177,17 @@ export const config = {
    * safety incident rather than a cosmetic bug — so the loader validates the
    * interlock names against the closed set rather than trusting them.
    */
+  /**
+   * The canonical vertical taxonomy — 60 clusters, 145 trades, 10 archetypes.
+   *
+   * ⛔ The ONE source. It replaced five partial lists that each enumerated a
+   * different subset of nine SMB trades, so adding a vertical meant editing all
+   * five and missing one.
+   */
+  verticals: () => {
+    const raw = readFileSync(join(CONFIG_DIR, "verticals.yaml"), "utf8");
+    return { data: parse(raw), version: "verticals@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
+  },
   protocols: () => {
     const raw = readFileSync(join(CONFIG_DIR, "protocols.yaml"), "utf8");
     return { data: parse(raw), version: "protocols@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };

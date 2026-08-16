@@ -17,29 +17,29 @@
 // which is what makes it portable across the registry's candidates.
 
 import { renderDesignBrief, type DesignManifest } from "@adw/designer";
-import { readFileSync } from "node:fs";
+import { allTrades, isKnownTrade, primaryArchetype } from "@adw/taxonomy";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const PROMPT_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "prompts");
 
-/** The verticals a site can be generated for. Mirrors config/playbooks.yaml
- *  minus the prohibited ones and minus any vertical over the booking cap. */
-export const SITE_VERTICALS = [
-  "roofing",
-  "plumber",
-  "electrician",
-  "hvac",
-  "pest_control",
-  "landscaping",
-  "accountant",
-  "lawyer",
-  "auto_repair",
-] as const;
-export type SiteVertical = (typeof SITE_VERTICALS)[number];
+/**
+ * The verticals a site can be generated for.
+ *
+ * ⛔ Derived, not listed. This was a hand-written array of nine SMB trades, one
+ * of five places the taxonomy lived — so adding a vertical meant editing five
+ * files and missing one. It now comes from config/verticals.yaml: 60 clusters,
+ * 145 trades, every segment.
+ *
+ * A vertical without its own prompt file falls back to its ARCHETYPE's register
+ * (see `verticalBrief`), which is the whole reason the archetype layer exists.
+ */
+export const SITE_VERTICALS = allTrades();
+export type SiteVertical = string;
 
 export function isSiteVertical(value: string): value is SiteVertical {
-  return (SITE_VERTICALS as readonly string[]).includes(value);
+  return isKnownTrade(value);
 }
 
 /**
@@ -124,6 +124,27 @@ Output complete, runnable files. Never abbreviate markup with a comment.`;
 
 function readPart(relative: string): string {
   return readFileSync(join(PROMPT_DIR, relative), "utf8").trim();
+}
+
+/**
+ * The register for a vertical.
+ *
+ * ⛔ Falls back to the archetype rather than throwing. Nine trades have a
+ * hand-written register; 145 exist. A missing file must degrade to the shared
+ * register for that archetype — a roofer and a solar installer are both
+ * archetype D and want the same voice — not fail the build for a customer whose
+ * trade nobody has written prose for yet.
+ */
+function verticalBrief(vertical: string): string {
+  const own = join(PROMPT_DIR, "verticals", `${vertical}.md`);
+  if (existsSync(own)) return readFileSync(own, "utf8").trim();
+  const code = primaryArchetype(vertical);
+  const shared = code === undefined ? null : join(PROMPT_DIR, "archetypes", `${code}.md`);
+  if (shared !== null && existsSync(shared)) return readFileSync(shared, "utf8").trim();
+  throw new Error(
+    `No register for vertical "${vertical}" and no archetype fallback. Add ` +
+      `prompts/verticals/${vertical}.md, or an archetype register for ${code ?? "(unknown archetype)"}.`,
+  );
 }
 
 function brandBlock(brand: BrandSeed): string {
@@ -231,7 +252,7 @@ export function buildSitePrompt(input: SitePromptInput): { system: string; user:
     user: [
       readPart("design-contract.md"),
       "\n\n---\n\n",
-      readPart(`verticals/${input.vertical}.md`),
+      verticalBrief(input.vertical),
       "\n\n---\n\n",
       ...(input.design === undefined ? [] : [renderDesignBrief(input.design), "\n\n---\n\n"]),
       businessBlock(input),

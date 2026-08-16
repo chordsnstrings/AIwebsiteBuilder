@@ -268,6 +268,9 @@ importers:
       '@adw/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@adw/designer':
+        specifier: workspace:*
+        version: link:../../packages/designer
       '@adw/dns':
         specifier: workspace:*
         version: link:../../packages/dns
@@ -310,6 +313,9 @@ importers:
       '@adw/site-templates':
         specifier: workspace:*
         version: link:../../packages/site-templates
+      '@adw/taxonomy':
+        specifier: workspace:*
+        version: link:../../packages/taxonomy
       '@adw/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry
@@ -355,6 +361,9 @@ importers:
       '@adw/registry':
         specifier: workspace:*
         version: link:../registry
+      '@adw/taxonomy':
+        specifier: workspace:*
+        version: link:../taxonomy
       '@adw/vault':
         specifier: workspace:*
         version: link:../vault
@@ -448,6 +457,9 @@ importers:
       '@adw/db':
         specifier: workspace:*
         version: link:../db
+      '@adw/taxonomy':
+        specifier: workspace:*
+        version: link:../taxonomy
 
   packages/dns:
     dependencies:
@@ -612,6 +624,9 @@ importers:
       '@adw/db':
         specifier: workspace:*
         version: link:../db
+      '@adw/taxonomy':
+        specifier: workspace:*
+        version: link:../taxonomy
       '@adw/telemetry':
         specifier: workspace:*
         version: link:../telemetry
@@ -690,10 +705,19 @@ importers:
       '@adw/designer':
         specifier: workspace:*
         version: link:../designer
+      '@adw/taxonomy':
+        specifier: workspace:*
+        version: link:../taxonomy
     devDependencies:
       '@adw/reviewer-gates':
         specifier: workspace:*
         version: link:../reviewer-gates
+
+  packages/taxonomy:
+    dependencies:
+      '@adw/config':
+        specifier: workspace:*
+        version: link:../config
 
   packages/telemetry:
     dependencies:

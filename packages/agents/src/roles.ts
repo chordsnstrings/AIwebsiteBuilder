@@ -4,6 +4,7 @@
 import { z } from "zod";
 import { config } from "@adw/config";
 import { prompts } from "@adw/prompts";
+import { resolveTrade } from "@adw/taxonomy";
 import { defineAgent } from "./framework.ts";
 
 // --- Enrichment (spec §17) -------------------------------------------------
@@ -401,14 +402,12 @@ export const architectAgent = defineAgent({
     }),
   simulate: (input) => {
     const text = `${input.category} ${input.siteText} ${input.reviewSample.join(" ")}`.toLowerCase();
-    const byCategory: Record<string, string> = {
-      roofer: "roofing", roofing: "roofing", plumber: "plumber", plumbing: "plumber",
-      electrician: "electrician", hvac: "hvac", landscaper: "landscaping",
-      landscaping: "landscaping", accountant: "accountant", lawyer: "lawyer",
-      solicitor: "lawyer", "pest control": "pest_control", "auto repair": "auto_repair",
-      mechanic: "auto_repair", cleaner: "cleaning", cleaning: "cleaning",
-    };
-    const vertical = byCategory[input.category.toLowerCase()] ?? "unknown";
+    // ⛔ Resolved against config/verticals.yaml, not a literal. This was a
+    // sixteen-entry map covering nine trades, so every business outside it
+    // classified as "unknown" and escalated — including every enterprise
+    // vertical. 145 trades now resolve, and one that genuinely does not is
+    // still "unknown" rather than the nearest guess.
+    const vertical = resolveTrade(input.category) ?? "unknown";
     const modifiers: string[] = [];
     if (/24\/7|24 hour|emergency|call ?out/.test(text)) modifiers.push("emergency_service");
     if (!input.pricingFound) modifiers.push("no_published_pricing");

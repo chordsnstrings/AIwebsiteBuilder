@@ -35,6 +35,8 @@
     "@adw/concierge": "workspace:*",
     "@adw/architect": "workspace:*",
     "@adw/inbound": "workspace:*",
-    "@adw/protocol": "workspace:*"
+    "@adw/protocol": "workspace:*",
+    "@adw/designer": "workspace:*",
+    "@adw/taxonomy": "workspace:*"
   }
 }

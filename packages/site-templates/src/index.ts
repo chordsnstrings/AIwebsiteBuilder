@@ -91,3 +91,18 @@ export {
   type RenderSnapshot,
   type SnapshotManifest,
 } from "./visual-regression.ts";
+
+// The site-generation brief. Exported here rather than reachable only by deep
+// path — a builder that can only be imported from `src/site-prompt.ts` is one
+// nothing outside this package tests.
+export {
+  SITE_SYSTEM_PROMPT,
+  SITE_VERTICALS,
+  buildSitePrompt,
+  isSiteVertical,
+  type BrandSeed,
+  type SiteImage,
+  type SitePromptInput,
+  type SiteQAPair,
+  type SiteVertical,
+} from "./site-prompt.ts";
