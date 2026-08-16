@@ -26,7 +26,8 @@ export type DenyReason =
   | "DOMAIN_CLASS_MISMATCH"
   | "MISSING_REQUIRED_ELEMENT"
   | "CONTENT_UNSAFE"
-  | "DUPLICATE_SEND";
+  | "DUPLICATE_SEND"
+  | "UNVERIFIED_RECIPIENT";
 
 export interface OutboundMessage {
   contactId?: string;

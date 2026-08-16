@@ -96,6 +96,15 @@ export { MockLeadSource } from "./leaddata/mock.ts";
 // --- EmailVerifier ----------------------------------------------------------
 export type { EmailVerifier, VerificationVerdict } from "./verification/types.ts";
 export { MockEmailVerifier } from "./verification/mock.ts";
+export {
+  domainOf,
+  isDisposable,
+  isRoleAccount,
+  verifyLocally,
+  type LocalCheck,
+  type LocalVerifierOptions,
+} from "./verification/local.ts";
+export { HttpEmailVerifier, LayeredEmailVerifier, type HttpVerifierConfig } from "./verification/real.ts";
 
 // --- Browser ----------------------------------------------------------------
 export type { Browser, RenderResult } from "./browser/types.ts";
@@ -165,6 +174,7 @@ export {
 export {
   resolveDns,
   resolveEmailTransport,
+  resolveEmailVerifier,
   resolveObjectStore,
   resolvePaymentRail,
   resolveRegistrar,

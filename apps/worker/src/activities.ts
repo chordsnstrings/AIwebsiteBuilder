@@ -42,6 +42,7 @@ import { loadKnowledgeBase } from "@adw/kb";
 import { advanceDunning, resolveDunning } from "@adw/billing";
 import {
   resolveEmailTransport,
+  resolveEmailVerifier,
   resolveObjectStore,
   resolveRegistrar,
   resolveSiteHost,
@@ -105,6 +106,53 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
   // =========================================================================
   // Lead workflow
   // =========================================================================
+
+  // Verify the recipient before anything is written to them.
+  //
+  // ⛔ `contacts.verification` existed in the schema from day one and NOTHING
+  // wrote it — the column defaulted through and every address read as whatever
+  // ingestion guessed. This is the writer. It runs once per contact and caches
+  // the verdict, because verification is charged per address and a three-touch
+  // sequence would otherwise pay three times for the same answer.
+  on("verify_recipient", async (input: LeadRef) => {
+    const contact = await db.maybeOne<{ id: string; email: string; verification: string; verified_at: string | null }>(
+      `SELECT c.id, c.email, c.verification, c.verified_at
+         FROM contacts c JOIN leads l ON l.contact_id = c.id WHERE l.id = $1`,
+      [input.leadId],
+    );
+    if (!contact) return { verdict: "unknown", cached: false };
+    // Re-verify after 90 days: mailboxes close, and a verdict from last year is
+    // an assertion about a mailbox nobody has checked since.
+    const age = contact.verified_at === null ? Infinity : (now().getTime() - new Date(contact.verified_at).getTime()) / 86_400_000;
+    if (contact.verified_at !== null && age < 90) {
+      return { verdict: contact.verification, cached: true };
+    }
+
+    const verifier = await resolveEmailVerifier(vendorDeps);
+    const verdict = await verifier.verify(contact.email);
+    await db.query("UPDATE contacts SET verification = $2, verified_at = now(), verifier = $3 WHERE id = $1", [
+      contact.id,
+      verdict,
+      verifier.vendorId,
+    ]);
+    if (verdict === "invalid") {
+      // ⛔ Suppressed, not merely skipped. An address we know is dead must not
+      // be retried by a future campaign — that is how the same bounce is paid
+      // for repeatedly, in reputation rather than money.
+      await db.query(
+        `INSERT INTO suppression (email_hash, reason, channel_scope)
+         VALUES ($1, 'undeliverable', 'email') ON CONFLICT DO NOTHING`,
+        [emailHash(contact.email)],
+      );
+      await db.query("UPDATE leads SET state = 'SUPPRESSED' WHERE id = $1", [input.leadId]);
+    }
+    await emit({
+      eventType: "contact.verified",
+      subject: { kind: "lead", id: input.leadId },
+      payload: { verdict, verifier: verifier.vendorId },
+    });
+    return { verdict, cached: false };
+  });
 
   on("score_lead", async (input: LeadRef) => {
     const biz = await business(db, input.businessId);

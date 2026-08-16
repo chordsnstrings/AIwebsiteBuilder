@@ -22,6 +22,9 @@ export type ActivityFn = (input: unknown) => Promise<unknown>;
 export function defaultStubActivities(): Record<string, ActivityFn> {
   return {
     // --- Pipeline A: lead ---------------------------------------------------
+    // ⛔ `valid`, not `unknown`. A stub returning unknown would exercise the
+    // allowed-through path only, and the suppression branch would go untested.
+    verify_recipient: async () => ({ verdict: "valid" }),
     score_lead: async () => ({ icpScore: 78, previewWorthy: true }),
     grade_site: async () => ({ transactabilityGap: true, auditId: "audit-1", topDefects: ["no_schema"] }),
     classify_vertical: async () => ({ escalate: false, vertical: "roofing", manifestId: "manifest-1" }),

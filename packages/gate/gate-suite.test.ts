@@ -219,4 +219,54 @@ describe("§10.6 Compliance Gate suite (Phase 0 exit criterion)", () => {
       expect(res.obligations).toContain("physical_postal_address");
     }
   });
+
+  // --- Rule 8b: pre-send deliverability -------------------------------------
+  //
+  // ⛔ Added after an audit found the system had NO pre-send verification of any
+  // kind — no MX check, no disposable-domain check, no role-account detection —
+  // while DEPLOYMENT.md claimed a vault slot flipped "real pre-send
+  // verification" live. Cold mail went out with nothing between it and a dead
+  // mailbox, and a bounce is a deposit against a domain that took 21 days to
+  // warm.
+
+  it("20. a contact verified 'invalid' → cold mail denied", async () => {
+    const c = await seedContact(db, { country: "US" });
+    await db.query("UPDATE contacts SET verification = 'invalid', verified_at = now() WHERE id = $1", [c.contactId]);
+    const res = await gate(compliantColdMessage({ emailHash: c.hash, contactId: c.contactId }), deps());
+    expect(res.allow).toBe(false);
+    if (!res.allow) {
+      expect(res.reason).toBe("UNVERIFIED_RECIPIENT");
+      expect(res.ruleId).toBe("rule_8b_deliverability");
+    }
+  });
+
+  it("21. ⛔ 'unknown' is ALLOWED — a verifier outage must not halt the programme", async () => {
+    // The verifier answers 'unknown' rather than throwing precisely so the
+    // policy for "we could not check" is decided here, once, in the open.
+    // Denying on unknown would stop every send the first time a vendor had an
+    // incident, which is a far more expensive failure than a few soft bounces.
+    const c = await seedContact(db, { country: "US" });
+    await db.query("UPDATE contacts SET verification = 'unknown', verified_at = now() WHERE id = $1", [c.contactId]);
+    const res = await gate(compliantColdMessage({ emailHash: c.hash, contactId: c.contactId }), deps());
+    expect(res.allow).toBe(true);
+  });
+
+  it("22. 'risky' is allowed — a role account is a judgement call, not a defect", async () => {
+    const c = await seedContact(db, { country: "US" });
+    await db.query("UPDATE contacts SET verification = 'risky', verified_at = now() WHERE id = $1", [c.contactId]);
+    const res = await gate(compliantColdMessage({ emailHash: c.hash, contactId: c.contactId }), deps());
+    expect(res.allow).toBe(true);
+  });
+
+  it("23. ⛔ an invalid verdict does NOT block a transactional message", async () => {
+    // A customer being invoiced does not stop receiving their invoice because a
+    // verifier had an opinion. The rule is scoped to cold mail for that reason.
+    const c = await seedContact(db, { country: "US" });
+    await db.query("UPDATE contacts SET verification = 'invalid', verified_at = now() WHERE id = $1", [c.contactId]);
+    const res = await gate(
+      { ...compliantColdMessage({ emailHash: c.hash, contactId: c.contactId }), messageClass: "transactional", domainClass: "brand" },
+      deps(),
+    );
+    if (!res.allow) expect(res.reason).not.toBe("UNVERIFIED_RECIPIENT");
+  });
 });

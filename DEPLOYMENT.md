@@ -201,7 +201,7 @@ switches only.
 | Google Workspace | `google_workspace` / `service_account` | Real cold mailbox provisioning | — |
 | Microsoft 365 | `microsoft_365` / `client_secret` | Real second-provider mailboxes | — |
 | Lead data (primary/secondary) | `lead_data_primary` / `api_key` | Real licensed record pulls | — |
-| Email verification | `email_verification` / `api_key` | Real pre-send verification | — |
+| Email verification | `email_verification` / `api_key` (+ optional `endpoint`) | Adds a paid verifier behind the free checks. The structural checks — shape, MX, throwaway domains, role accounts — run with or without this key. | — |
 | Browserless | `browserless` / `api_key` | Real headless rendering/screenshots | — |
 | Twilio | `twilio` / `auth_token` | SMS/voice (Phase 2, counsel-gated) | — |
 | Langfuse | `langfuse` / `secret_key` | Real LLM tracing | — |
@@ -256,7 +256,10 @@ Environment variables (secrets belong in your secrets manager, not a repo file):
 | `ADW_VAULT_MASTER_KEY` | yes | Envelope-encryption master key. The process **refuses to start** on a well-known demo key outside local/test. |
 | `ADW_UNSUBSCRIBE_SECRET` | yes | Signs one-click unsubscribe links. **Never rotate casually** — every link in mail already sent stops verifying, and unsubscribes then fail silently. Rotating means accepting both old and new for the retention window. |
 | `ADW_ENV` | yes (`production`) | Anything other than `local`/`test` enables Secure cookies, the weak-key guard, and vault-resolved adapters. |
-| `ADW_WEBHOOK_SECRET` | yes | HMAC for inbound provider webhooks. |
+| `ADW_WEBHOOK_SECRET` | demo only | Shared-secret HMAC for OUR simulators. Refused in live mode — real providers are verified with their own scheme. |
+| `ADW_REPLY_TOKEN_SECRET` | yes, if inbound is configured | Signs the plus-addressed `Reply-To` tokens that thread replies. Rotating it orphans every in-flight thread: replies minted under the old secret fail verification and land in the exception queue rather than on their conversation. That is the correct failure — a forged token must not attach a message to someone else's thread — but it is not free. |
+| `ADW_INBOUND_ADDRESS` | yes, to receive replies | The address replies come back to, e.g. `reply@inbound.yourdomain`. **Unset means no `Reply-To` header at all**, deliberately: a Reply-To pointing at a mailbox nobody reads is worse than none, because the recipient's client sends there and the reply disappears. |
+| `STRIPE_WEBHOOK_SECRET` | yes, with payments | Verifies `Stripe-Signature`. Missing means events are **refused**, not accepted unverified. |
 | `ADW_PUBLIC_BASE` | yes | Origin serving `/u/:token` and `/claim`. Must be on `email_links` in `config/allowlists.yaml`. |
 | `ADW_BRAND_SENDER` | yes | From-address for transactional mail. |
 | `ADW_ALLOWED_ORIGINS` | yes | Comma-separated CORS allowlist. Never a wildcard — the API is credentialed. |
@@ -265,11 +268,28 @@ Environment variables (secrets belong in your secrets manager, not a repo file):
 
 ### 3.1 Webhooks to configure at the vendor
 
-Both endpoints are signature-verified and idempotent, and both now have effects
-— they are not acknowledgement stubs.
+Both endpoints are idempotent and both have effects. Signatures are verified
+**per provider, using the scheme that provider actually uses** — SNS RSA over its
+canonical field list, Stripe HMAC over `<timestamp>.<body>`.
+
+⛔ This was wrong until recently and worth understanding before you configure
+anything. The route verified a shared-secret HMAC in an `x-adw-signature` header
+that neither vendor sends, so every genuine bounce notification and every genuine
+Stripe event was answered **401** — while the effects suite stayed green by
+calling the handler directly. A provider whose scheme is not implemented is now
+refused with a reason rather than waved through, and every refusal writes a
+`webhook.rejected` event, because a wrong topic ARN and a forgery are both a bare
+401 from outside.
+
+The shared-secret path still exists for our own simulators and is **gated on mock
+mode**. In a live deployment it is refused: accepting it would let anyone holding
+`ADW_WEBHOOK_SECRET` forge a hard bounce and suppress an arbitrary address.
 
 - **SES → SNS → `POST /webhooks/aws_ses`.** Subscribe an SNS topic to the SES
-  configuration set for Bounce, Complaint and Delivery. Complaints and permanent
+  configuration set for Bounce, Complaint and Delivery. The endpoint handles
+  `SubscriptionConfirmation` itself and confirms by fetching the URL Amazon
+  supplies — without that handshake the subscription never activates, delivers
+  nothing forever, and reports no error at either end. Complaints and permanent
   bounces write the suppression ledger; all three write the message row the
   deliverability control loop scores assets from. **If this is not configured,
   the loop reads zero complaints forever and can never halt a burning domain.**

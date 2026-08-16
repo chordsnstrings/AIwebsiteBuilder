@@ -34,7 +34,7 @@
 // Any REQUIRED key missing ⇒ the mock (or null, for payments). A half-deposited
 // credential set must not produce a half-live vendor.
 import type { SecretsBackend } from "@adw/vault";
-import { getDnsProvider, getEmailTransport, getObjectStore, getRegistrar, getSiteHost } from "./registry.ts";
+import { getDnsProvider, getEmailTransport, getEmailVerifier, getObjectStore, getRegistrar, getSiteHost } from "./registry.ts";
 import { CloudflarePagesHost } from "./hosting/real.ts";
 import { CloudflareDns } from "./dns/real.ts";
 import { R2ObjectStore } from "./storage/real.ts";
@@ -46,6 +46,8 @@ import type { DnsProvider } from "./dns/types.ts";
 import type { ObjectStore } from "./storage/types.ts";
 import type { EmailTransport } from "./email/types.ts";
 import type { DomainRegistrar } from "./registrar/types.ts";
+import type { EmailVerifier } from "./verification/types.ts";
+import { HttpEmailVerifier, LayeredEmailVerifier } from "./verification/real.ts";
 
 export interface ResolveVendorDeps {
   vault: SecretsBackend;
@@ -73,6 +75,14 @@ export const VENDOR_CREDENTIAL_KEYS = {
   email: { vendorId: "aws_ses", required: ["access_key_id", "secret_access_key"], optional: ["region", "configuration_set"] },
   registrar: { vendorId: "registrar_reseller", required: ["api_key", "api_user", "username"], optional: ["client_ip"] },
   payments: { vendorId: "stripe", required: ["secret_key"], optional: ["webhook_secret"] },
+  // ⛔ This slot was documented in DEPLOYMENT.md as flipping "real pre-send
+  // verification" live for months while NO code read it and `verification/` had
+  // no real adapter. Cold mail went out with zero deliverability screening.
+  verification: {
+    vendorId: "email_verification",
+    required: ["api_key"],
+    optional: ["endpoint", "status_field", "api_key_param", "email_param"],
+  },
 } as const;
 
 // --- resolvers --------------------------------------------------------------
@@ -122,6 +132,34 @@ export async function resolveEmailTransport(vendorId: string, deps: ResolveVendo
     secretAccessKey: cfg["secret_access_key"] ?? "",
     ...(configurationSetName !== undefined ? { configurationSetName } : {}),
   });
+}
+
+/**
+ * Pre-send verification.
+ *
+ * ⛔ Always LAYERED, in both modes. The free structural checks — shape, MX,
+ * throwaway domains, role accounts — need no credential and no invoice, so
+ * "no vendor configured" must still mean "we check what we can", not "we check
+ * nothing". A deployment without an api key gets the local pass alone, which is
+ * a large fraction of the value: a dead domain and an `info@` are the two
+ * commonest problems on a scraped list.
+ */
+export async function resolveEmailVerifier(deps: ResolveVendorDeps): Promise<EmailVerifier> {
+  const cfg = await readAll(deps, VENDOR_CREDENTIAL_KEYS.verification);
+  if (!cfg) {
+    // In demo mode the simulator gives the deterministic verdicts the eval
+    // fixtures expect; in live mode with no key, the local checks stand alone.
+    return deps.forceMock ? getEmailVerifier() : new LayeredEmailVerifier(null);
+  }
+  const remote = new HttpEmailVerifier({
+    vendorId: "email_verification",
+    apiKey: cfg["api_key"] ?? "",
+    endpoint: cfg["endpoint"] ?? "https://api.zerobounce.net/v2/validate",
+    ...(cfg["api_key_param"] === undefined ? {} : { apiKeyParam: cfg["api_key_param"] }),
+    ...(cfg["email_param"] === undefined ? {} : { emailParam: cfg["email_param"] }),
+    ...(cfg["status_field"] === undefined ? {} : { statusField: cfg["status_field"] }),
+  });
+  return new LayeredEmailVerifier(remote);
 }
 
 export async function resolveRegistrar(deps: ResolveVendorDeps): Promise<DomainRegistrar> {

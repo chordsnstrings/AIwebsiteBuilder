@@ -60,6 +60,25 @@ interface PackResult {
 export const leadWorkflow: WorkflowDefinition<LeadInput, LeadOutput> = {
   type: "lead",
   run: async (ctx: WorkflowContext, input: LeadInput): Promise<LeadOutput> => {
+    // A0 — is this address even real?
+    //
+    // ⛔ First, before any spend. Verification is the cheapest step in the
+    // pipeline and the only one that protects the sending domain — grading a
+    // site, classifying a vertical and generating a preview for a mailbox that
+    // does not exist spends model budget to produce a bounce, and a bounce is a
+    // deposit against a reputation that took 21 days to build and cannot be
+    // rebuilt faster.
+    const verified = await ctx.activity<LeadInput, { verdict: string }>("verify_recipient", input);
+    if (verified.verdict === "invalid") {
+      return {
+        finalState: "SUPPRESSED",
+        contacted: false,
+        previewGenerated: false,
+        agentBound: false,
+        rejectedReason: "undeliverable_address",
+      };
+    }
+
     // A1 — enrichment. Cheap, runs on every lead.
     const scored = await ctx.activity<LeadInput, ScoreResult>("score_lead", input);
 

@@ -157,6 +157,35 @@ export async function gate(msg: OutboundMessage, deps: GateDeps): Promise<GateDe
     }
   }
 
+  // Rule 8b — the recipient is deliverable.
+  //
+  // ⛔ The system had NO pre-send verification of any kind: no MX check, no
+  // disposable-domain check, no role-account detection, and no adapter behind
+  // the `email_verification` vault slot that DEPLOYMENT.md claimed flipped it
+  // live. Cold mail went out with nothing between it and a dead mailbox.
+  //
+  // A bounce is not a wasted send, it is a deposit against the sending domain's
+  // reputation. At the configured 2.0% halt threshold a list with 5% dead
+  // addresses retires a domain that took 21 days to warm up, and a warm-up
+  // cannot be compressed. So this is a gate rule, at the chokepoint, rather
+  // than a courtesy check somewhere upstream that a new code path can forget.
+  //
+  // It applies to COLD mail only. A customer who is being invoiced does not stop
+  // receiving their invoice because a verifier had an opinion.
+  if (msg.messageClass === "cold" && msg.contactId) {
+    const c = await db.maybeOne<{ verification: string; verified_at: string | null }>(
+      "SELECT verification, verified_at FROM contacts WHERE id = $1",
+      [msg.contactId],
+    );
+    // ⛔ `unknown` is ALLOWED and `invalid` is not. Denying on unknown would
+    // halt the entire programme the first time a verifier had an outage — the
+    // verifier answers `unknown` rather than throwing precisely so that the
+    // policy for "we could not check" is decided here, once, in the open.
+    if (c && c.verification === "invalid") {
+      return decide({ allow: false, reason: "UNVERIFIED_RECIPIENT", ruleId: "rule_8b_deliverability" });
+    }
+  }
+
   // Rule 9 — domain class matches message class (the one-way rule).
   if (!domainClassMatches(msg.messageClass, msg.domainClass)) {
     return decide({ allow: false, reason: "DOMAIN_CLASS_MISMATCH", ruleId: "rule_9_domain_class" });
