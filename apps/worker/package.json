@@ -13,6 +13,7 @@
     "@adw/agenteval": "workspace:*",
     "@adw/agents": "workspace:*",
     "@adw/architect": "workspace:*",
+    "@adw/assets": "workspace:*",
     "@adw/billing": "workspace:*",
     "@adw/cases": "workspace:*",
     "@adw/compliance": "workspace:*",

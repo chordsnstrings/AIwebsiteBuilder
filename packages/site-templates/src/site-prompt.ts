@@ -21,6 +21,7 @@ import { allTrades, isKnownTrade, primaryArchetype } from "@adw/taxonomy";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { config } from "@adw/config";
 
 const PROMPT_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "prompts");
 
@@ -68,6 +69,14 @@ export interface SiteImage {
   /** What is actually in the frame. The model places images by content, so a
    *  vague description produces a photograph in the wrong slot. */
   description: string;
+  /** ⛔ Defaults to "photograph". An AI-generated image listed among the
+   *  photographs will be placed among the photographs — in a gallery, beside
+   *  "our recent work" — and that is a false statement about a job the business
+   *  did. Generated images are described in their own section with their own
+   *  instruction. */
+  provenance?: "photograph" | "ai_generated";
+  /** Required for a generated image: the decorative slot it belongs in. */
+  slot?: string;
 }
 
 export interface SiteQAPair {
@@ -213,16 +222,40 @@ function businessBlock(input: SitePromptInput): string {
   }
   lines.push(`Refusal text, verbatim: "${input.refusalText}"`);
 
+  const photographs = input.images.filter((i) => (i.provenance ?? "photograph") === "photograph");
+  const generated = input.images.filter((i) => i.provenance === "ai_generated");
+
   lines.push("", "## Photographs on disk — use these exact paths", "");
-  if (input.images.length === 0) {
+  if (photographs.length === 0) {
     lines.push(
       "None. Build the page on typography, rule and space alone. That is a legitimate",
       "answer, not a degraded one — do not reference image files that do not exist.",
     );
   } else {
-    for (const img of input.images) {
+    for (const img of photographs) {
       const shape = img.height > img.width ? " PORTRAIT" : "";
       lines.push(`- \`${img.path}\` ${img.width}x${img.height}${shape} — ${img.description}`);
+    }
+  }
+
+  // ⛔ Its own section, with its own instruction. Listed among the photographs
+  // these would be placed among the photographs, and an AI render beside "our
+  // recent work" is a false statement about a job the business did.
+  if (generated.length > 0) {
+    lines.push("", "## AI-generated decoration — NOT photographs of this business", "");
+    lines.push(
+      "These images were generated. They show nothing that exists and nobody who exists.",
+      "",
+      "- Use them ONLY in the decorative slot named beside each one.",
+      "- NEVER place one in a gallery, a case study, a before-and-after, a testimonial,",
+      "  an about-the-team section, or anywhere a reader would take it as evidence of",
+      "  work this business did or people who work here.",
+      "- Never write a caption that describes one as a photograph, a project, a job,",
+      "  a customer, or a member of staff.",
+      "",
+    );
+    for (const img of generated) {
+      lines.push(`- \`${img.path}\` ${img.width}x${img.height} — slot: ${img.slot ?? "unspecified"} — ${img.description}`);
     }
   }
 
@@ -242,7 +275,33 @@ function businessBlock(input: SitePromptInput): string {
   return lines.join("\n");
 }
 
+/**
+ * Decorative slots, read from the same config the asset catalogue reads.
+ *
+ * ⛔ One file, two readers. A local copy of this list here would be a second
+ * place to add a slot and a first place to forget one, and the failure mode of
+ * forgetting is an AI render in a gallery.
+ */
+function decorativeSlots(): Set<string> {
+  const data = config.assetKinds().data as { decorative_slots?: string[] };
+  return new Set(data.decorative_slots ?? []);
+}
+
 export function buildSitePrompt(input: SitePromptInput): { system: string; user: string } {
+  // ⛔ Refuses the build rather than rendering the page. A generated image whose
+  // slot is not decorative is the exact thing the whole provenance apparatus
+  // exists to prevent, and by the time a page has shipped it is on the internet
+  // under a real business's name.
+  const decorative = decorativeSlots();
+  for (const img of input.images) {
+    if (img.provenance !== "ai_generated") continue;
+    if (img.slot === undefined || !decorative.has(img.slot)) {
+      throw new Error(
+        `buildSitePrompt: generated image ${img.path} targets slot "${img.slot ?? "none"}", which is not decorative. ` +
+          `An AI render placed where a reader takes it as evidence of work done is a false claim about this business.`,
+      );
+    }
+  }
   return {
     system: SITE_SYSTEM_PROMPT,
     // ⛔ Order is load-bearing. Contract, then vertical register, then the

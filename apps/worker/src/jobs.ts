@@ -170,6 +170,22 @@ export function publishJob(run: (db: Db, now: Date) => Promise<unknown>): Job {
   };
 }
 
+/**
+ * Generating the assets an owner has approved (MF13).
+ *
+ * ⛔ Hourly, and the only job in this list whose work costs money per item. It
+ * is deliberately NOT on the five-second dispatcher: an owner approving a batch
+ * is not waiting at the screen for the pictures, and a slow cadence means a
+ * runaway request loop is caught by a human before it is caught by a bill.
+ */
+export function assetJob(run: (db: Db, now: Date) => Promise<unknown>): Job {
+  return {
+    name: "generate_assets",
+    intervalMs: 60 * 60_000,
+    run: async ({ db, now }) => void (await run(db, now)),
+  };
+}
+
 /** Dunning: advance any subscription whose next action is due (spec §29). */
 export function dunningJob(advance: (db: Db, subscriptionId: string) => Promise<unknown>): Job {
   return {

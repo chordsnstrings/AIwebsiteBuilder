@@ -201,6 +201,13 @@ export const config = {
     const raw = readFileSync(join(CONFIG_DIR, "clocks.yaml"), "utf8");
     return { data: parse(raw), version: "clocks@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
   },
+  /** Generated-asset kinds (MF13).
+   *  ⛔ Sensitive: `slot` decides whether an AI render can be placed somewhere a
+   *  reader will take as evidence of work actually done. */
+  assetKinds: () => {
+    const raw = readFileSync(join(CONFIG_DIR, "asset-kinds.yaml"), "utf8");
+    return { data: parse(raw), version: "asset-kinds@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
+  },
   /** Publishing channels (MF12/MF13).
    *  ⛔ Sensitive: `approval: not_required` on a channel that carries claims
    *  would let this system speak in a business's name unattended. */

@@ -73,3 +73,42 @@ describe("SSG renderer", () => {
     expect(txt).toContain("Espresso bar");
   });
 });
+
+describe("⛔ a generated image is not a photograph", () => {
+  const base = {
+    vertical: "plumber",
+    business: { name: "Test Co", city: "London", phone: "+44 20 7946 0000", email: "a@b.example", areaServed: ["London"] },
+    services: [{ name: "A service", description: "Something they do" }],
+    facts: [], qa: [{ question: "Q?", answer: "A." }], refusalText: "I can't answer that.",
+    brand: { extracted: false }, pages: ["index.html"],
+  };
+
+  it("describes it in its own section, never among the photographs", async () => {
+    const { buildSitePrompt } = await import("./src/index.ts");
+    const out = buildSitePrompt({
+      ...base,
+      images: [
+        { path: "img/job.jpg", width: 1200, height: 800, description: "a finished bathroom" },
+        { path: "img/hero.png", width: 2048, height: 1152, description: "blue gradient",
+          provenance: "ai_generated" as const, slot: "hero_background" },
+      ],
+    } as Parameters<typeof buildSitePrompt>[0]);
+    const photographs = out.user.slice(out.user.indexOf("## Photographs on disk"), out.user.indexOf("## AI-generated"));
+    expect(photographs).toContain("img/job.jpg");
+    expect(photographs, "a generated image was listed among the photographs").not.toContain("img/hero.png");
+    expect(out.user).toMatch(/NEVER place one in a gallery/);
+  });
+
+  it("⛔ refuses the build when a generated image targets a non-decorative slot", async () => {
+    // By the time a page has shipped it is on the internet under a real
+    // business's name, so this fails the build rather than the review.
+    const { buildSitePrompt } = await import("./src/index.ts");
+    expect(() =>
+      buildSitePrompt({
+        ...base,
+        images: [{ path: "img/x.png", width: 800, height: 600, description: "a finished roof",
+          provenance: "ai_generated" as const, slot: "gallery" }],
+      } as Parameters<typeof buildSitePrompt>[0]),
+    ).toThrow(/not decorative/);
+  });
+});

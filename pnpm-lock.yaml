@@ -78,6 +78,9 @@ importers:
       '@adw/architect':
         specifier: workspace:*
         version: link:../../packages/architect
+      '@adw/assets':
+        specifier: workspace:*
+        version: link:../../packages/assets
       '@adw/auth':
         specifier: workspace:*
         version: link:../../packages/auth
@@ -277,6 +280,9 @@ importers:
       '@adw/architect':
         specifier: workspace:*
         version: link:../../packages/architect
+      '@adw/assets':
+        specifier: workspace:*
+        version: link:../../packages/assets
       '@adw/billing':
         specifier: workspace:*
         version: link:../../packages/billing
@@ -430,6 +436,24 @@ importers:
       '@adw/db':
         specifier: workspace:*
         version: link:../db
+
+  packages/assets:
+    dependencies:
+      '@adw/config':
+        specifier: workspace:*
+        version: link:../config
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+      '@adw/taxonomy':
+        specifier: workspace:*
+        version: link:../taxonomy
+      '@adw/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
+      '@adw/vendors':
+        specifier: workspace:*
+        version: link:../vendors
 
   packages/auth:
     dependencies:

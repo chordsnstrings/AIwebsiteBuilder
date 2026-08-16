@@ -12,6 +12,8 @@ import { runEscalations } from "@adw/protocol";
 import { runJourneys, runReminders } from "@adw/journeys";
 import { httpCollectors, pruneObservations, runDueWatches, simulatedCollectors, type FetchLike } from "@adw/watch";
 import { publishApproved, simulatedConnectors } from "@adw/publish";
+import { generateApproved } from "@adw/assets";
+import { resolveMediaGenerator } from "@adw/vendors";
 import { dueChases, purgeExpired } from "@adw/uploads";
 import { resolveObjectStore } from "@adw/vendors";
 import { advanceDunning } from "@adw/billing";
@@ -34,6 +36,7 @@ import {
   clocksJob,
   watchJob,
   publishJob,
+  assetJob,
   deliverabilityJob,
   documentsJob,
   protocolEscalationJob,
@@ -330,6 +333,21 @@ const scheduler = new Scheduler({
         console.warn(`[worker] ${summary.uncollectable} watch subscription(s) have no collector on this deployment`);
       }
       await pruneObservations(database, 90, at);
+    }),
+    assetJob(async (database, at) => {
+      // ⛔ Resolved per sweep rather than held, so depositing a ModelArk
+      // credential takes effect without a restart — and so does removing one.
+      const generator = await resolveMediaGenerator({ vault, forceMock });
+      const store = await resolveObjectStore({ vault, forceMock });
+      const out = await generateApproved(database, { generator, store }, at);
+      if (out.capped > 0) {
+        console.warn(`[worker] ${out.capped} approved asset(s) held back by a monthly cap`);
+      }
+      if (out.spentCents > 0) {
+        // ⛔ Logged in every run that spends. This is the one recurring job that
+        // debits a real account, and a silent one is a bill nobody saw coming.
+        console.log(`[worker] generated ${out.generated} asset(s), ${out.spentCents}c, billable=${generator.billable}`);
+      }
     }),
     publishJob(async (database, at) => {
       const out = await publishApproved(database, publishConnectors, at);

@@ -38,6 +38,9 @@ import { getDnsProvider, getEmailTransport, getEmailVerifier, getObjectStore, ge
 import { CloudflarePagesHost } from "./hosting/real.ts";
 import { CloudflareDns } from "./dns/real.ts";
 import { R2ObjectStore } from "./storage/real.ts";
+import { ModelArkMediaGenerator } from "./media/real.ts";
+import { getMediaGenerator } from "./media/mock.ts";
+import type { MediaGenerator } from "./media/types.ts";
 import { SesEmailTransport } from "./email/real.ts";
 import { NamecheapBackend, ResellerRegistrar } from "./registrar/real.ts";
 import { StripeRail } from "./payments/real-stripe.ts";
@@ -78,6 +81,9 @@ export const VENDOR_CREDENTIAL_KEYS = {
   // ⛔ This slot was documented in DEPLOYMENT.md as flipping "real pre-send
   // verification" live for months while NO code read it and `verification/` had
   // no real adapter. Cold mail went out with zero deliverability screening.
+  /** ⛔ Image and video generation. The ONE credential in this table whose
+   *  presence turns on per-asset SPENDING rather than per-token. */
+  media: { vendorId: "modelark", required: ["api_key"], optional: ["base_url"] },
   verification: {
     vendorId: "email_verification",
     required: ["api_key"],
@@ -101,6 +107,25 @@ export async function resolveDns(deps: ResolveVendorDeps): Promise<DnsProvider> 
   const cfg = await readAll(deps, VENDOR_CREDENTIAL_KEYS.dns);
   if (!cfg) return getDnsProvider();
   return new CloudflareDns({ apiToken: cfg["api_token"] ?? "", zoneId: cfg["zone_id"] ?? "" });
+}
+
+/**
+ * Image and video generation.
+ *
+ * ⛔ Returns the MOCK when there is no credential, exactly like every other
+ * capability here — but the consequence differs in kind. Elsewhere a missing
+ * credential means a simulated send; here it means the difference between
+ * spending the customer's money and not. `MediaGenerator.billable` carries that
+ * distinction to the caller so the approval rule keys off the adapter rather
+ * than off an environment variable.
+ */
+export async function resolveMediaGenerator(deps: ResolveVendorDeps): Promise<MediaGenerator> {
+  const cfg = await readAll(deps, VENDOR_CREDENTIAL_KEYS.media);
+  if (!cfg) return getMediaGenerator();
+  return new ModelArkMediaGenerator({
+    baseUrl: cfg["base_url"] ?? "https://ark.ap-southeast.bytepluses.com/api/v3",
+    apiKey: cfg["api_key"] ?? "",
+  });
 }
 
 export async function resolveObjectStore(deps: ResolveVendorDeps): Promise<ObjectStore> {

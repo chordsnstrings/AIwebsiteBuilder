@@ -51,6 +51,16 @@ import {
 import { cancelBooking, claimSlot } from "@adw/scheduling";
 import { markReturned, missedCalls, recordCall } from "@adw/voice";
 import {
+  approveAsset,
+  assetKindsFor,
+  assetLibrary,
+  budgetFor,
+  pendingAssets,
+  rejectAsset,
+  requestAsset,
+  setMonthlyCap,
+} from "@adw/assets";
+import {
   closeRun,
   ingest,
   openDifferences,
@@ -1076,6 +1086,94 @@ export function agentRoutes(deps: AgentRouteDeps): Hono<{ Variables: { user: Ses
     return (await rejectPublication(db, id, (b.reason ?? "").trim() || "rejected by owner"))
       ? c.json({ ok: true })
       : c.json({ error: "unknown or not a draft" }, 404);
+  });
+
+  // -------------------------------------------------------------------------
+  // Generated assets (MF13)
+  // -------------------------------------------------------------------------
+  //
+  // ⛔ The only routes in this file where pressing a button spends money. The
+  // estimate and the remaining budget come back on the REQUEST so the approval
+  // surface can show them — "approve" means nothing if the person pressing it
+  // does not know the number.
+
+  app.get("/agent/:customerId/assets", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const customerId = c.req.param("customerId");
+    if (!UUID_RE.test(customerId)) return c.json({ error: "bad customerId" }, 400);
+    const vertical = await verticalOf(db, customerId);
+    if (vertical === null) return c.json({ error: "unknown customer" }, 404);
+    return c.json({
+      kinds: assetKindsFor(vertical).map((k) => ({
+        id: k.id, label: k.label, kind: k.kind, slot: k.slot, maxPerMonth: k.maxPerMonth,
+      })),
+      budget: await budgetFor(db, customerId),
+      awaitingApproval: await pendingAssets(db, customerId),
+      library: await assetLibrary(db, customerId),
+    });
+  });
+
+  app.post("/agent/:customerId/assets", async (c) => {
+    const operator = user(c);
+    if (operator === null) return c.json({ error: "unauthorised" }, 401);
+    const customerId = c.req.param("customerId");
+    if (!UUID_RE.test(customerId)) return c.json({ error: "bad customerId" }, 400);
+    const b = (await c.req.json().catch(() => ({}))) as { assetKind?: string; brief?: string; publicationId?: string };
+    if (typeof b.assetKind !== "string" || typeof b.brief !== "string" || b.brief.trim() === "") {
+      return c.json({ error: "assetKind and brief are required" }, 400);
+    }
+    const vertical = await verticalOf(db, customerId);
+    if (vertical === null) return c.json({ error: "unknown customer" }, 404);
+    const out = await requestAsset(db, {
+      customerId, vertical, assetKind: b.assetKind, brief: b.brief.trim(),
+      requestedBy: operator.email,
+      ...(typeof b.publicationId === "string" ? { publicationId: b.publicationId } : {}),
+    });
+    if (!out.ok) {
+      // ⛔ The reason is returned verbatim. "We cannot generate a picture of
+      // your team because it would be people who do not exist" is a sentence
+      // the owner deserves to read, not a 400 they have to guess at.
+      return c.json({ error: out.reason, detail: out.detail }, out.reason === "unknown_kind" ? 400 : 422);
+    }
+    return c.json({
+      ok: true, assetId: out.assetId, state: "requested",
+      estimatedCostCents: out.estimatedCostCents,
+      remainingCapCents: out.remainingCapCents,
+      prompt: out.prompt,
+    });
+  });
+
+  app.post("/agent/assets/:assetId/approve", async (c) => {
+    const operator = user(c);
+    if (operator === null) return c.json({ error: "unauthorised" }, 401);
+    const assetId = c.req.param("assetId");
+    if (!UUID_RE.test(assetId)) return c.json({ error: "bad assetId" }, 400);
+    const out = await approveAsset(db, assetId, operator.email);
+    if (!out.ok) return c.json({ error: out.reason, detail: out.detail }, out.reason === "unknown" ? 404 : 409);
+    return c.json({ ok: true, queued: true, costCents: out.estimatedCostCents });
+  });
+
+  app.post("/agent/assets/:assetId/reject", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const assetId = c.req.param("assetId");
+    if (!UUID_RE.test(assetId)) return c.json({ error: "bad assetId" }, 400);
+    const b = (await c.req.json().catch(() => ({}))) as { reason?: string };
+    return (await rejectAsset(db, assetId, (b.reason ?? "").trim() || "rejected by owner"))
+      ? c.json({ ok: true })
+      : c.json({ error: "unknown or not awaiting approval" }, 404);
+  });
+
+  app.post("/agent/:customerId/assets/budget", async (c) => {
+    const operator = user(c);
+    if (operator === null) return c.json({ error: "unauthorised" }, 401);
+    const customerId = c.req.param("customerId");
+    if (!UUID_RE.test(customerId)) return c.json({ error: "bad customerId" }, 400);
+    const b = (await c.req.json().catch(() => ({}))) as { monthlyCapCents?: number };
+    if (typeof b.monthlyCapCents !== "number" || !Number.isFinite(b.monthlyCapCents) || b.monthlyCapCents < 0) {
+      return c.json({ error: "monthlyCapCents must be a non-negative number of minor units" }, 400);
+    }
+    await setMonthlyCap(db, customerId, b.monthlyCapCents, operator.email);
+    return c.json({ ok: true, budget: await budgetFor(db, customerId) });
   });
 
   // -------------------------------------------------------------------------

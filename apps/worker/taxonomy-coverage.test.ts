@@ -161,3 +161,17 @@ describe("⛔ every trade can say something afterwards", () => {
     }
   });
 });
+
+describe("⛔ no trade can generate a picture of something that did not happen", () => {
+  it("every asset kind sits in a decorative slot and says no people in its prompt", async () => {
+    // Both rules are per kind and the config is per archetype, so they have to
+    // hold for all 145 trades rather than the handful someone spot-checked.
+    const { assetKindsFor, isDecorativeSlot } = await import("@adw/assets");
+    for (const t of allTrades()) {
+      for (const k of assetKindsFor(t)) {
+        expect(isDecorativeSlot(k.slot), `${t}/${k.id} slot ${k.slot}`).toBe(true);
+        expect(k.subject.toLowerCase(), `${t}/${k.id} prompt`).toMatch(/no people/);
+      }
+    }
+  });
+});

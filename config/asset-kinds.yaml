@@ -1,0 +1,117 @@
+# Generated assets (catalogue MF13 — the ModelArk half).
+#
+# What a business may have generated for it, and — more importantly — where the
+# result is allowed to be placed.
+#
+# ⛔ `slot` is the load-bearing field. A slot a reader interprets as EVIDENCE OF
+# WORK DONE — a gallery, a case study, a before-and-after, a team photo — is
+# never available to a generated asset, and the loader fails the build if one
+# appears here. An AI render of a finished roof in a roofer's "our work" gallery
+# is a false statement about a job they did, and no amount of small print
+# underneath makes it not one.
+#
+# ⛔ `people: false` on every kind, and the loader enforces that too. A generated
+# photograph of "our team" is a picture of people who do not exist presented as
+# a business's staff. There is no version of that which is acceptable, and the
+# demand for it is high enough that it needs to be structurally impossible
+# rather than discouraged.
+#
+# `max_per_month` is a per-kind sanity bound on top of the customer's monthly
+# spend cap. The cap stops the money; this stops a loop.
+
+version: 1
+
+# Slots the site renderer treats as decorative. Nothing outside this set may
+# hold a generated asset.
+decorative_slots:
+  - hero_background
+  - section_background
+  - abstract_accent
+  - service_icon
+  - social_card
+  - blog_header
+  - pattern
+
+asset_kinds:
+  hero_background:
+    label: "Hero background"
+    kind: image
+    slot: hero_background
+    size: "2048x1152"
+    people: false
+    max_per_month: 4
+    # What the prompt must be about. Enforced as a prefix so a caller cannot
+    # quietly repurpose a decorative slot into a documentary one.
+    subject: "an abstract or environmental background, no identifiable premises, no people, no signage"
+
+  section_background:
+    label: "Section background"
+    kind: image
+    slot: section_background
+    size: "2048x1152"
+    people: false
+    max_per_month: 6
+    subject: "a soft abstract texture suitable behind text, no people, no text of its own"
+
+  service_icon:
+    label: "Service illustration"
+    kind: image
+    slot: service_icon
+    size: "1024x1024"
+    people: false
+    max_per_month: 12
+    subject: "a simple flat illustration of a tool or object, no people, no brand marks"
+
+  social_card:
+    label: "Social card image"
+    kind: image
+    slot: social_card
+    size: "1200x630"
+    people: false
+    max_per_month: 12
+    subject: "a clean graphic background for a short caption, no people, no text"
+
+  blog_header:
+    label: "Article header"
+    kind: image
+    slot: blog_header
+    size: "2048x1152"
+    people: false
+    max_per_month: 8
+    subject: "an illustrative header image for an article, no people, no premises"
+
+  abstract_accent:
+    label: "Abstract accent"
+    kind: image
+    slot: abstract_accent
+    size: "1024x1024"
+    people: false
+    max_per_month: 8
+    subject: "an abstract shape or gradient used as a decorative accent"
+
+  social_clip:
+    label: "Short social clip"
+    kind: video
+    slot: social_card
+    duration_seconds: 5
+    aspect_ratio: "9:16"
+    people: false
+    # ⛔ Two a month. A five-second clip costs roughly twenty times an image, and
+    # the failure mode of a generous bound here is a bill rather than a bad page.
+    max_per_month: 2
+    subject: "an abstract motion background, no people, no premises, no text"
+
+# Which archetypes may generate what. Retail and hospitality lean on imagery;
+# regulated professions deliberately get the least, because a law firm's site
+# carrying AI-generated illustration reads as exactly what it is.
+archetype_assets:
+  A: [hero_background, section_background, service_icon, social_card]
+  B: [hero_background, section_background, social_card, abstract_accent, social_clip]
+  C: [section_background, abstract_accent, blog_header]
+  D: [hero_background, section_background, service_icon, social_card, blog_header]
+  E: [section_background, abstract_accent, blog_header, social_card]
+  F: [hero_background, section_background, social_card, abstract_accent, social_clip]
+  G: [section_background, abstract_accent, blog_header]
+  H: [hero_background, section_background, blog_header, social_card]
+  I: [hero_background, section_background, social_card, blog_header]
+  J: [hero_background, section_background, service_icon, social_card, social_clip]

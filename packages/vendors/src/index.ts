@@ -175,6 +175,7 @@ export {
   resolveDns,
   resolveEmailTransport,
   resolveEmailVerifier,
+  resolveMediaGenerator,
   resolveObjectStore,
   resolvePaymentRail,
   resolveRegistrar,
@@ -199,3 +200,18 @@ export {
   type SnsVerifyOptions,
   type WebhookVerdict,
 } from "./webhook-auth.ts";
+
+// Image and video generation (MF13). ⛔ The one capability where a call costs
+// money per asset rather than per token, and where the cost is not recoverable.
+export {
+  costCeilingCents,
+  DEFAULT_MEDIA_MODELS,
+  MEDIA_COST_CEILING_CENTS,
+  UNKNOWN_MODEL_CEILING_CENTS,
+  type MediaGenerator,
+  type MediaKind,
+  type MediaRequest,
+  type MediaResult,
+} from "./media/types.ts";
+export { ModelArkMediaGenerator, type ModelArkMediaConfig } from "./media/real.ts";
+export { MockMediaGenerator, getMediaGenerator, resetMediaGenerator } from "./media/mock.ts";
