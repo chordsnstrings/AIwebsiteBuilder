@@ -201,6 +201,13 @@ export const config = {
     const raw = readFileSync(join(CONFIG_DIR, "clocks.yaml"), "utf8");
     return { data: parse(raw), version: "clocks@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
   },
+  /** Reconciliation definitions (MF8). Match strategies and tolerances.
+   *  ⛔ Sensitive: `tolerance_cents: 0` on a client account is a regulatory
+   *  obligation, not a tuning parameter. */
+  reconciliations: () => {
+    const raw = readFileSync(join(CONFIG_DIR, "reconciliations.yaml"), "utf8");
+    return { data: parse(raw), version: "reconciliations@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
+  },
   /** Outward-facing watchers (MF7). Reviews, listings, registers, rules. */
   watches: () => {
     const raw = readFileSync(join(CONFIG_DIR, "watches.yaml"), "utf8");

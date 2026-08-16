@@ -123,6 +123,9 @@ importers:
       '@adw/qapack':
         specifier: workspace:*
         version: link:../../packages/qapack
+      '@adw/reconcile':
+        specifier: workspace:*
+        version: link:../../packages/reconcile
       '@adw/registry':
         specifier: workspace:*
         version: link:../../packages/registry
@@ -319,6 +322,9 @@ importers:
       '@adw/qapack':
         specifier: workspace:*
         version: link:../../packages/qapack
+      '@adw/reconcile':
+        specifier: workspace:*
+        version: link:../../packages/reconcile
       '@adw/registry':
         specifier: workspace:*
         version: link:../../packages/registry
@@ -711,6 +717,21 @@ importers:
       '@adw/kb':
         specifier: workspace:*
         version: link:../kb
+
+  packages/reconcile:
+    dependencies:
+      '@adw/config':
+        specifier: workspace:*
+        version: link:../config
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+      '@adw/taxonomy':
+        specifier: workspace:*
+        version: link:../taxonomy
+      '@adw/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
 
   packages/registry:
     dependencies:

@@ -50,6 +50,17 @@ import {
 } from "@adw/journeys";
 import { cancelBooking, claimSlot } from "@adw/scheduling";
 import {
+  closeRun,
+  ingest,
+  openDifferences,
+  openRun,
+  reconTypesFor,
+  resolveDifference,
+  runReconciliation,
+  runsFor,
+  type IngestLine,
+} from "@adw/reconcile";
+import {
   acknowledgeFinding,
   dismissFinding,
   openFindings,
@@ -877,7 +888,123 @@ export function agentRoutes(deps: AgentRouteDeps): Hono<{ Variables: { user: Ses
     return (await dismissFinding(db, id)) ? c.json({ ok: true }) : c.json({ error: "unknown or already dismissed" }, 404);
   });
 
+  // -------------------------------------------------------------------------
+  // Reconciliation (MF8)
+  // -------------------------------------------------------------------------
+  //
+  // ⛔ There is no route here that adjusts an amount. `resolve` records what a
+  // person decided about a difference; the difference stays exactly where it
+  // was, with a name and an explanation beside it.
+
+  app.get("/agent/:customerId/reconciliations", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const customerId = c.req.param("customerId");
+    if (!UUID_RE.test(customerId)) return c.json({ error: "bad customerId" }, 400);
+    const vertical = await verticalOf(db, customerId);
+    if (vertical === null) return c.json({ error: "unknown customer" }, 404);
+    return c.json({
+      available: reconTypesFor(vertical).map((t) => ({
+        id: t.id, label: t.label, ours: t.oursLabel, theirs: t.theirsLabel,
+        toleranceCents: t.toleranceCents, statutory: t.statutory,
+      })),
+      runs: await runsFor(db, customerId),
+    });
+  });
+
+  app.post("/agent/:customerId/reconciliations", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const customerId = c.req.param("customerId");
+    if (!UUID_RE.test(customerId)) return c.json({ error: "bad customerId" }, 400);
+    const b = (await c.req.json().catch(() => ({}))) as {
+      reconType?: string; periodStart?: string; periodEnd?: string;
+      ours?: unknown[]; theirs?: unknown[];
+    };
+    if (typeof b.reconType !== "string") return c.json({ error: "reconType required" }, 400);
+    const start = new Date(b.periodStart ?? "");
+    const end = new Date(b.periodEnd ?? "");
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+      return c.json({ error: "periodStart and periodEnd must be dates, and the end must not precede the start" }, 400);
+    }
+    const vertical = await verticalOf(db, customerId);
+    if (vertical === null) return c.json({ error: "unknown customer" }, 404);
+
+    const run = await openRun(db, { customerId, vertical, reconType: b.reconType, periodStart: start, periodEnd: end });
+    if (!run.ok) return c.json({ error: run.reason, detail: run.detail }, run.reason === "unknown_type" ? 400 : 409);
+
+    try {
+      for (const [side, lines] of [["ours", b.ours], ["theirs", b.theirs]] as const) {
+        if (!Array.isArray(lines)) continue;
+        await ingest(db, run.runId, side, lines.map(toIngestLine));
+      }
+    } catch (err) {
+      // ⛔ 422 with the reason, never a 200 over a partially-loaded run. A
+      // reconciliation missing half a statement reports a discrepancy exactly
+      // equal to the half that did not arrive.
+      return c.json({ error: err instanceof Error ? err.message : "bad lines" }, 422);
+    }
+    return c.json({ ok: true, runId: run.runId, statutory: run.statutory });
+  });
+
+  app.post("/agent/reconciliations/:runId/run", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const runId = c.req.param("runId");
+    if (!UUID_RE.test(runId)) return c.json({ error: "bad runId" }, 400);
+    try {
+      const summary = await runReconciliation(db, runId);
+      return c.json({ ok: true, summary, differences: await openDifferences(db, runId) });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "failed" }, 409);
+    }
+  });
+
+  app.post("/agent/reconciliations/differences/:matchId/resolve", async (c) => {
+    const operator = user(c);
+    if (operator === null) return c.json({ error: "unauthorised" }, 401);
+    const matchId = c.req.param("matchId");
+    if (!UUID_RE.test(matchId)) return c.json({ error: "bad matchId" }, 400);
+    const b = (await c.req.json().catch(() => ({}))) as { resolution?: string };
+    if (typeof b.resolution !== "string" || b.resolution.trim() === "") {
+      // ⛔ An explanation is the point. "Resolved" with no reason is a
+      // difference deleted rather than a difference understood.
+      return c.json({ error: "a resolution is required" }, 400);
+    }
+    return (await resolveDifference(db, matchId, operator.email, b.resolution))
+      ? c.json({ ok: true })
+      : c.json({ error: "unknown or already resolved" }, 404);
+  });
+
+  app.post("/agent/reconciliations/:runId/close", async (c) => {
+    const operator = user(c);
+    if (operator === null) return c.json({ error: "unauthorised" }, 401);
+    const runId = c.req.param("runId");
+    if (!UUID_RE.test(runId)) return c.json({ error: "bad runId" }, 400);
+    const out = await closeRun(db, runId, operator.email);
+    return out.ok
+      ? c.json({ ok: true })
+      : c.json({ error: out.reason, ...(out.outstanding === undefined ? {} : { outstanding: out.outstanding }) }, 409);
+  });
+
   return app;
+}
+
+/**
+ * One line of a statement, from JSON.
+ *
+ * ⛔ `amountCents` is passed through unchanged, including when it is a decimal.
+ * `ingest` throws on a non-integer and that error reaching the caller as a 422
+ * is the point: coercing 12.34 to 12 here would turn a hundredfold unit error
+ * into a plausible number nobody questions.
+ */
+function toIngestLine(raw: unknown): IngestLine {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const occurred = typeof r["occurredOn"] === "string" ? new Date(r["occurredOn"]) : null;
+  return {
+    sourceKey: String(r["sourceKey"] ?? ""),
+    reference: typeof r["reference"] === "string" ? r["reference"] : null,
+    amountCents: typeof r["amountCents"] === "number" ? r["amountCents"] : Number.NaN,
+    occurredOn: occurred !== null && !Number.isNaN(occurred.getTime()) ? occurred : null,
+    description: typeof r["description"] === "string" ? r["description"] : null,
+  };
 }
 
 /** The business's trade, which is what every per-archetype lookup resolves from. */

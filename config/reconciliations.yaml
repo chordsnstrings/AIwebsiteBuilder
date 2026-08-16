@@ -1,0 +1,175 @@
+# Reconciliation (catalogue MF8 — 32 units).
+#
+# Two sets of records that ought to agree, and what to do about the ones that
+# do not. Bank against invoices, settlement against takings, remittance against
+# claims, stock count against system, client account against ledger.
+#
+# ⛔ Every unit in this family PROPOSES. Not one of them posts. A reconciliation
+# that writes its own correcting entry is a reconciliation that can hide the
+# discrepancy it just found, and the entire value of the exercise is that the
+# difference stays visible until a person has looked at it.
+#
+# ⛔ `tolerance_cents`, never a percentage and never a float. Money is integers
+# in minor units everywhere in this system; a percentage tolerance on a £40,000
+# completion statement is £400 of "close enough".
+#
+# `match_by` runs in the order given and stops at the first strategy that
+# produces an UNAMBIGUOUS match:
+#   reference    normalised reference equal on both sides
+#   amount_date  same amount, within date_window_days
+#   sum_to_one   one of theirs equals the exact sum of up to `sum_max` of ours
+#                (a batched payout against the orders inside it)
+
+version: 1
+
+reconciliations:
+  invoices_vs_bank:
+    label: "Invoices against the bank"
+    ours: "Invoices raised"
+    theirs: "Bank credits"
+    match_by: [reference, amount_date]
+    tolerance_cents: 0
+    date_window_days: 5
+    statutory: false
+
+  bills_vs_bank:
+    label: "Supplier bills against the bank"
+    ours: "Bills recorded"
+    theirs: "Bank debits"
+    match_by: [reference, amount_date]
+    tolerance_cents: 0
+    date_window_days: 5
+    statutory: false
+
+  takings_vs_settlement:
+    label: "Takings against card settlement"
+    ours: "Till takings"
+    theirs: "Acquirer settlement"
+    # ⛔ sum_to_one is essential here and nowhere near safe by default: a day's
+    # settlement is one credit covering many transactions, and without it every
+    # single day reconciles to nothing.
+    match_by: [amount_date, sum_to_one]
+    sum_max: 200
+    # Card fees are deducted before settlement, so an exact match is the wrong
+    # expectation. The tolerance is stated rather than discovered.
+    tolerance_cents: 500
+    date_window_days: 3
+    statutory: false
+
+  payouts_vs_orders:
+    label: "Payouts against orders"
+    ours: "Orders taken"
+    theirs: "Processor payouts"
+    match_by: [reference, sum_to_one]
+    sum_max: 500
+    tolerance_cents: 500
+    date_window_days: 7
+    statutory: false
+
+  supplier_statement:
+    label: "Supplier statement against the purchase ledger"
+    ours: "Purchase ledger"
+    theirs: "Supplier statement"
+    match_by: [reference, amount_date]
+    tolerance_cents: 0
+    date_window_days: 14
+    statutory: false
+
+  client_account:
+    label: "Client account against the ledger"
+    ours: "Client ledger"
+    theirs: "Client bank account"
+    match_by: [reference, amount_date]
+    # ⛔ Zero. A client account reconciliation that tolerates a penny is not a
+    # client account reconciliation; in most jurisdictions this one is a
+    # regulatory obligation with a named responsible person.
+    tolerance_cents: 0
+    date_window_days: 3
+    statutory: true
+
+  rent_vs_schedule:
+    label: "Rent received against the schedule"
+    ours: "Rent due"
+    theirs: "Rent received"
+    match_by: [reference, amount_date]
+    tolerance_cents: 0
+    date_window_days: 7
+    statutory: false
+
+  deposit_register:
+    label: "Deposits held against the protection scheme"
+    ours: "Deposits taken"
+    theirs: "Scheme register"
+    match_by: [reference, amount_date]
+    tolerance_cents: 0
+    date_window_days: 30
+    statutory: true
+
+  insurer_remittance:
+    label: "Insurer remittance against claims"
+    ours: "Claims submitted"
+    theirs: "Remittance advice"
+    match_by: [reference, sum_to_one]
+    sum_max: 300
+    tolerance_cents: 0
+    date_window_days: 45
+    statutory: false
+
+  stock_count:
+    label: "Stock count against the system"
+    ours: "System quantities"
+    theirs: "Counted quantities"
+    # A count has no reference and no date to match on — only the line itself.
+    match_by: [reference]
+    tolerance_cents: 0
+    date_window_days: 0
+    statutory: false
+
+  timesheets_vs_jobs:
+    label: "Timesheets against jobs"
+    ours: "Job hours"
+    theirs: "Timesheet hours"
+    match_by: [reference]
+    tolerance_cents: 0
+    date_window_days: 7
+    statutory: false
+
+  fees_vs_enrolments:
+    label: "Fees against enrolments"
+    ours: "Fees due"
+    theirs: "Fees received"
+    match_by: [reference, amount_date]
+    tolerance_cents: 0
+    date_window_days: 14
+    statutory: false
+
+  grant_claims:
+    label: "Funding claims against payments"
+    ours: "Claims made"
+    theirs: "Funder payments"
+    match_by: [reference, sum_to_one]
+    sum_max: 100
+    tolerance_cents: 0
+    date_window_days: 60
+    statutory: true
+
+  deposits_vs_bookings:
+    label: "Deposits against bookings"
+    ours: "Bookings held"
+    theirs: "Deposits received"
+    match_by: [reference, amount_date]
+    tolerance_cents: 0
+    date_window_days: 7
+    statutory: false
+
+archetype_reconciliations:
+  A: [invoices_vs_bank, bills_vs_bank, payouts_vs_orders]
+  B: [takings_vs_settlement, invoices_vs_bank, payouts_vs_orders]
+  C: [invoices_vs_bank, bills_vs_bank, client_account, supplier_statement]
+  D: [invoices_vs_bank, bills_vs_bank, supplier_statement, timesheets_vs_jobs]
+  E: [invoices_vs_bank, bills_vs_bank, supplier_statement, timesheets_vs_jobs]
+  F: [takings_vs_settlement, deposits_vs_bookings, supplier_statement, bills_vs_bank]
+  G: [takings_vs_settlement, insurer_remittance, invoices_vs_bank, bills_vs_bank]
+  H: [fees_vs_enrolments, grant_claims, invoices_vs_bank, bills_vs_bank]
+  I: [rent_vs_schedule, deposit_register, invoices_vs_bank, bills_vs_bank]
+  J: [takings_vs_settlement, stock_count, payouts_vs_orders, supplier_statement]

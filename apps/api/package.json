@@ -28,6 +28,7 @@
     "@adw/mcp": "workspace:*",
     "@adw/orchestrator": "workspace:*",
     "@adw/qapack": "workspace:*",
+    "@adw/reconcile": "workspace:*",
     "@adw/registry": "workspace:*",
     "@adw/scheduling": "workspace:*",
     "@adw/sentinel": "workspace:*",

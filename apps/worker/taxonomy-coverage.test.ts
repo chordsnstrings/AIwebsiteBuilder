@@ -129,3 +129,19 @@ describe("⛔ every trade is watched", () => {
     }
   });
 });
+
+describe("⛔ every trade can reconcile something", () => {
+  it("resolves at least one reconciliation, and every tolerance is an integer of minor units", async () => {
+    // A tolerance expressed in pounds would be a hundredfold too generous, and
+    // a fractional one would silently truncate.
+    const { reconTypesFor } = await import("@adw/reconcile");
+    for (const t of allTrades()) {
+      const types = reconTypesFor(t);
+      expect(types.length, `reconciliations for ${t}`).toBeGreaterThan(0);
+      for (const r of types) {
+        expect(Number.isInteger(r.toleranceCents), `${t}/${r.id} tolerance`).toBe(true);
+        expect(r.toleranceCents, `${t}/${r.id} tolerance`).toBeGreaterThanOrEqual(0);
+      }
+    }
+  });
+});
