@@ -51,6 +51,11 @@ interface ArchitectResult {
   reason?: string;
 }
 
+interface SegmentResult {
+  segment: "smb_local" | "enterprise_global";
+  speculativePreview: boolean;
+}
+
 interface PackResult {
   packId?: string;
   pairCount: number;
@@ -122,6 +127,36 @@ export const leadWorkflow: WorkflowDefinition<LeadInput, LeadOutput> = {
         previewGenerated: false,
         agentBound: false,
         rejectedReason: architect.reason ?? "vertical_unresolved",
+      };
+    }
+
+    // A3b — which motion does this account get?
+    //
+    // ⛔ Immediately after classification and BEFORE the knowledge base, the
+    // Q&A pack and the preview. Those three steps exist to produce a
+    // speculative preview, and for an enterprise account we are not going to
+    // build one — hosting an unofficial copy of a hospital group's website
+    // under their name is passing off. Spending the tokens first and refusing
+    // at the render would be correct and wasteful; refusing here is correct.
+    const routed = await ctx.activity<{ businessId: string; vertical?: string }, SegmentResult>(
+      "resolve_acquisition_track",
+      { businessId: input.businessId, ...(architect.vertical === undefined ? {} : { vertical: architect.vertical }) },
+    );
+    if (!routed.speculativePreview) {
+      // The enterprise motion is a named-account track with a human on our side
+      // of it: qualification, a business case, a discovery call, a security
+      // review, a quote and a signature. None of that is a workflow step, and
+      // pretending it is would be the fiction this branch exists to avoid.
+      await ctx.activity("open_enterprise_opportunity", {
+        businessId: input.businessId,
+        ...(architect.vertical === undefined ? {} : { vertical: architect.vertical }),
+      });
+      return {
+        finalState: "ROUTED_ENTERPRISE",
+        contacted: false,
+        previewGenerated: false,
+        agentBound: false,
+        rejectedReason: "enterprise_segment",
       };
     }
 

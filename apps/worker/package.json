@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@adw/acquisition": "workspace:*",
     "@adw/agenteval": "workspace:*",
     "@adw/agents": "workspace:*",
     "@adw/architect": "workspace:*",

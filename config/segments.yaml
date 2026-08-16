@@ -1,0 +1,104 @@
+# Acquisition tracks by segment.
+#
+# The whole funnel was SMB-shaped end to end: ingest a licensed lead, grade
+# their site, build a SPECULATIVE PREVIEW of it, cold-email them a link, take
+# $399 setup and $65 a month on a card, and let them claim it themselves. That
+# works for a plumber. It is wrong on every single axis for the 33 enterprise
+# clusters in the taxonomy, and running it against them is not merely
+# ineffective — parts of it are actively damaging.
+#
+# ⛔ THE PREVIEW. Building an unofficial copy of a hospital group's or a bank's
+# website, hosting it on our domain under their name and emailing the link to
+# someone who works there is passing off. It is a trademark complaint with a
+# legal department already attached, and unlike a plumber's irritation it does
+# not go away when we take the page down. `speculative_preview: false` on the
+# enterprise track is enforced in code, not observed as policy.
+#
+# ⛔ THE BUYER. There is no "owner" at a 40,000-person company. Nobody there can
+# approve a Q&A pack on the organisation's behalf over a magic link, and a
+# system that lets one person do so has manufactured an authority they do not
+# have.
+#
+# ⛔ THE PRICE. $399 and $65/month is not a mispriced enterprise deal, it is a
+# category error that disqualifies us before the first conversation. Enterprise
+# is quote-based, and the finance agent may not read a band from pricing.yaml
+# for one.
+#
+# ⛔ THE GATE. Enterprise outreach is to a named individual inside a governed
+# organisation. Role relevance is required in every market rather than only
+# where a jurisdiction happens to demand it — the message must be about the
+# recipient's actual job, and we must be able to show that it was.
+
+version: 1
+
+segments:
+  smb_local:
+    label: "Local SMB"
+    # Unchanged. This is what was already built and what already works.
+    speculative_preview: true
+    self_serve_claim: true
+    pricing_model: published_band
+    requires_role_relevance: false
+    requires_security_review: false
+    requires_written_agreement: false
+    approval_authority: owner
+    stages:
+      - { key: ingested, label: "Ingested" }
+      - { key: scored, label: "Scored" }
+      - { key: previewed, label: "Preview built" }
+      - { key: contacted, label: "Contacted" }
+      - { key: replied, label: "Replied" }
+      - { key: claimed, label: "Claimed", terminal: false }
+      - { key: subscribed, label: "Subscribed", terminal: true }
+
+  enterprise_global:
+    label: "Enterprise"
+    # ⛔ The four refusals, as data.
+    speculative_preview: false
+    self_serve_claim: false
+    pricing_model: quoted
+    requires_role_relevance: true
+    requires_security_review: true
+    requires_written_agreement: true
+    approval_authority: named_signatory
+    # What we build instead of a preview: a written business case grounded in
+    # the same deterministic audit, addressed to the function that owns the
+    # problem. No copy of their brand, no page on our domain in their name.
+    outreach_artefact: business_case
+    stages:
+      - { key: identified, label: "Account identified" }
+      - { key: qualified, label: "Qualified", gate: fit_and_authority }
+      - { key: business_case, label: "Business case prepared" }
+      - { key: contacted, label: "Contacted", gate: role_relevance }
+      - { key: discovery, label: "Discovery call held" }
+      - { key: pilot_scoped, label: "Pilot scoped" }
+      - { key: security_review, label: "Security review", gate: security_and_dpa }
+      - { key: commercials, label: "Commercials agreed", gate: quote_approved }
+      - { key: agreement, label: "Agreement signed", gate: written_agreement }
+      - { key: deployed, label: "Deployed", terminal: true }
+      - { key: closed_lost, label: "Closed — lost", terminal: true }
+
+# Gates. Each names the evidence that must exist on the opportunity before the
+# stage it guards may be entered.
+#
+# ⛔ Evidence, not a checkbox. `security_and_dpa` requires the name of the
+# person who signed off and the date, because "we did the security review" with
+# nobody's name against it is the shape of a control that was skipped.
+gates:
+  fit_and_authority:
+    label: "Fit and authority"
+    requires: [icp_rationale, target_function, named_contact_role]
+  role_relevance:
+    label: "Role relevance"
+    # ⛔ The one that also blocks the gate's transport path. We must be able to
+    # state, before sending, why this message is about this person's job.
+    requires: [role_relevance_statement, lawful_basis_note]
+  security_and_dpa:
+    label: "Security review and DPA"
+    requires: [security_questionnaire_ref, dpa_ref, reviewed_by, reviewed_at]
+  quote_approved:
+    label: "Quote approved"
+    requires: [quote_ref, quote_amount_cents, approved_by]
+  written_agreement:
+    label: "Written agreement"
+    requires: [agreement_ref, signatory_name, signed_at]

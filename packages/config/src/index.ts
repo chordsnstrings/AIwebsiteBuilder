@@ -201,6 +201,14 @@ export const config = {
     const raw = readFileSync(join(CONFIG_DIR, "clocks.yaml"), "utf8");
     return { data: parse(raw), version: "clocks@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
   },
+  /** Acquisition tracks by segment.
+   *  ⛔ Restricted: `speculative_preview: true` on the enterprise track would
+   *  re-enable building unofficial copies of enterprises' websites under their
+   *  name, which is passing off rather than a marketing decision. */
+  segments: () => {
+    const raw = readFileSync(join(CONFIG_DIR, "segments.yaml"), "utf8");
+    return { data: parse(raw), version: "segments@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
+  },
   /** Generated-asset kinds (MF13).
    *  ⛔ Sensitive: `slot` decides whether an AI render can be placed somewhere a
    *  reader will take as evidence of work actually done. */

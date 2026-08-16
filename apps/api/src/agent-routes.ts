@@ -51,6 +51,17 @@ import {
 import { cancelBooking, claimSlot } from "@adw/scheduling";
 import { markReturned, missedCalls, recordCall } from "@adw/voice";
 import {
+  advanceOpportunity,
+  approveBusinessCase,
+  casesFor,
+  draftBusinessCase,
+  openOpportunity,
+  pipeline,
+  recordEvidence,
+  recordQuote,
+  type CaseFinding,
+} from "@adw/acquisition";
+import {
   approveAsset,
   assetKindsFor,
   assetLibrary,
@@ -1086,6 +1097,134 @@ export function agentRoutes(deps: AgentRouteDeps): Hono<{ Variables: { user: Ses
     return (await rejectPublication(db, id, (b.reason ?? "").trim() || "rejected by owner"))
       ? c.json({ ok: true })
       : c.json({ error: "unknown or not a draft" }, 404);
+  });
+
+  // -------------------------------------------------------------------------
+  // The enterprise pipeline
+  // -------------------------------------------------------------------------
+  //
+  // ⛔ Operator-facing, all of it. There is no self-serve enterprise path and
+  // there is deliberately no route here that creates a preview, takes a card,
+  // or lets one person approve on an organisation's behalf.
+
+  app.get("/ops/opportunities", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    return c.json({ pipeline: await pipeline(db) });
+  });
+
+  app.post("/ops/opportunities", async (c) => {
+    const operator = user(c);
+    if (operator === null) return c.json({ error: "unauthorised" }, 401);
+    const b = (await c.req.json().catch(() => ({}))) as {
+      businessId?: string; targetFunction?: string; namedContactRole?: string;
+    };
+    if (typeof b.businessId !== "string" || !UUID_RE.test(b.businessId)) {
+      return c.json({ error: "a valid businessId is required" }, 400);
+    }
+    const biz = await db.maybeOne<{ vertical: string | null; category: string | null }>(
+      "SELECT vertical, category FROM businesses WHERE id = $1", [b.businessId]);
+    if (biz === null) return c.json({ error: "unknown business" }, 404);
+    const out = await openOpportunity(db, {
+      businessId: b.businessId,
+      vertical: resolveVertical(biz.vertical, biz.category),
+      targetFunction: b.targetFunction,
+      namedContactRole: b.namedContactRole,
+      ownerEmail: operator.email,
+    });
+    // ⛔ 409 with the reason. An SMB business in the enterprise pipeline is a
+    // deal being forecast by people who cannot sell to them.
+    if (!out.ok) return c.json({ error: out.reason, detail: out.detail }, 409);
+    return c.json({ ok: true, opportunityId: out.opportunityId, created: out.created, track: out.track.label });
+  });
+
+  app.post("/ops/opportunities/:opportunityId/evidence", async (c) => {
+    const operator = user(c);
+    if (operator === null) return c.json({ error: "unauthorised" }, 401);
+    const id = c.req.param("opportunityId");
+    if (!UUID_RE.test(id)) return c.json({ error: "bad opportunityId" }, 400);
+    const b = (await c.req.json().catch(() => ({}))) as { evidence?: Record<string, unknown> };
+    if (b.evidence === undefined || typeof b.evidence !== "object") {
+      return c.json({ error: "evidence object required" }, 400);
+    }
+    return (await recordEvidence(db, id, b.evidence, operator.email))
+      ? c.json({ ok: true })
+      : c.json({ error: "nothing recordable — an empty value is not evidence" }, 422);
+  });
+
+  app.post("/ops/opportunities/:opportunityId/advance", async (c) => {
+    const operator = user(c);
+    if (operator === null) return c.json({ error: "unauthorised" }, 401);
+    const id = c.req.param("opportunityId");
+    if (!UUID_RE.test(id)) return c.json({ error: "bad opportunityId" }, 400);
+    const b = (await c.req.json().catch(() => ({}))) as { stage?: string; note?: string };
+    if (typeof b.stage !== "string") return c.json({ error: "stage required" }, 400);
+    const out = await advanceOpportunity(db, id, b.stage, operator.email, b.note);
+    if (!out.ok) {
+      return c.json(
+        { error: out.reason, ...(out.missing === undefined ? {} : { missing: out.missing }), detail: out.detail },
+        out.reason === "unknown" ? 404 : 409,
+      );
+    }
+    return c.json({ ok: true, stage: out.stage });
+  });
+
+  app.post("/ops/opportunities/:opportunityId/quote", async (c) => {
+    const operator = user(c);
+    if (operator === null) return c.json({ error: "unauthorised" }, 401);
+    const id = c.req.param("opportunityId");
+    if (!UUID_RE.test(id)) return c.json({ error: "bad opportunityId" }, 400);
+    const b = (await c.req.json().catch(() => ({}))) as {
+      amountCents?: number; currency?: string; reference?: string;
+    };
+    if (typeof b.amountCents !== "number" || !Number.isFinite(b.amountCents) || b.amountCents <= 0) {
+      return c.json({ error: "amountCents must be a positive number of minor units" }, 400);
+    }
+    // ⛔ The approver is the authenticated operator, never a field in the body.
+    // A quote approved by whoever the caller says approved it is not approved.
+    const out = await recordQuote(db, id, {
+      amountCents: b.amountCents,
+      currency: (b.currency ?? "GBP").toUpperCase(),
+      reference: b.reference ?? "",
+      approvedBy: operator.email,
+    });
+    return out.ok ? c.json({ ok: true }) : c.json({ error: out.reason }, out.reason === "unknown" ? 404 : 409);
+  });
+
+  app.get("/ops/opportunities/:opportunityId/cases", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const id = c.req.param("opportunityId");
+    if (!UUID_RE.test(id)) return c.json({ error: "bad opportunityId" }, 400);
+    return c.json({ cases: await casesFor(db, id) });
+  });
+
+  app.post("/ops/opportunities/:opportunityId/cases", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const id = c.req.param("opportunityId");
+    if (!UUID_RE.test(id)) return c.json({ error: "bad opportunityId" }, 400);
+    const b = (await c.req.json().catch(() => ({}))) as {
+      targetFunction?: string; findings?: CaseFinding[]; body?: string; auditId?: string;
+    };
+    if (typeof b.targetFunction !== "string" || b.targetFunction.trim() === "") {
+      return c.json({ error: "targetFunction required" }, 400);
+    }
+    const out = await draftBusinessCase(db, {
+      opportunityId: id,
+      targetFunction: b.targetFunction.trim(),
+      findings: Array.isArray(b.findings) ? b.findings : [],
+      body: b.body,
+      auditId: b.auditId,
+    });
+    if (!out.ok) return c.json({ error: out.reason, detail: out.detail }, out.reason === "unknown_opportunity" ? 404 : 422);
+    return c.json({ ok: true, caseId: out.caseId, body: out.body, state: "draft" });
+  });
+
+  app.post("/ops/cases/:caseId/approve", async (c) => {
+    const operator = user(c);
+    if (operator === null) return c.json({ error: "unauthorised" }, 401);
+    const caseId = c.req.param("caseId");
+    if (!UUID_RE.test(caseId)) return c.json({ error: "bad caseId" }, 400);
+    const out = await approveBusinessCase(db, caseId, operator.email);
+    return out.ok ? c.json({ ok: true }) : c.json({ error: out.reason }, out.reason === "unknown" ? 404 : 409);
   });
 
   // -------------------------------------------------------------------------

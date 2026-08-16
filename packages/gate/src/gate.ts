@@ -186,6 +186,24 @@ export async function gate(msg: OutboundMessage, deps: GateDeps): Promise<GateDe
     }
   }
 
+  // Rule 8c — enterprise cold outreach is about the recipient's actual job.
+  //
+  // ⛔ Applies in EVERY market, not only where `requires_relates_to_role` is set
+  // in jurisdictions.yaml. The enterprise track never routes through
+  // `send_outreach` at all — it produces an approved business case instead — so
+  // reaching this rule at all means something has routed an enterprise contact
+  // down the SMB path, and failing closed there is the whole point of having a
+  // gate rather than a policy.
+  //
+  // A named individual inside a governed organisation is a different recipient
+  // from a sole trader who published their address to get work. We must be able
+  // to state, before sending, why the message concerns their role.
+  if (msg.messageClass === "cold" && msg.segment === "enterprise_global") {
+    if (typeof msg.roleRelevance !== "string" || msg.roleRelevance.trim().length === 0) {
+      return decide({ allow: false, reason: "NO_ROLE_RELEVANCE", ruleId: "rule_8c_role_relevance" });
+    }
+  }
+
   // Rule 9 — domain class matches message class (the one-way rule).
   if (!domainClassMatches(msg.messageClass, msg.domainClass)) {
     return decide({ allow: false, reason: "DOMAIN_CLASS_MISMATCH", ruleId: "rule_9_domain_class" });

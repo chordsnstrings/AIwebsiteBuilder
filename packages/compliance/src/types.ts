@@ -27,7 +27,8 @@ export type DenyReason =
   | "MISSING_REQUIRED_ELEMENT"
   | "CONTENT_UNSAFE"
   | "DUPLICATE_SEND"
-  | "UNVERIFIED_RECIPIENT";
+  | "UNVERIFIED_RECIPIENT"
+  | "NO_ROLE_RELEVANCE";
 
 export interface OutboundMessage {
   contactId?: string;
@@ -50,6 +51,17 @@ export interface OutboundMessage {
   headers: Record<string, string>;
   localHour?: number; // recipient-local hour (0-23); if absent, derived as UTC
   localWeekday?: number; // 0=Sun..6=Sat
+  /**
+   * Which acquisition motion this message belongs to (@adw/acquisition).
+   * Absent is treated as SMB, because every existing SMB call site predates
+   * this field and the enterprise path sets it explicitly.
+   */
+  segment?: "smb_local" | "enterprise_global";
+  /**
+   * ⛔ Why this message is about THIS person's job. Required for enterprise cold
+   * outreach in every market, not only where a jurisdiction demands it.
+   */
+  roleRelevance?: string;
 }
 
 export type GateDecision =

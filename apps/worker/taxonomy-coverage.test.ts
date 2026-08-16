@@ -175,3 +175,21 @@ describe("⛔ no trade can generate a picture of something that did not happen",
     }
   });
 });
+
+describe("⛔ every trade resolves to an acquisition motion", () => {
+  it("and no enterprise one can receive a speculative preview", async () => {
+    // The refusal resolves from the canonical taxonomy, so a cluster added as
+    // enterprise_global is protected the day it is added. Asserted across all
+    // 145 trades rather than the handful anyone would spot-check.
+    const { trackFor, mayBuildSpeculativePreview } = await import("@adw/acquisition");
+    const { segmentOf } = await import("@adw/taxonomy");
+    for (const t of allTrades()) {
+      const track = trackFor(t);
+      expect(track.stages.length, `stages for ${t}`).toBeGreaterThan(0);
+      if (segmentOf(t) === "enterprise_global") {
+        expect(mayBuildSpeculativePreview(t), `${t} would get a speculative preview`).toBe(false);
+        expect(track.pricingModel, `${t} priced from a band`).toBe("quoted");
+      }
+    }
+  });
+});

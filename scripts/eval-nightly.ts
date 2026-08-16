@@ -412,6 +412,60 @@ const checks: Check[] = [
     },
   },
   {
+    name: "No enterprise account was sent a speculative preview",
+    run: async () => {
+      // ⛔ The one nightly check in this file whose failure is a legal problem
+      // rather than an operational one. Building an unofficial copy of a
+      // hospital group's website under their name, hosting it on our domain and
+      // emailing the link is passing off — and unlike every other failure here
+      // it does not stop being true when the page comes down.
+      //
+      // Asserted against the LIVE taxonomy rather than against a stored flag:
+      // a cluster reclassified as enterprise in config/verticals.yaml must make
+      // any preview already built for it show up here on the next run.
+      const { segmentOf, resolveVertical } = await import("../packages/taxonomy/src/index.ts");
+      const rows = await db.query<{ id: string; vertical: string | null; category: string | null }>(
+        `SELECT p.id, b.vertical, b.category
+           FROM previews p JOIN businesses b ON b.id = p.business_id
+          WHERE p.takedown_at IS NULL`,
+      );
+      const bad = rows.rows.filter((r) => segmentOf(resolveVertical(r.vertical, r.category)) === "enterprise_global");
+      return {
+        ok: bad.length === 0,
+        detail: `${bad.length} enterprise previews live over ${rows.rows.length} live previews`,
+      };
+    },
+  },
+  {
+    name: "No enterprise opportunity passed a gate without its evidence",
+    run: async () => {
+      // A stage means the gates behind it were passed. If it does not, the
+      // pipeline is a forecast.
+      const { trackFor, gateById } = await import("../packages/acquisition/src/index.ts");
+      const rows = await db.query<{ id: string; vertical: string; stage: string; evidence: Record<string, unknown> }>(
+        "SELECT id, vertical, stage, evidence FROM opportunities WHERE segment = 'enterprise_global'",
+      );
+      const breached: string[] = [];
+      for (const r of rows.rows) {
+        const stages = trackFor(r.vertical).stages;
+        const reached = stages.slice(0, stages.findIndex((s) => s.key === r.stage) + 1);
+        for (const stage of reached) {
+          if (stage.gate === undefined) continue;
+          const gate = gateById(stage.gate);
+          const missing = (gate?.requires ?? []).filter((k) => {
+            const v = (r.evidence ?? {})[k];
+            return v === undefined || v === null || (typeof v === "string" && v.trim() === "");
+          });
+          if (missing.length > 0) breached.push(`${r.id}:${stage.gate}`);
+        }
+      }
+      return {
+        ok: breached.length === 0,
+        detail: `${breached.length} gate breaches over ${rows.rows.length} enterprise opportunities`,
+      };
+    },
+  },
+  {
     name: "Every kill switch is read by something that halts",
     run: async () => {
       // ⛔ Three of the five were settable, stored, displayed as engaged, and

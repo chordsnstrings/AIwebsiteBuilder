@@ -366,6 +366,64 @@ await db.query(
     { attemptFollowUp: true });
 }
 
+// ---------------------------------------------------------------------------
+// One live SMB preview and one enterprise account.
+//
+// ⛔ Both exist so the two enterprise nightly invariants have a denominator.
+// "0 enterprise previews live over 0 live previews" is not the same statement
+// as "0 over 4", and the first is the one that passes when nothing works.
+// ---------------------------------------------------------------------------
+{
+  const { openOpportunity, recordEvidence, advanceOpportunity, draftBusinessCase, approveBusinessCase } =
+    await import("../packages/acquisition/src/index.ts");
+
+  // A live SMB preview. Legitimate, and the denominator the enterprise check
+  // is measured against.
+  await db.query(
+    `INSERT INTO previews (business_id, r2_key, deploy_url, claim_token, label_version, expires_at)
+     VALUES ($1, 'previews/demo/index.html', 'https://p.adwpreview.com/demo', $2, 'v1', now() + interval '30 days')
+     ON CONFLICT (claim_token) DO NOTHING`,
+    [custBiz.id, `claim_demo_${custBiz.id.slice(0, 8)}`],
+  );
+
+  // An enterprise account, which gets no preview at all.
+  const entBiz = await db.one<{ id: string }>(
+    `INSERT INTO businesses (source_vendor, source_batch_id, name, category, vertical, country_code, region_code, city, segment)
+     VALUES ('demo_aggregator',$1,'Northgate Health Partners','hospital','hospitals_and_health_systems','GB','R2','Leeds','stale_site')
+     RETURNING id`,
+    [batch.id],
+  );
+  const opp = await openOpportunity(db, {
+    businessId: entBiz.id,
+    vertical: "hospitals_and_health_systems",
+    targetFunction: "Patient Access",
+    namedContactRole: "Head of Patient Access",
+    ownerEmail: "sales@adw.example",
+  });
+  if (opp.ok) {
+    await recordEvidence(db, opp.opportunityId, {
+      icp_rationale: "9 clinic sites, no structured booking endpoint on any of them",
+      target_function: "Patient Access",
+      named_contact_role: "Head of Patient Access",
+    }, "sales@adw.example");
+    await advanceOpportunity(db, opp.opportunityId, "qualified", "sales@adw.example");
+    const drafted = await draftBusinessCase(db, {
+      opportunityId: opp.opportunityId,
+      targetFunction: "Patient Access",
+      findings: [
+        { check: "Machine-readable opening hours", observed: "absent on 8 of 9 clinic pages",
+          soWhat: "assistants answering on your behalf cannot state them" },
+        { check: "Structured booking endpoint", observed: "none found",
+          soWhat: "every enquiry lands in a form queue a person has to work" },
+      ],
+    });
+    if (drafted.ok) {
+      await advanceOpportunity(db, opp.opportunityId, "business_case", "sales@adw.example");
+      await approveBusinessCase(db, drafted.caseId, "sales@adw.example");
+    }
+  }
+}
+
 const counts = await db.one<{ b: string; c: string; v: string; r: string }>(
   "SELECT (SELECT count(*) FROM businesses) b, (SELECT count(*) FROM contacts) c, (SELECT count(*) FROM vendors) v, (SELECT count(*) FROM registry_roles WHERE champion IS NOT NULL) r",
 );
@@ -385,5 +443,14 @@ console.log(
 console.log(
   `✓ product: ${product.cases} cases, ${product.reminders} reminders, ${product.runs} journey runs, ` +
     `${product.watches} watches, ${product.recon} reconciliations, ${product.pubs} publications, ${product.calls} calls`,
+);
+const acquisition = await db.one<{ previews: string; opps: string; cases: string }>(
+  `SELECT (SELECT count(*) FROM previews WHERE takedown_at IS NULL) previews,
+          (SELECT count(*) FROM opportunities) opps,
+          (SELECT count(*) FROM business_cases) cases`,
+);
+console.log(
+  `✓ acquisition: ${acquisition.previews} live preview(s) — all SMB, ${acquisition.opps} enterprise opportunity, ` +
+    `${acquisition.cases} business case`,
 );
 await db.close();

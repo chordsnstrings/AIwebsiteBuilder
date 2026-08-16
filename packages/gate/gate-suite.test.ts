@@ -270,3 +270,54 @@ describe("§10.6 Compliance Gate suite (Phase 0 exit criterion)", () => {
     if (!res.allow) expect(res.reason).not.toBe("UNVERIFIED_RECIPIENT");
   });
 });
+
+describe("⛔ rule 8c — enterprise cold outreach is about the recipient's job", () => {
+  // A named individual inside a governed organisation is a different recipient
+  // from a sole trader who published their address to get work. The enterprise
+  // track never routes through `send_outreach` at all, so reaching this rule
+  // means something put an enterprise contact on the SMB path — and failing
+  // closed there is the entire reason it is a gate rule rather than a policy.
+
+  it("denies enterprise cold mail with no role-relevance statement", async () => {
+    const c = await seedContact(db, { country: "US" });
+    const res = await gate(
+      { ...compliantColdMessage({ emailHash: c.hash, contactId: c.contactId }), segment: "enterprise_global" },
+      deps(),
+    );
+    expect(res.allow).toBe(false);
+    if (!res.allow) expect(res.reason).toBe("NO_ROLE_RELEVANCE");
+  });
+
+  it("⛔ denies it in a market that does not itself require role relevance", async () => {
+    // jurisdictions.yaml sets `requires_relates_to_role` for some countries and
+    // not others. This rule applies everywhere, because the reason for it is
+    // who the recipient is rather than where they are.
+    const c = await seedContact(db, { country: "US" });
+    const res = await gate(
+      { ...compliantColdMessage({ emailHash: c.hash, contactId: c.contactId, countryCode: "US" }),
+        segment: "enterprise_global", roleRelevance: "   " },
+      deps(),
+    );
+    expect(res.allow).toBe(false);
+    if (!res.allow) expect(res.reason).toBe("NO_ROLE_RELEVANCE");
+  });
+
+  it("allows it once the statement is present", async () => {
+    const c = await seedContact(db, { country: "US" });
+    const res = await gate(
+      { ...compliantColdMessage({ emailHash: c.hash, contactId: c.contactId }),
+        segment: "enterprise_global",
+        roleRelevance: "they run patient access, which is the intake system this concerns" },
+      deps(),
+    );
+    expect(res.allow).toBe(true);
+  });
+
+  it("leaves the SMB path exactly as it was", async () => {
+    // Absent `segment` means SMB, because every existing call site predates the
+    // field. A regression here would halt the entire existing programme.
+    const c = await seedContact(db, { country: "US" });
+    const res = await gate(compliantColdMessage({ emailHash: c.hash, contactId: c.contactId }), deps());
+    expect(res.allow).toBe(true);
+  });
+});

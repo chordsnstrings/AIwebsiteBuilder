@@ -76,6 +76,35 @@ describe("lead workflow — engagement and cooldown", () => {
     return { engine, marks };
   }
 
+  it("⛔ an enterprise account never reaches the preview", async () => {
+    // A4, A5 and A6 exist to produce a speculative preview. Building one of a
+    // hospital group's website, under their name, on our domain, and emailing
+    // the link is passing off — so the branch is taken BEFORE the knowledge
+    // base and the pack, not at the render.
+    const engine = new Engine({ db, clock: new TestClock(0) });
+    const reached: string[] = [];
+    registerStubActivities(engine, {
+      resolve_acquisition_track: async () => ({ segment: "enterprise_global", speculativePreview: false }),
+      extract_knowledge_base: async () => { reached.push("kb"); return { kbId: "kb", factCount: 0 }; },
+      generate_qa_pack: async () => { reached.push("pack"); return { packId: "p", pairCount: 0, thin: true }; },
+      generate_preview: async () => { reached.push("preview"); return { generated: true, agentBound: true }; },
+      send_outreach: async () => { reached.push("outreach"); return { sent: true }; },
+      open_enterprise_opportunity: async () => { reached.push("opportunity"); return { opened: true }; },
+    });
+    engine.registerWorkflow(leadWorkflow);
+    const id = `lead-ent-${Date.now()}`;
+    await engine.start("lead", id, { leadId: "l", contactId: "c", businessId: "b" });
+    const res = await engine.result<{ finalState: string; previewGenerated: boolean; contacted: boolean }>(id);
+
+    expect(res.finalState).toBe("ROUTED_ENTERPRISE");
+    expect(res.previewGenerated).toBe(false);
+    expect(res.contacted).toBe(false);
+    expect(reached).toEqual(["opportunity"]);
+    // ⛔ Spelled out: no knowledge base, no pack, no preview, no cold email.
+    expect(reached).not.toContain("preview");
+    expect(reached).not.toContain("outreach");
+  });
+
   it("engages on a positive reply", async () => {
     const { engine, marks } = leadEngine(new TestClock(0));
     const id = `lead-eng-${Date.now()}`;

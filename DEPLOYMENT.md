@@ -192,6 +192,7 @@ switches only.
 | Vendor | Vault slot (`vendorId` / `keyName`) | What flips live | Env fallback |
 |---|---|---|---|
 | BytePlus ModelArk (primary rail) | `modelark` / `api_key` | Real LLM completions on the primary rail | `MODELARK_API_KEY`, `MODELARK_BASE_URL` |
+| BytePlus ModelArk (image/video) | `modelark` / `api_key` (+ optional `base_url`) | ⛔ **The only slot that turns on PER-ASSET SPENDING.** Seedream/Seedance generation goes live and `MediaGenerator.billable` flips to true. Nothing generates without an owner's approval and inside their monthly cap either way, but until this key lands the generator is a free simulator. Set a per-customer cap (`POST /agent/:customerId/assets/budget`) before depositing it. | — |
 | Google Gemini (fallback rail) | `google_ai` / `api_key` | Real fallback-rail completions | `GOOGLE_AI_API_KEY` |
 | Anthropic (pinned CEO/Sentinel) | `anthropic` / `api_key` | Real control-plane completions | `ANTHROPIC_API_KEY` |
 | Stripe | `stripe` / `secret_key` | Real card acquiring + subscriptions | `STRIPE_SECRET_KEY` |
@@ -236,6 +237,38 @@ Two deliberate behaviours worth knowing before you deposit:
   Routing cold mail down the brand rail would burn SES's reputation. Cold
   sending goes live when the Workspace/M365/SMTP transports are built, not when
   SES is deposited.
+
+## 2.2 Two acquisition motions, and which one a lead gets
+
+`config/verticals.yaml` marks each of the 60 clusters `smb_local` or
+`enterprise_global`, and `config/segments.yaml` gives each segment a track. The
+lead workflow asks which track applies immediately after classification, before
+the knowledge base, the Q&A pack and the preview — the three expensive steps
+that exist to produce a speculative preview.
+
+**SMB (27 clusters, 112 trades).** Unchanged: ingest → grade → preview → cold
+email → self-serve claim → published price band.
+
+**Enterprise (33 clusters).** Four refusals, all enforced in code rather than
+observed as policy:
+
+| Refusal | Where it bites |
+|---|---|
+| ⛔ **No speculative preview.** Hosting an unofficial copy of a hospital group's or a bank's website under their name and emailing the link is passing off — a trademark complaint with a legal department attached, and it does not stop being true when the page comes down. | The lead workflow branches before A4/A5/A6, `generate_preview` refuses again at the render (it is also reachable from the revision loop), the config loader will not let the flag be flipped, and a nightly invariant checks no live preview belongs to an enterprise account. |
+| ⛔ **No self-serve claim.** Nobody at a 40,000-person company can approve a Q&A pack on the organisation's behalf over a magic link. | `approval_authority: named_signatory`; there is no enterprise claim route. |
+| ⛔ **No published price band.** $399 setup and $65/month is not a mispriced enterprise deal, it is a category error. | `pricing_model: quoted`; `recordQuote` requires an amount, a reference and the authenticated operator as approver. |
+| ⛔ **Role-relevant outreach only, in every market.** | Gate rule 8c denies enterprise cold mail with no role-relevance statement, regardless of what the jurisdiction requires. |
+
+The enterprise motion is an **opportunity** — a named account moving forward
+only through its track's stages, each guarded by evidence that must actually
+exist: fit and authority, role relevance, a security questionnaire and DPA with
+a named reviewer and a date, an approved quote, a signed agreement. What the
+account receives instead of a preview is a **business case**: a document about
+their problem, every figure traceable to a deterministic finding, approved by a
+human on our side before it is sent.
+
+Operator routes: `GET/POST /ops/opportunities`, `.../evidence`, `.../advance`,
+`.../quote`, `.../cases`, `POST /ops/cases/:caseId/approve`.
 
 ## 3. Processes and environment
 

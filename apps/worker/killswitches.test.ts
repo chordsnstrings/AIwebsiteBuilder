@@ -122,3 +122,71 @@ describe("⛔ HALT_BUILDS and HALT_PAYMENTS_ONBOARDING reach their chokepoints",
     clearKillSwitchCache();
   });
 });
+
+describe("⛔ no enterprise account gets a speculative preview", () => {
+  it("the preview activity refuses, and says why in the queue", async () => {
+    // Asserted through the REGISTERED ACTIVITY rather than through
+    // `mayBuildSpeculativePreview`, because the whole failure class this
+    // codebase keeps finding is a guard that exists and is not called. This
+    // activity is also reachable from the revision loop and from a manual
+    // re-run, which is why the check lives at the render.
+    const { Engine } = await import("@adw/workflows");
+    const { registerActivities } = await import("./src/activities.ts");
+    const engine = new Engine({ db });
+    registerActivities(engine, { db, vault: new LocalPgBackend(db, new LocalKeyWrapper("0".repeat(64))), forceMock: true });
+
+    const batch = await db.one<{ id: string }>(
+      "INSERT INTO ingest_batches (vendor, licence_ref, record_count, cost_cents, checksum) VALUES ('d','L',1,0,'x') RETURNING id");
+    const biz = await db.one<{ id: string }>(
+      `INSERT INTO businesses (source_vendor, source_batch_id, name, country_code, region_code, segment, vertical)
+       VALUES ('d',$1,'St Elsewhere NHS Trust','GB','R2','no_site','hospitals_and_health_systems') RETURNING id`,
+      [batch.id]);
+
+    const out = (await engine.runActivity("generate_preview", {
+      leadId: "00000000-0000-0000-0000-000000000000", contactId: "00000000-0000-0000-0000-000000000000",
+      businessId: biz.id,
+    })) as { generated: boolean; refused?: string };
+    expect(out.generated).toBe(false);
+    expect(out.refused).toBe("enterprise_segment");
+
+    const raised = await db.maybeOne(
+      "SELECT 1 AS x FROM exceptions WHERE trigger = 'enterprise_preview_refused' AND context->>'businessId' = $1",
+      [biz.id]);
+    expect(raised, "the refusal was silent").not.toBeNull();
+
+    // ⛔ And nothing was written to previews. A refusal that still leaves a page
+    // behind is not a refusal.
+    const preview = await db.maybeOne("SELECT 1 AS x FROM previews WHERE business_id = $1", [biz.id]);
+    expect(preview).toBeNull();
+  });
+
+  it("routes the account into the enterprise pipeline instead", async () => {
+    const { Engine } = await import("@adw/workflows");
+    const { registerActivities } = await import("./src/activities.ts");
+    const engine = new Engine({ db });
+    registerActivities(engine, { db, vault: new LocalPgBackend(db, new LocalKeyWrapper("0".repeat(64))), forceMock: true });
+
+    const batch = await db.one<{ id: string }>(
+      "INSERT INTO ingest_batches (vendor, licence_ref, record_count, cost_cents, checksum) VALUES ('d','L',1,0,'x') RETURNING id");
+    const biz = await db.one<{ id: string }>(
+      `INSERT INTO businesses (source_vendor, source_batch_id, name, country_code, region_code, segment, vertical)
+       VALUES ('d',$1,'Northgate Bank','GB','R2','no_site','retail_banking_and_lending') RETURNING id`,
+      [batch.id]);
+
+    const routed = (await engine.runActivity("resolve_acquisition_track", { businessId: biz.id })) as {
+      segment: string; speculativePreview: boolean;
+    };
+    expect(routed.segment).toBe("enterprise_global");
+    expect(routed.speculativePreview).toBe(false);
+
+    const opened = (await engine.runActivity("open_enterprise_opportunity", { businessId: biz.id })) as {
+      opened: boolean; created: boolean;
+    };
+    expect(opened.opened).toBe(true);
+    // ⛔ Raised as well as opened. An opportunity nobody is told about is a row.
+    const raised = await db.maybeOne(
+      "SELECT 1 AS x FROM exceptions WHERE trigger = 'enterprise_opportunity_opened' AND context->>'businessId' = $1",
+      [biz.id]);
+    expect(raised).not.toBeNull();
+  });
+});

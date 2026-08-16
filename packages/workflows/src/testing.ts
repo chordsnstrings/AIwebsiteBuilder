@@ -28,6 +28,12 @@ export function defaultStubActivities(): Record<string, ActivityFn> {
     score_lead: async () => ({ icpScore: 78, previewWorthy: true }),
     grade_site: async () => ({ transactabilityGap: true, auditId: "audit-1", topDefects: ["no_schema"] }),
     classify_vertical: async () => ({ escalate: false, vertical: "roofing", manifestId: "manifest-1" }),
+    // ⛔ SMB on the happy path, so the default exercises the preview branch.
+    // The enterprise branch is asserted by overriding this in its own test —
+    // a stub that returned enterprise here would silently stop testing the
+    // whole of A4/A5/A6.
+    resolve_acquisition_track: async () => ({ segment: "smb_local", speculativePreview: true }),
+    open_enterprise_opportunity: async () => ({ opened: true, opportunityId: "opp-1", created: true }),
     extract_knowledge_base: async () => ({ kbId: "kb-1", factCount: 42 }),
     generate_qa_pack: async () => ({ packId: "pack-1", pairCount: 160, thin: false }),
     generate_preview: async () => ({ generated: true, agentBound: true }),

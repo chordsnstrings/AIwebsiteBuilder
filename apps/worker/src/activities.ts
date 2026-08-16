@@ -33,6 +33,8 @@ import {
   type AgentDeps,
 } from "@adw/agents";
 import { buildsHalted, gatedSend, paymentsOnboardingHalted, readEngagedSwitches, type OutboundMessage } from "@adw/gate";
+import { mayBuildSpeculativePreview, openOpportunity, trackFor } from "@adw/acquisition";
+import { resolveVertical } from "@adw/taxonomy";
 import { mintUnsubscribeToken, unsubscribeHeaders, unsubscribeSecret, unsubscribeUrl } from "@adw/compliance";
 import { mintReplyToken, replyAddress } from "@adw/inbound";
 import { renderSite, buildArtifactFromHtml, familyForCategory } from "@adw/site-templates";
@@ -176,8 +178,69 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
     return { icpScore: scored.result.icpScore, previewWorthy: scored.result.previewWorthy };
   });
 
+  /**
+   * Which acquisition motion this account gets.
+   *
+   * ⛔ Reads the CANONICAL taxonomy through @adw/acquisition rather than a
+   * local list, so a cluster added to config/verticals.yaml as
+   * `enterprise_global` is routed correctly the day it is added.
+   */
+  on("resolve_acquisition_track", async (input: { businessId: string; vertical?: string }) => {
+    const biz = await business(db, input.businessId);
+    const vertical = resolveVertical(input.vertical ?? biz.vertical, biz.category);
+    const track = trackFor(vertical);
+    return { segment: track.segment, speculativePreview: track.speculativePreview };
+  });
+
+  /**
+   * Open the enterprise deal object.
+   *
+   * ⛔ Raises an exception as well as opening the row. An opportunity nobody is
+   * told about is a lead sitting in a table — the SMB motion has a workflow to
+   * carry it forward and this one has a person, so the person has to be told.
+   */
+  on("open_enterprise_opportunity", async (input: { businessId: string; vertical?: string }) => {
+    const biz = await business(db, input.businessId);
+    const vertical = resolveVertical(input.vertical ?? biz.vertical, biz.category);
+    const out = await openOpportunity(db, { businessId: input.businessId, vertical });
+    if (!out.ok) return { opened: false, reason: out.reason };
+    if (out.created) {
+      await db.query(
+        `INSERT INTO exceptions (trigger, severity, context, system_action, recommendation)
+         VALUES ('enterprise_opportunity_opened', 3, $1, 'opportunity opened', $2)`,
+        [
+          JSON.stringify({ opportunityId: out.opportunityId, businessId: input.businessId, vertical }),
+          `${biz.name} is an enterprise account. Qualify it, name the target function, and prepare a business case — there is no automated path from here.`,
+        ],
+      );
+    }
+    return { opened: true, opportunityId: out.opportunityId, created: out.created };
+  });
+
   on("generate_preview", async (input: LeadRef) => {
     const biz = await business(db, input.businessId);
+    // ⛔ THE REFUSAL. Building an unofficial copy of a hospital group's or a
+    // bank's website, hosting it on our domain under their name and emailing
+    // the link to somebody who works there is passing off — a trademark
+    // complaint with a legal department already attached, and unlike a
+    // plumber's irritation it does not go away when the page comes down.
+    //
+    // Asked HERE, at the render, rather than only in the workflow: this
+    // activity is reachable from the revision loop and from a manual re-run,
+    // and a refusal that only guards the happy path is a refusal with a door
+    // beside it. An unclassified business gets the enterprise answer.
+    const previewVertical = resolveVertical(biz.vertical, biz.category);
+    if (!mayBuildSpeculativePreview(previewVertical)) {
+      await db.query(
+        `INSERT INTO exceptions (trigger, severity, context, system_action, recommendation)
+         VALUES ('enterprise_preview_refused', 3, $1, 'preview refused', $2)`,
+        [
+          JSON.stringify({ businessId: input.businessId, vertical: previewVertical, leadId: input.leadId }),
+          `${biz.name} is an enterprise account. Open an opportunity and prepare a business case instead of a speculative preview.`,
+        ],
+      );
+      return { generated: false, agentBound: false, refused: "enterprise_segment" };
+    };
     const family = familyForCategory(biz.category ?? "general");
     const copy = await previewAgent.run(
       {
