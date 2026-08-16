@@ -207,3 +207,17 @@ roles:
     re_eval_cadence: monthly
     data_class: CUST
     eval_suite: lead_sourcing
+  # Decides the design BEFORE a line of markup exists: hero archetype, type
+  # pairing, motion vocabulary, density, section order.
+  #
+  # ⛔ It proposes only. Every token it returns is checked against
+  # config/design-catalogue.yaml and against the diversity window before it
+  # reaches a builder — the prose version of "make each site different" produced
+  # four identical typefaces out of six, so the constraint is arithmetic now.
+  design_decide:
+    candidates: ["modelark/seed-2-0-lite", "modelark/glm-5-2", "google/gemini-3-6-flash", "modelark/seed-2-0-pro"]
+    escalation: ["modelark/seed-2-0-pro", "google/gemini-3-1-pro"]
+    selection_metric: cost_per_pass
+    re_eval_cadence: monthly
+    data_class: PUB
+    eval_suite: design_decide

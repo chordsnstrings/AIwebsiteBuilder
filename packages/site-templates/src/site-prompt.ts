@@ -16,6 +16,7 @@
 // Nothing model-specific lives here. The brief is prose plus a file protocol,
 // which is what makes it portable across the registry's candidates.
 
+import { renderDesignBrief, type DesignManifest } from "@adw/designer";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -101,6 +102,14 @@ export interface SitePromptInput {
   pages: string[];
   /** Restrict the round to a subset of files, for iteration. */
   deliverable?: string[];
+  /**
+   * The Designer's decision, made before this brief was assembled.
+   *
+   * Absent means the builder chooses within the contract's archetypes — which
+   * is how nine trades produced four identical typefaces. Present is the
+   * intended path.
+   */
+  design?: DesignManifest;
 }
 
 export const SITE_SYSTEM_PROMPT = `You are a senior front-end designer building marketing sites for
@@ -215,11 +224,16 @@ function businessBlock(input: SitePromptInput): string {
 export function buildSitePrompt(input: SitePromptInput): { system: string; user: string } {
   return {
     system: SITE_SYSTEM_PROMPT,
+    // ⛔ Order is load-bearing. Contract, then vertical register, then the
+    // design decision, then the facts. Rounds 1 and 2 showed the model
+    // reverting to a conventional hero whenever it met business facts before
+    // the rules — every rule has to land first.
     user: [
       readPart("design-contract.md"),
       "\n\n---\n\n",
       readPart(`verticals/${input.vertical}.md`),
       "\n\n---\n\n",
+      ...(input.design === undefined ? [] : [renderDesignBrief(input.design), "\n\n---\n\n"]),
       businessBlock(input),
     ].join(""),
   };

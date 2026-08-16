@@ -6,8 +6,11 @@ import { LocalKeyWrapper, LocalPgBackend, type SecretsBackend } from "@adw/vault
 import { seedRegistry, setChampion, type RoleId } from "@adw/registry";
 import { config } from "@adw/config";
 import {
+  allAgents,
   architectAgent,
   careAgent,
+  designAgent,
+  reviewerPatchAgent,
   conciergeFallbackAgent,
   enrichmentAgent,
   financeAgent,
@@ -47,6 +50,81 @@ afterAll(async () => {
 });
 
 const deps = (): AgentDeps => ({ db, vault, forceMock: true });
+
+describe("the roster and the registry are the same list", () => {
+  // ⛔ These drifted apart once already: `reviewer_patch` carried a champion row,
+  // a candidate pool and a re-eval cadence for months with no agent behind it —
+  // a role the registry believed it was selecting a model for and nothing ever
+  // called. The failure is silent in both directions, so it is asserted rather
+  // than reviewed.
+  it("has an agent for every role the registry resolves, and no more", () => {
+    const roles = Object.keys(config.registry().data.roles).sort();
+    expect(Object.keys(allAgents).sort()).toEqual(roles);
+  });
+
+  it("gives every agent the role id it is registered under", () => {
+    for (const [key, agent] of Object.entries(allAgents)) {
+      expect(agent.role, `${key} declares role ${agent.role}`).toBe(key);
+      expect(agent.id).toBe(key);
+    }
+  });
+});
+
+describe("the design agent proposes within what it was given", () => {
+  // The Designer's catalogue and diversity guard are tested in @adw/designer.
+  // What matters here is that the AGENT cannot reach past its input — the
+  // options arrive as data, so a proposal is bounded before validation ever
+  // runs.
+  const open = {
+    businessName: "Ridgeline Roofing",
+    vertical: "roofing",
+    openArchetypes: ["stage", "frame"],
+    openPairings: ["oswald_inter", "manrope_inter"],
+    openMotion: ["measured"],
+    openDensity: ["balanced"],
+  };
+
+  it("skips a combination already spent in the trade", async () => {
+    const { result } = await designAgent.run(
+      { ...open, usedCombinations: ["stage|oswald_inter", "stage|manrope_inter"] },
+      { db, vault },
+    );
+    expect(result.heroArchetype).toBe("frame");
+  });
+
+  it("⛔ never proposes parallax on its own initiative", async () => {
+    // Parallax needs three photographs AND a permitting vocabulary. Proposing it
+    // by default would mean the demo path routinely offers something the
+    // catalogue rejects, and the fallback would fire on every build.
+    const { result } = await designAgent.run({ ...open, imageCount: 0 }, { db, vault });
+    expect(result.parallax).toBe(false);
+  });
+
+  it("cannot deploy, price, or send", () => {
+    for (const cap of ["deploy:site", "deploy:preview", "propose:price", "send:gated"] as const) {
+      expect(designAgent.can(cap), cap).toBe(false);
+    }
+  });
+});
+
+describe("the reviewer patcher is bounded", () => {
+  const failing = [{ gate: "lighthouse_perf", score: 71, threshold: 85, detail: "LCP 4.1s" }];
+
+  it("escalates rather than looping once attempts are spent", async () => {
+    // ⛔ "Patch until it passes" is how a $1.50 build becomes $40. Attempt three
+    // hands the build to a human instead of buying a fourth opinion.
+    const third = await reviewerPatchAgent.run({ buildId: "b-1", failingGates: failing, attempt: 3 }, { db, vault });
+    expect(third.escalate).toBe(true);
+    expect(third.escalateReason).toBe("patch_loop_exhausted");
+
+    const first = await reviewerPatchAgent.run({ buildId: "b-1", failingGates: failing, attempt: 1 }, { db, vault });
+    expect(first.escalate).toBe(false);
+  });
+
+  it("has no capability to deploy what it patched", () => {
+    expect(reviewerPatchAgent.can("deploy:site")).toBe(false);
+  });
+});
 
 describe("agent constraints (spec §48.4)", () => {
   it("finance discount is clamped to the region floor in code (§28.3)", async () => {

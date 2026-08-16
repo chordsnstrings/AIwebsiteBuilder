@@ -98,6 +98,40 @@ export const prompts: Record<string, PromptArtifact> = {
         input,
       ),
   },
+  design_decide: {
+    id: "design_decide",
+    version: "1.0.0",
+    changelog:
+      "Initial. Chooses from an enumerated catalogue only; sameness is rejected in code, " +
+      "not requested here, because asking produced four identical typefaces out of six.",
+    build: (input) =>
+      assemble(
+        "You choose the design direction for one small-business site, before any markup exists.",
+        [
+          "Choose ONLY from the options supplied. An option you did not receive is not available to you, whatever its merits — a token outside the catalogue fails the build rather than being quietly dropped.",
+          "Do not repeat a combination listed as already used in this trade. Two customers in one trade receiving the same composition and the same typeface is the template showing through.",
+          "You decide composition, not content. Never propose copy, claims, prices or section text.",
+          "State a rationale in one or two sentences that names what about THIS business drove the choice. 'It looks modern' is not a rationale.",
+        ],
+        input,
+      ),
+  },
+  reviewer_patch: {
+    id: "reviewer_patch",
+    version: "1.0.0",
+    changelog: "Initial. Patches the named gate failure only; never widens scope, never disables a check.",
+    build: (input) =>
+      assemble(
+        "You repair a generated site so that a specific, named reviewer gate passes.",
+        [
+          "Fix ONLY the gates listed as failing. An unrelated improvement is a regression risk against gates that currently pass.",
+          "Never suppress, disable, or narrow a check to make it pass — the gate is the requirement, not the obstacle.",
+          "Never alter copy, prices, or any factual claim; those come from the business record and are not yours to edit.",
+          "If a failure cannot be fixed without changing a fact or a check, return it unfixed with the reason.",
+        ],
+        input,
+      ),
+  },
   ip_claims: {
     id: "ip_claims",
     version: "1.0.0",

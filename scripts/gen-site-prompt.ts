@@ -8,7 +8,9 @@
 // is not a rule. Real extraction hands you whatever the business chose in 2011.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { decideDesign, type DesignManifest } from "../packages/designer/src/index.ts";
 import {
+  SITE_VERTICALS,
   buildSitePrompt,
   isSiteVertical,
   type SitePromptInput,
@@ -304,24 +306,70 @@ const FIXTURES: Record<SiteVertical, Fixture> = {
 
 const PAGES = ["index.html", "work.html", "services.html", "about.html", "contact.html"];
 
+/**
+ * The Designer runs BEFORE the brief is assembled, and its manifest is written
+ * next to the prompt.
+ *
+ * ⛔ No `propose` hook here. The eval path uses the deterministic chooser
+ * deliberately: a brief that changes because a model felt different today
+ * cannot be diffed against yesterday's, and diffing these briefs is the only
+ * way the round-2 typeface collapse was found at all.
+ */
+async function briefFor(vertical: SiteVertical): Promise<{ system: string; user: string; design: DesignManifest }> {
+  const fixture = FIXTURES[vertical];
+  const design = await decideDesign({
+    // Stable per business, so a rebuild never silently redesigns a live site.
+    businessId: `fixture:${vertical}`,
+    vertical,
+    businessName: fixture.business.name,
+    about: fixture.services.map((s) => `${s.name}: ${s.description}`).join(". "),
+    brandPrimary: fixture.brand.primary,
+    brandSecondary: fixture.brand.secondary,
+    imageCount: fixture.images.length,
+    publishesPrices: fixture.services.some((s) => s.price !== undefined && !/^free$|^included$/i.test(s.price)),
+  });
+  const { system, user } = buildSitePrompt({
+    ...fixture,
+    vertical,
+    refusalText: REFUSAL,
+    pages: PAGES,
+    deliverable: ["index.html", "assets/site.css", "assets/site.js"],
+    design,
+  });
+  return { system, user, design };
+}
+
+function emit(dir: string, vertical: string, b: { system: string; user: string; design: DesignManifest }): void {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "system.txt"), b.system);
+  writeFileSync(join(dir, "user.txt"), b.user);
+  writeFileSync(join(dir, "design.json"), `${JSON.stringify(b.design, null, 2)}\n`);
+  const d = b.design;
+  console.log(
+    `${vertical.padEnd(13)} ${d.heroArchetype.padEnd(12)} ${d.typePairing.id.padEnd(24)} ` +
+      `${d.motion.padEnd(13)} ${d.density.padEnd(9)} parallax=${d.parallax ? "yes" : "no "}  ` +
+      `${b.user.length}B -> ${dir}`,
+  );
+}
+
 const [, , verticalArg, outDir] = process.argv;
-if (verticalArg === undefined || !isSiteVertical(verticalArg)) {
-  console.error(`usage: gen-site-prompt.ts <vertical> <outdir>\nverticals: ${Object.keys(FIXTURES).join(", ")}`);
+
+if (verticalArg === "--all") {
+  const root = outDir ?? "out";
+  const combos = new Map<string, string>();
+  for (const v of SITE_VERTICALS) {
+    const b = await briefFor(v);
+    emit(join(root, v), v, b);
+    combos.set(`${b.design.heroArchetype}|${b.design.typePairing.id}`, v);
+  }
+  // Reported, not enforced. The diversity guard is per-trade by design — two
+  // roofers must differ; a roofer and a lawyer sharing a composition is not a
+  // defect. But if nine trades collapse onto three combinations that is worth
+  // seeing, because "it all looks the same" is exactly how this started.
+  console.log(`\n${combos.size} distinct archetype × pairing across ${SITE_VERTICALS.length} verticals`);
+} else if (verticalArg !== undefined && isSiteVertical(verticalArg)) {
+  emit(outDir ?? join("out", verticalArg), verticalArg, await briefFor(verticalArg));
+} else {
+  console.error(`usage: gen-site-prompt.ts <vertical|--all> <outdir>\nverticals: ${Object.keys(FIXTURES).join(", ")}`);
   process.exit(2);
 }
-const vertical: SiteVertical = verticalArg;
-const fixture = FIXTURES[vertical];
-
-const { system, user } = buildSitePrompt({
-  ...fixture,
-  vertical,
-  refusalText: REFUSAL,
-  pages: PAGES,
-  deliverable: ["index.html", "assets/site.css", "assets/site.js"],
-});
-
-const dir = outDir ?? join("out", vertical);
-mkdirSync(dir, { recursive: true });
-writeFileSync(join(dir, "system.txt"), system);
-writeFileSync(join(dir, "user.txt"), user);
-console.log(`${vertical}: system ${system.length}B  user ${user.length}B  -> ${dir}`);

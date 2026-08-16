@@ -651,6 +651,9 @@ importers:
       '@adw/config':
         specifier: workspace:*
         version: link:../config
+      '@adw/designer':
+        specifier: workspace:*
+        version: link:../designer
     devDependencies:
       '@adw/reviewer-gates':
         specifier: workspace:*

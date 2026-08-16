@@ -181,6 +181,30 @@ describe("⛔ two customers in one trade must not get the same site", () => {
     }
   });
 
+  it("⛔ does not collapse every price-publishing trade onto the ledger", () => {
+    // Measured: the first wired run put SIX of nine trades on the ledger hero,
+    // because publishing a price forced it and most trades publish something.
+    // A preference that always wins is a template. Ledger is weighted now, so
+    // it must still be reachable and must not be unanimous.
+    const priced = ["roofing", "plumber", "electrician", "hvac", "accountant", "lawyer", "auto_repair"];
+    const heroes = priced.map(
+      (v) => chooseDeterministic(input({ vertical: v, businessId: `fixture:${v}`, publishesPrices: true })).heroArchetype,
+    );
+    const ledgers = heroes.filter((h) => h === "ledger").length;
+    expect(ledgers, `heroes: ${heroes.join(", ")}`).toBeGreaterThan(0);
+    expect(ledgers, `heroes: ${heroes.join(", ")}`).toBeLessThan(heroes.length);
+    expect(new Set(heroes).size).toBeGreaterThanOrEqual(3);
+  });
+
+  it("still reaches the ledger often for a trade that publishes real figures", () => {
+    // The weighting must not go so far the other way that a garage with a price
+    // list never gets the page its price list deserves.
+    const heroes = Array.from({ length: 12 }, (_, i) =>
+      chooseDeterministic(input({ vertical: "auto_repair", businessId: `garage-${i}`, publishesPrices: true })).heroArchetype,
+    );
+    expect(heroes.filter((h) => h === "ledger").length).toBeGreaterThanOrEqual(3);
+  });
+
   it("gives the same business the same design every time", async () => {
     // ⛔ A rebuild must never silently redesign a live site.
     const a = await decideDesign(input({ businessId: "stable-1" }));

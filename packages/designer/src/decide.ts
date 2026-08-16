@@ -76,10 +76,18 @@ export function chooseDeterministic(input: DesignerInput): Omit<DesignManifest, 
     );
   }
 
-  // A trade that publishes real figures gets the ledger where it is available —
-  // the price list IS the page for those businesses.
-  const preferLedger = input.publishesPrices && options.archetypes.includes("ledger");
-  const archetypeChoices = preferLedger ? (["ledger"] as HeroArchetype[]) : options.archetypes;
+  // A trade that publishes real figures leans toward the ledger — for those
+  // businesses the price list genuinely is the page.
+  //
+  // ⛔ Leans, not forces. Forcing it collapsed six of nine trades onto one hero
+  // in the first wired run, because most trades publish something. Weighting is
+  // the whole difference between a preference and a template: ledger enters the
+  // rotation twice against everything else's once, so it wins more often and
+  // never always.
+  const canLedger = input.publishesPrices && options.archetypes.includes("ledger");
+  const archetypeChoices: HeroArchetype[] = canLedger
+    ? ["ledger", ...options.archetypes]
+    : options.archetypes;
   const used = new Set(history.slice(0, loadCatalogue().data.diversity.window).map((h) => `${h.heroArchetype}|${h.typePairingId}`));
 
   // Walk the open combinations from the business's own seed offset, and take

@@ -785,6 +785,145 @@ export const leadSourcingAgent = defineAgent({
   }),
 });
 
+// --- Design decision -------------------------------------------------------
+//
+// The agent that decides what a site LOOKS like, before a line of markup
+// exists. It emits five tokens and a section order — nothing else.
+//
+// ⛔ It proposes. It does not decide. Everything it returns is checked against
+// config/design-catalogue.yaml and against the recent history for its trade by
+// @adw/designer, and a proposal that fails either is replaced wholesale by a
+// deterministic choice rather than patched. The reason is measured: told in
+// prose to make each site different, the model varied layout and then put four
+// of six sites in the same typeface. A model asked to avoid an attractor still
+// walks to it, so the constraint is arithmetic over stored history.
+//
+// The strings here are deliberately untyped against the catalogue's unions.
+// This package must not import @adw/designer — the validation belongs on the
+// far side of the boundary, where a bad token fails loudly.
+const designIn = z.object({
+  businessName: z.string(),
+  vertical: z.string(),
+  about: z.string().default(""),
+  imageCount: z.number().default(0),
+  publishesPrices: z.boolean().default(false),
+  /** What is still open after the catalogue and the diversity window have had
+   *  their say. The agent chooses from these, never from memory. */
+  openArchetypes: z.array(z.string()),
+  openPairings: z.array(z.string()),
+  openMotion: z.array(z.string()),
+  openDensity: z.array(z.string()),
+  /** Combinations already spent in this trade, as "archetype|pairing". */
+  usedCombinations: z.array(z.string()).default([]),
+});
+const designOut = z.object({
+  heroArchetype: z.string(),
+  typePairingId: z.string(),
+  motion: z.string(),
+  parallax: z.boolean(),
+  density: z.string(),
+  sectionOrder: z.array(z.string()),
+  rationale: z.string(),
+});
+export const designAgent = defineAgent({
+  id: "design_decide",
+  role: "design_decide",
+  dataClass: "PUB",
+  capabilities: ["read:business", "write:draft"],
+  inputSchema: designIn,
+  outputSchema: designOut,
+  maxTokensOut: 600,
+  budgetUsdPerPassingOutput: 0.004,
+  buildPrompt: (input) =>
+    prompts.design_decide!.build({
+      facts: {
+        business: input.businessName,
+        vertical: input.vertical,
+        photographs: input.imageCount,
+        publishesPrices: input.publishesPrices,
+        chooseHeroFrom: input.openArchetypes,
+        chooseTypeFrom: input.openPairings,
+        chooseMotionFrom: input.openMotion,
+        chooseDensityFrom: input.openDensity,
+        alreadyUsedInThisTrade: input.usedCombinations,
+      },
+      outputShape:
+        "{ heroArchetype, typePairingId, motion, parallax, density, sectionOrder[], rationale }",
+      // Their own words about themselves are third-party text, and this agent
+      // reads it for register cues. It is not an instruction channel.
+      untrusted: { business_description: input.about },
+    }),
+  simulate: (input) => {
+    // The demo path picks the first open combination that is not spent. The real
+    // deterministic chooser lives in @adw/designer and is seeded per business;
+    // duplicating that here would be a second source of truth for the same
+    // decision, so this stays deliberately dumb.
+    const archetype =
+      input.openArchetypes.find((a) => input.openPairings.some((p) => !input.usedCombinations.includes(`${a}|${p}`))) ??
+      input.openArchetypes[0] ??
+      "typographic";
+    const pairing =
+      input.openPairings.find((p) => !input.usedCombinations.includes(`${archetype}|${p}`)) ??
+      input.openPairings[0] ??
+      "";
+    return {
+      heroArchetype: archetype,
+      typePairingId: pairing,
+      motion: input.openMotion[0] ?? "still",
+      // ⛔ Never proposed by the simulator. Parallax needs three photographs and
+      // a vocabulary that permits it, and asserting it here would mean the demo
+      // path routinely proposes something the catalogue rejects.
+      parallax: false,
+      density: input.openDensity[0] ?? "balanced",
+      sectionOrder: ["proof", "services", "work", "about", "contact"],
+      rationale: `First combination open to ${input.vertical} that this trade has not already used.`,
+    };
+  },
+});
+
+// --- Reviewer patch (spec §29.4) -------------------------------------------
+//
+// Repairs a build against named gate failures. It receives the gate names and
+// their numeric results, never the gate implementations — a patcher that can
+// see the check can satisfy the check instead of the requirement.
+const patchIn = z.object({
+  buildId: z.string(),
+  failingGates: z.array(z.object({ gate: z.string(), score: z.number(), threshold: z.number(), detail: z.string() })),
+  attempt: z.number().default(1),
+});
+const patchOut = z.object({
+  patches: z.array(z.object({ gate: z.string(), file: z.string(), change: z.string() })),
+  /** Gates the agent believes it cannot fix, with why. Returning these is a
+   *  success — a patch loop that always claims a fix produces a build that
+   *  fails the same gate three times and then gives up with no diagnosis. */
+  unfixable: z.array(z.object({ gate: z.string(), reason: z.string() })),
+  injectionSuspected: z.boolean(),
+});
+export const reviewerPatchAgent = defineAgent({
+  id: "reviewer_patch",
+  role: "reviewer_patch",
+  dataClass: "PUBLISHABLE",
+  capabilities: ["read:business", "write:draft"],
+  inputSchema: patchIn,
+  outputSchema: patchOut,
+  maxTokensOut: 3000,
+  budgetUsdPerPassingOutput: 0.03,
+  buildPrompt: (input) =>
+    prompts.reviewer_patch!.build({
+      facts: { buildId: input.buildId, attempt: input.attempt, failing: input.failingGates },
+      outputShape: "{ patches[{gate,file,change}], unfixable[{gate,reason}], injectionSuspected }",
+    }),
+  simulate: (input) => ({
+    patches: input.failingGates.map((g) => ({ gate: g.gate, file: "index.html", change: `raise ${g.gate} to ${g.threshold}` })),
+    unfixable: [],
+    injectionSuspected: false,
+  }),
+  // ⛔ Attempt three is the last one. The BuildWorkflow's cost ceiling assumes a
+  // bounded loop, and "patch until it passes" is how a $1.50 build becomes $40.
+  detectEscalation: (out, input) =>
+    input.attempt >= 3 && out.unfixable.length === 0 && out.patches.length > 0 ? "patch_loop_exhausted" : undefined,
+});
+
 // --- Lighter roles (ux, retention, dunning, researcher, pr, orchestrator,
 //     sentinel, ceo). Minimal schemas sufficient for the registry + demo. ----
 const genericOut = z.object({ summary: z.string(), items: z.array(z.string()) });
@@ -818,6 +957,7 @@ export const allAgents = {
   outreach_draft: outreachAgent,
   customer_care: careAgent,
   developer: developerAgent,
+  reviewer_patch: reviewerPatchAgent,
   ip_claims: ipClaimsAgent,
   finance_pricing: financeAgent,
   ux_review: uxAgent,
@@ -837,4 +977,5 @@ export const allAgents = {
   photo_triage: photoTriageAgent,
   review_responder: reviewResponderAgent,
   lead_sourcing: leadSourcingAgent,
+  design_decide: designAgent,
 };
