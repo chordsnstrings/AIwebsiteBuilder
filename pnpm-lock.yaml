@@ -547,6 +547,9 @@ importers:
       '@adw/db':
         specifier: workspace:*
         version: link:../db
+      '@adw/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
 
   packages/kb:
     dependencies:

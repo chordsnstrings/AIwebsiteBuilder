@@ -46,3 +46,9 @@ export {
 } from "./route.ts";
 
 export { extractSesInbound, type SesInboundNotification } from "./ses.ts";
+
+export {
+  applyEmailFeedback,
+  providerMessageId,
+  type WebhookOutcome,
+} from "./feedback.ts";

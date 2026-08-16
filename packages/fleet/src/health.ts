@@ -30,7 +30,16 @@ export interface AssetMetrics {
   complaintRate: number;
   bounceRate: number;
   dailyGmailVolume: number;
-  inboxPlacement: number;
+  /**
+   * Share of sends landing in the inbox, from a seed-list probe.
+   *
+   * ⛔ `null` means NOT MEASURED, and the band is skipped. It was previously a
+   * hardcoded `0.75` described as a "neutral default" — 0.75 sits above the 0.70
+   * warn floor, so the one input that detects a domain quietly going to spam
+   * could never fire, and the dashboard showed a passing placement metric for a
+   * probe that does not exist. A missing measurement must read as missing.
+   */
+  inboxPlacement: number | null;
 }
 
 // Band levels: 1 = none, 2 = warn, 3 = throttle, 4 = halt.
@@ -57,7 +66,8 @@ function worstBand(metrics: AssetMetrics, t: DeliverabilityThresholds): BandLeve
     highBad(metrics.complaintRate, t.complaint_rate),
     highBad(metrics.bounceRate, t.bounce_rate),
     highBad(metrics.dailyGmailVolume, t.provider_daily_per_domain),
-    lowBad(metrics.inboxPlacement, t.inbox_placement),
+    // An unmeasured metric contributes nothing rather than contributing a pass.
+    metrics.inboxPlacement === null ? 1 : lowBad(metrics.inboxPlacement, t.inbox_placement),
   ) as BandLevel;
 }
 

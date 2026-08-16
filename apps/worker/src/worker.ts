@@ -6,6 +6,8 @@
 import { createDb } from "@adw/db";
 import { runWatches } from "@adw/orchestrator";
 import { evaluateAssetHealth } from "@adw/fleet";
+import { EMAIL_VENDOR_IDS, getEmailTransport } from "@adw/vendors";
+import { applyEmailFeedback } from "@adw/inbound";
 import { advanceDunning } from "@adw/billing";
 import { config } from "@adw/config";
 import { Engine } from "@adw/workflows";
@@ -69,10 +71,21 @@ registerActivities(engine, {
  */
 async function sweepDeliverability(database: typeof db): Promise<void> {
   const thresholds = config.thresholds().data.deliverability;
-  const assets = await database.query<{ id: string }>(
-    "SELECT id FROM sending_assets WHERE health IN ('healthy','warn','throttled')",
+  const assets = await database.query<{ id: string; kind: string; identifier: string }>(
+    "SELECT id, kind, identifier FROM sending_assets WHERE health IN ('healthy','warn','throttled')",
   );
+
+  // ⛔ Mailboxes and domains are scored differently, and the domain half did not
+  // exist. `messages.sending_asset_id` is always a MAILBOX — `pickAsset` only
+  // returns kind='mailbox' — so every domain row computed sent=0 and was skipped
+  // by the `if (sent === 0) continue` below. The threshold is literally named
+  // `provider_daily_per_domain` and nothing was ever aggregated per domain, which
+  // means a domain could sit far over its provider cap across its mailboxes with
+  // every individual mailbox looking healthy.
+  const domainTotals = new Map<string, { sent: number; bounced: number; complained: number }>();
+
   for (const asset of assets.rows) {
+    if (asset.kind !== "mailbox") continue;
     const m = await database.one<{ sent: string; bounced: string; complained: string }>(
       `SELECT count(*) AS sent,
               count(*) FILTER (WHERE bounced_at IS NOT NULL) AS bounced,
@@ -82,6 +95,18 @@ async function sweepDeliverability(database: typeof db): Promise<void> {
       [asset.id],
     );
     const sent = Number(m.sent);
+
+    // Accumulate for the domain even when this mailbox sent nothing, so a
+    // domain's total is the sum of its mailboxes rather than of the busy ones.
+    const domain = asset.identifier.split("@")[1] ?? "";
+    if (domain) {
+      const acc = domainTotals.get(domain) ?? { sent: 0, bounced: 0, complained: 0 };
+      acc.sent += sent;
+      acc.bounced += Number(m.bounced);
+      acc.complained += Number(m.complained);
+      domainTotals.set(domain, acc);
+    }
+
     if (sent === 0) continue;
     await evaluateAssetHealth(
       database,
@@ -90,10 +115,66 @@ async function sweepDeliverability(database: typeof db): Promise<void> {
         complaintRate: Number(m.complained) / sent,
         bounceRate: Number(m.bounced) / sent,
         dailyGmailVolume: sent / 7,
-        inboxPlacement: 0.75, // measured by the seed-list probe; neutral default
+        // ⛔ null, not 0.75. There is no seed-list probe yet, and the old
+        // "neutral default" sat above the 0.70 warn floor — so the metric that
+        // detects a domain quietly going to spam could never fire, while the
+        // board displayed it as passing. Unmeasured reads as unmeasured until
+        // the probe exists.
+        inboxPlacement: null,
       },
       thresholds,
     ).catch(() => undefined);
+  }
+
+  // Now the domains, from the totals of the mailboxes that sit on them.
+  for (const asset of assets.rows) {
+    if (asset.kind !== "domain") continue;
+    const totals = domainTotals.get(asset.identifier.replace(/^@/, ""));
+    if (!totals || totals.sent === 0) continue;
+    await evaluateAssetHealth(
+      database,
+      asset.id,
+      {
+        complaintRate: totals.complained / totals.sent,
+        bounceRate: totals.bounced / totals.sent,
+        dailyGmailVolume: totals.sent / 7,
+        inboxPlacement: null,
+      },
+      thresholds,
+    ).catch(() => undefined);
+  }
+}
+
+/**
+ * Drain the simulator's feedback stream into the same webhook effects a real
+ * notification takes.
+ *
+ * ⛔ `MockEmailTransport` has manufactured bounce, complaint and reply events
+ * since it was written, exposed them through `drainEvents()`, and NOTHING ever
+ * called it. So the deliverability loop read zero on every asset even in demo
+ * mode — the "deliverability loop demo" described in the mock's own header did
+ * not exist, and a reviewer watching the board would have concluded the fleet
+ * was pristine rather than unobserved.
+ *
+ * Demo mode only. With real vendors the events arrive over the network.
+ */
+async function drainSimulatedFeedback(database: typeof db): Promise<void> {
+  if (!forceMock) return;
+  for (const vendorId of EMAIL_VENDOR_IDS) {
+    const transport = getEmailTransport(vendorId);
+    for (const event of transport.drainEvents()) {
+      // Shaped exactly like the SES notification the real path receives, so the
+      // demo exercises the production handler instead of a parallel one.
+      const payload =
+        event.type === "bounce"
+          ? { notificationType: "Bounce", mail: { messageId: event.messageId },
+              bounce: { bounceType: "Permanent", bouncedRecipients: [{ emailAddress: event.to }] } }
+          : event.type === "complaint"
+            ? { notificationType: "Complaint", mail: { messageId: event.messageId },
+                complaint: { complainedRecipients: [{ emailAddress: event.to }] } }
+            : { notificationType: "Delivery", mail: { messageId: event.messageId } };
+      await applyEmailFeedback(database, "aws_ses", payload).catch(() => undefined);
+    }
   }
 }
 
@@ -104,7 +185,13 @@ const scheduler = new Scheduler({
     intentDispatcherJob(engine, db),
     heartbeatJob(),
     ...probeJobs(),
-    deliverabilityJob(sweepDeliverability),
+    // ⛔ Drain BEFORE the sweep, in that order. Sweeping first would score
+    // assets against feedback the drain is about to deliver, so every reading
+    // would be one cycle stale — 15 minutes behind a complaint spike.
+    deliverabilityJob(async (database) => {
+      await drainSimulatedFeedback(database);
+      await sweepDeliverability(database);
+    }),
     dunningJob(advanceDunning),
     previewExpiryJob(),
     vendorWatchJob(runWatches),

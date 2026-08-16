@@ -205,4 +205,20 @@ describe("§22 rotation", () => {
     const picked = await pickAsset(db, pool);
     expect(picked).toBeNull();
   });
+
+  it("⛔ an unmeasured inbox placement contributes nothing, rather than a pass", async () => {
+    // It was a hardcoded 0.75 described as a "neutral default". 0.75 sits ABOVE
+    // the 0.70 warn floor, so the one input that detects a domain quietly going
+    // to spam could never fire — and the board rendered a passing placement
+    // metric for a seed-list probe that does not exist.
+    const clean = { complaintRate: 0, bounceRate: 0, dailyGmailVolume: 10 };
+    const id = await seedAsset({ pool: uniq(), health: "healthy", dailyCap: 20 });
+    expect(await evaluateAssetHealth(db, id, { ...clean, inboxPlacement: null }, bands())).toBe("healthy");
+
+    // And a measured bad value still trips, so skipping is not the same as
+    // disabling the band.
+    const id2 = await seedAsset({ pool: uniq(), health: "healthy", dailyCap: 20 });
+    const below = bands().inbox_placement.halt - 0.01;
+    expect(await evaluateAssetHealth(db, id2, { ...clean, inboxPlacement: below }, bands())).toBe("halted");
+  });
 });
