@@ -303,6 +303,145 @@ const checks: Check[] = [
       return { ok: Number(r.n) === 0, detail: `${r.n} non-direct accounts` };
     },
   },
+  // -------------------------------------------------------------------------
+  // The customer-side families (MF2-MF13). Each of these has a target of ZERO
+  // and, like the block above, each fails SILENTLY — which is the whole reason
+  // it is asserted nightly rather than trusted to a code review.
+  // -------------------------------------------------------------------------
+  {
+    name: "No statutory date was moved without a named human and a reason",
+    run: async () => {
+      // ⛔ A recall can slip a fortnight; a licence renewal date is a fact about
+      // the law. The clamp lives in `scheduleReminder`, and this is the
+      // assertion that it was never routed around.
+      const r = await db.one<{ n: string; total: string }>(
+        `SELECT count(*) FILTER (WHERE moved_at IS NOT NULL
+                                   AND (moved_by IS NULL OR moved_reason IS NULL OR btrim(moved_reason) = '')) AS n,
+                count(*) AS total
+           FROM reminders WHERE statutory = TRUE`,
+      );
+      // ⛔ The denominator is reported, always. "0 violations" over an empty
+      // table and "0 violations" over four hundred rows are different
+      // statements, and the approval invariant in this same file passed for a
+      // year because nothing had ever reached the gate it guarded.
+      return { ok: Number(r.n) === 0, detail: `${r.n} unexplained moves over ${r.total} statutory reminders` };
+    },
+  },
+  {
+    name: "No journey step was delivered after the contact unsubscribed",
+    run: async () => {
+      // ⛔ Consent at step 1 is not consent at step 3 twelve days later. The
+      // runner re-checks suppression before every step; this checks the
+      // evidence rather than the intention.
+      const r = await db.one<{ n: string }>(
+        `SELECT count(*) AS n
+           FROM journey_steps_sent st
+           JOIN journey_runs jr ON jr.id = st.run_id
+           JOIN suppression s ON s.email_hash = digest(jr.contact, 'sha256')
+          WHERE s.suppressed_at < st.sent_at`,
+      );
+      const total = await db.one<{ n: string }>("SELECT count(*) AS n FROM journey_steps_sent");
+      return { ok: Number(r.n) === 0, detail: `${r.n} suppressed sends over ${total.n} journey steps delivered` };
+    },
+  },
+  {
+    name: "Nothing was published in a business's name without an approver",
+    run: async () => {
+      // The one step between a model's sentence and a business's public
+      // profile. A published row with no approver means the step was skipped.
+      const r = await db.one<{ n: string; total: string }>(
+        `SELECT count(*) FILTER (WHERE approved_by IS NULL OR approved_at IS NULL) AS n,
+                count(*) AS total
+           FROM publications WHERE state = 'published'`,
+      );
+      return { ok: Number(r.n) === 0, detail: `${r.n} unapproved over ${r.total} published` };
+    },
+  },
+  {
+    name: "No reconciliation was signed off over an unexplained difference",
+    run: async () => {
+      // For the statutory ones — a client account, a deposit register — that
+      // signature is the regulatory artefact.
+      const r = await db.one<{ n: string; total: string }>(
+        `SELECT count(*) FILTER (WHERE EXISTS (
+                  SELECT 1 FROM recon_matches m
+                   WHERE m.run_id = r.id AND m.status <> 'matched' AND m.resolved_at IS NULL)) AS n,
+                count(*) AS total
+           FROM recon_runs r WHERE r.state = 'closed'`,
+      );
+      return { ok: Number(r.n) === 0, detail: `${r.n} with open differences over ${r.total} closed runs` };
+    },
+  },
+  {
+    name: "No watch reports a value it has not actually fetched",
+    run: async () => {
+      // ⛔ The failure this family is built to avoid, restated as a query: a
+      // subscription that has been failing for a fortnight while the board
+      // showed a number. `watchBoard` withholds the value once stale; this
+      // catches a subscription nobody noticed had stopped.
+      const r = await db.one<{ n: string; total: string }>(
+        `SELECT count(*) FILTER (WHERE last_run_at IS NOT NULL
+                                   AND (last_ok_at IS NULL OR last_ok_at < now() - interval '14 days')) AS n,
+                count(*) AS total
+           FROM watch_subscriptions WHERE active = TRUE`,
+      );
+      return { ok: Number(r.n) === 0, detail: `${r.n} stale over ${r.total} active watches` };
+    },
+  },
+  {
+    name: "Every live customer has a trade the per-archetype config resolves",
+    run: async () => {
+      // ⛔ `businesses.vertical` is written in exactly ONE place and is left
+      // NULL whenever the Architect escalated. Five customer-side families key
+      // everything off it, so a customer with no resolvable trade silently gets
+      // no case types, no clocks, no journeys, no watches, no reconciliations
+      // and no publishing channels — with nothing anywhere reporting it. The
+      // read falls back to the lead-data category; this catches the ones where
+      // neither resolves.
+      const { resolveVertical, primaryArchetype } = await import("../packages/taxonomy/src/index.ts");
+      const rows = await db.query<{ id: string; vertical: string | null; category: string | null }>(
+        `SELECT c.id, b.vertical, b.category
+           FROM customers c JOIN businesses b ON b.id = c.business_id
+          WHERE c.status = 'active'`,
+      );
+      const unresolved = rows.rows.filter((r) => primaryArchetype(resolveVertical(r.vertical, r.category)) === undefined);
+      return {
+        ok: unresolved.length === 0,
+        detail: `${unresolved.length} unresolved over ${rows.rows.length} active customers`,
+      };
+    },
+  },
+  {
+    name: "Every kill switch is read by something that halts",
+    run: async () => {
+      // ⛔ Three of the five were settable, stored, displayed as engaged, and
+      // read by nothing. A switch that appears to work stops the operator
+      // looking for the real off button, and they find out during the incident
+      // it was installed for. Asserted by ENGAGING each one and checking the
+      // reader agrees — a reader that exists but is never called is exactly the
+      // shape of the original defect, so the two chokepoint tests in
+      // apps/worker/killswitches.test.ts carry the other half.
+      const { readEngagedSwitches, clearKillSwitchCache, buildsHalted, paymentsOnboardingHalted, agentHalted, sendingHalted } =
+        await import("../packages/gate/src/index.ts");
+      clearKillSwitchCache();
+      const engaged = new Set(["HALT_ALL_SENDING", "HALT_COLD_ONLY", "HALT_BUILDS", "HALT_PAYMENTS_ONBOARDING", "HALT_AGENT:developer"]);
+      const unread: string[] = [];
+      if (!sendingHalted(new Set(["HALT_ALL_SENDING"]), "email", "transactional")) unread.push("HALT_ALL_SENDING");
+      if (!sendingHalted(new Set(["HALT_COLD_ONLY"]), "email", "cold")) unread.push("HALT_COLD_ONLY");
+      if (!buildsHalted(engaged)) unread.push("HALT_BUILDS");
+      if (!paymentsOnboardingHalted(engaged)) unread.push("HALT_PAYMENTS_ONBOARDING");
+      if (!agentHalted(engaged, "developer")) unread.push("HALT_AGENT:*");
+      // And the live table has no switch the code cannot read.
+      const rows = await db.query<{ name: string }>("SELECT name FROM kill_switches");
+      const known = new Set(["HALT_ALL_SENDING", "HALT_COLD_ONLY", "HALT_BUILDS", "HALT_PAYMENTS_ONBOARDING"]);
+      for (const row of rows.rows) {
+        if (!known.has(row.name) && !row.name.startsWith("HALT_AGENT:")) unread.push(row.name);
+      }
+      await readEngagedSwitches(db, Date.now());
+      clearKillSwitchCache();
+      return { ok: unread.length === 0, detail: unread.length === 0 ? `${rows.rows.length} switches, all readable` : `unread: ${unread.join(", ")}` };
+    },
+  },
   {
     name: "No preview is live past its expiry",
     run: async () => {

@@ -33,6 +33,7 @@
     "@adw/registry": "workspace:*",
     "@adw/scheduling": "workspace:*",
     "@adw/sentinel": "workspace:*",
+    "@adw/taxonomy": "workspace:*",
     "@adw/telemetry": "workspace:*",
     "@adw/uploads": "workspace:*",
     "@adw/vault": "workspace:*",

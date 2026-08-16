@@ -138,6 +138,9 @@ importers:
       '@adw/sentinel':
         specifier: workspace:*
         version: link:../../packages/sentinel
+      '@adw/taxonomy':
+        specifier: workspace:*
+        version: link:../../packages/taxonomy
       '@adw/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry

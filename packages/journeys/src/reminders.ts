@@ -8,6 +8,7 @@
 // arriving.
 
 import { emailHash, type Db } from "@adw/db";
+import { resolveVertical } from "@adw/taxonomy";
 import { emit } from "@adw/telemetry";
 import { clockFor, clockVersion } from "./catalogue.ts";
 
@@ -146,11 +147,11 @@ const SEVERITY_FALLBACK = 4;
 
 export async function dueReminders(db: Db, now: Date = new Date(), limit = 200): Promise<ReminderDue[]> {
   const rows = await db.query<{
-    id: string; customer_id: string; vertical: string | null; kind: string;
+    id: string; customer_id: string; vertical: string | null; category: string | null; kind: string;
     subject_ref: string; contact: string | null; due_at: Date; statutory: boolean;
     source_case_id: string | null;
   }>(
-    `SELECT r.id, r.customer_id, b.vertical, r.kind, r.subject_ref, r.contact,
+    `SELECT r.id, r.customer_id, b.vertical, b.category, r.kind, r.subject_ref, r.contact,
             r.due_at, r.statutory, r.source_case_id
        FROM reminders r
        JOIN customers c  ON c.id = r.customer_id
@@ -163,7 +164,7 @@ export async function dueReminders(db: Db, now: Date = new Date(), limit = 200):
 
   const out: ReminderDue[] = [];
   for (const r of rows.rows) {
-    const vertical = r.vertical ?? "";
+    const vertical = resolveVertical(r.vertical, r.category);
     const clock = clockFor(vertical, r.kind);
     out.push({
       id: r.id,
@@ -287,9 +288,10 @@ export async function upcomingReminders(
   now: Date = new Date(),
 ): Promise<UpcomingReminder[]> {
   const rows = await db.query<{
-    id: string; kind: string; subject_ref: string; due_at: Date; statutory: boolean; vertical: string | null;
+    id: string; kind: string; subject_ref: string; due_at: Date; statutory: boolean;
+    vertical: string | null; category: string | null;
   }>(
-    `SELECT r.id, r.kind, r.subject_ref, r.due_at, r.statutory, b.vertical
+    `SELECT r.id, r.kind, r.subject_ref, r.due_at, r.statutory, b.vertical, b.category
        FROM reminders r
        JOIN customers c  ON c.id = r.customer_id
        JOIN businesses b ON b.id = c.business_id
@@ -300,7 +302,7 @@ export async function upcomingReminders(
   );
   return rows.rows
     .map((r) => {
-      const clock = clockFor(r.vertical ?? "", r.kind);
+      const clock = clockFor(resolveVertical(r.vertical, r.category), r.kind);
       return {
         id: r.id,
         kind: r.kind,

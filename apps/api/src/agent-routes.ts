@@ -81,6 +81,7 @@ import {
   type Collectors,
 } from "@adw/watch";
 import { handleMcpCall, mcpManifest, MCP_TOOLS, type McpContext, type RefusalChecker } from "@adw/mcp";
+import { resolveVertical } from "@adw/taxonomy";
 import type { SessionUser } from "@adw/auth";
 import { enqueueIntent, executionId } from "@adw/workflows";
 
@@ -1168,11 +1169,14 @@ function toIngestLine(raw: unknown): IngestLine {
 
 /** The business's trade, which is what every per-archetype lookup resolves from. */
 async function verticalOf(db: Db, customerId: string): Promise<string | null> {
-  const row = await db.maybeOne<{ vertical: string | null }>(
-    "SELECT b.vertical FROM customers c JOIN businesses b ON b.id = c.business_id WHERE c.id = $1",
+  const row = await db.maybeOne<{ vertical: string | null; category: string | null }>(
+    "SELECT b.vertical, b.category FROM customers c JOIN businesses b ON b.id = c.business_id WHERE c.id = $1",
     [customerId],
   );
-  return row === null ? null : row.vertical ?? "";
+  // ⛔ null means NO SUCH CUSTOMER (a 404). An empty string means a customer
+  // whose trade does not resolve — a real state, and one every per-archetype
+  // lookup will return nothing for, so it must not be confused with the first.
+  return row === null ? null : resolveVertical(row.vertical, row.category);
 }
 
 function escapeHtml(text: string): string {

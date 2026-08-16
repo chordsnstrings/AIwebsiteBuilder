@@ -126,6 +126,37 @@ export function tradesInSegment(segment: Segment): string[] {
 }
 
 /**
+ * What trade IS this business, given what the database holds.
+ *
+ * ⛔ `businesses.vertical` is written in exactly ONE place — the Architect
+ * activity — and it is left NULL whenever the Architect escalates below its
+ * confidence floor. Five customer-side families key their entire behaviour off
+ * that column: a customer with a NULL vertical silently gets no case types, no
+ * clocks, no journeys, no watches, no reconciliations and no publishing
+ * channels, with nothing anywhere reporting a problem.
+ *
+ * So the read falls back to the category the lead data came with, through the
+ * same resolver the Architect uses. It still returns "" rather than a guess
+ * when neither resolves — `archetypesOf` is deliberately unwilling to invent an
+ * archetype, and this must not undo that.
+ */
+export function resolveVertical(
+  vertical: string | null | undefined,
+  category: string | null | undefined,
+): string {
+  if (typeof vertical === "string" && vertical.trim() !== "") {
+    if (isKnownTrade(vertical)) return vertical;
+    const resolved = resolveTrade(vertical);
+    if (resolved !== undefined) return resolved;
+  }
+  if (typeof category === "string" && category.trim() !== "") {
+    const resolved = resolveTrade(category);
+    if (resolved !== undefined) return resolved;
+  }
+  return "";
+}
+
+/**
  * Reduce a word to a stem good enough to match trade morphology.
  *
  * ⛔ Deliberately crude and deliberately NOT a real stemmer. It only has to make

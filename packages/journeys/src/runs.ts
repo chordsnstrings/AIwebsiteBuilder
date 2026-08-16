@@ -7,6 +7,7 @@
 // safe to run unattended.
 
 import { emailHash, type Db } from "@adw/db";
+import { resolveVertical } from "@adw/taxonomy";
 import { emit } from "@adw/telemetry";
 import { allJourneys, journeyFor, journeyVersion, type Journey } from "./catalogue.ts";
 
@@ -106,10 +107,11 @@ export async function runJourneys(
 ): Promise<JourneyRunResult> {
   const due = await db.query<{
     id: string; customer_id: string; journey_id: string; subject_ref: string;
-    contact: string; step_index: number; failures: number; created_at: Date; vertical: string | null;
+    contact: string; step_index: number; failures: number; created_at: Date;
+    vertical: string | null; category: string | null;
   }>(
     `SELECT r.id, r.customer_id, r.journey_id, r.subject_ref, r.contact,
-            r.step_index, r.failures, r.created_at, b.vertical
+            r.step_index, r.failures, r.created_at, b.vertical, b.category
        FROM journey_runs r
        JOIN customers c  ON c.id = r.customer_id
        JOIN businesses b ON b.id = c.business_id
@@ -129,7 +131,7 @@ export async function runJourneys(
       continue;
     }
 
-    const vertical = run.vertical ?? "";
+    const vertical = resolveVertical(run.vertical, run.category);
     const journey = journeyFor(vertical, run.journey_id);
     if (journey === undefined) {
       // The journey was removed from config, or the business changed vertical.

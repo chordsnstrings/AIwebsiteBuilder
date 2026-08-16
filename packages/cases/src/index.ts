@@ -19,7 +19,7 @@
 import { config } from "@adw/config";
 import type { Db } from "@adw/db";
 import { emit } from "@adw/telemetry";
-import { primaryArchetype } from "@adw/taxonomy";
+import { primaryArchetype, resolveVertical } from "@adw/taxonomy";
 
 export interface CaseStage {
   key: string;
@@ -177,11 +177,14 @@ export async function advanceCase(
 }
 
 async function verticalOf(tx: Db, customerId: string): Promise<string> {
-  const row = await tx.maybeOne<{ vertical: string | null }>(
-    "SELECT b.vertical FROM customers c JOIN businesses b ON b.id = c.business_id WHERE c.id = $1",
+  const row = await tx.maybeOne<{ vertical: string | null; category: string | null }>(
+    "SELECT b.vertical, b.category FROM customers c JOIN businesses b ON b.id = c.business_id WHERE c.id = $1",
     [customerId],
   );
-  return row?.vertical ?? "";
+  // ⛔ Falls back to the lead-data category. `businesses.vertical` is NULL
+  // whenever the Architect escalated, and a NULL here silently means no case
+  // types at all for that customer.
+  return resolveVertical(row?.vertical, row?.category);
 }
 
 export async function addCaseNote(

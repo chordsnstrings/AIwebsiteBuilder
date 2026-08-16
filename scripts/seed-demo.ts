@@ -94,7 +94,10 @@ for (const s of seedBiz) {
 
 console.log("→ a live customer + subscription");
 const custBiz = await db.one<{ id: string }>(
-  "INSERT INTO businesses (source_vendor, source_batch_id, name, category, country_code, region_code, city, segment) VALUES ('demo_aggregator',$1,'Bright Plumbing','plumber','US','R1','Denver','stale_site') RETURNING id",
+  // ⛔ `vertical` set explicitly. In production the Architect activity writes
+  // it; the seed calls the agent directly, so without this the demo customer
+  // has a NULL vertical and every per-archetype family resolves to nothing.
+  "INSERT INTO businesses (source_vendor, source_batch_id, name, category, vertical, country_code, region_code, city, segment) VALUES ('demo_aggregator',$1,'Bright Plumbing','plumber','plumber','US','R1','Denver','stale_site') RETURNING id",
   [batch.id],
 );
 const customer = await db.one<{ id: string }>(
@@ -275,14 +278,112 @@ await db.query(
   [customer.id, custBiz.id],
 );
 
+// ---------------------------------------------------------------------------
+// The customer-side families (MF2-MF13).
+//
+// ⛔ Seeded because the nightly invariants over these tables would otherwise
+// pass over an empty population — the exact failure the approval invariant
+// exhibited for months, holding true because nothing had ever reached the gate
+// it guarded. Every check in eval-nightly.ts now reports its denominator, and
+// these rows are what makes those denominators non-zero.
+// ---------------------------------------------------------------------------
+{
+  const { openCase, advanceCase } = await import("../packages/cases/src/index.ts");
+  const { scheduleReminder, startJourney, runJourneys } = await import("../packages/journeys/src/index.ts");
+  const { subscribeWatch, runDueWatches, simulatedCollectors } = await import("../packages/watch/src/index.ts");
+  const { openRun, ingest, runReconciliation, openDifferences, resolveDifference, closeRun } =
+    await import("../packages/reconcile/src/index.ts");
+  const { draftPublication, factsOnlyDrafter, approvePublication, publishApproved, simulatedConnectors } =
+    await import("../packages/publish/src/index.ts");
+  const { recordCall } = await import("../packages/voice/src/index.ts");
+
+  const V = "plumber";
+  const cid = customer.id;
+
+  // MF2 — a case in flight and one completed.
+  const caseId = await openCase(db, { customerId: cid, vertical: V, caseType: "emergency_job",
+    reference: "JOB-1043", title: "Burst pipe, Elm Street" });
+  await advanceCase(db, caseId, "dispatched", "dispatcher@brightplumbing.example", { vertical: V });
+
+  // MF4 — one ordinary clock and one statutory.
+  const day = 86_400_000;
+  await scheduleReminder(db, { customerId: cid, vertical: V, kind: "annual_service",
+    subjectRef: "12 Elm Street boiler", anchorAt: new Date(Date.now() - 300 * day) });
+  await scheduleReminder(db, { customerId: cid, vertical: V, kind: "landlord_gas_safety",
+    subjectRef: "44 Oak Road", anchorAt: new Date(Date.now() + 40 * day) });
+
+  // MF5 — a journey with a step actually delivered.
+  await startJourney(db, { customerId: cid, vertical: V, journeyId: "post_job_review",
+    subjectRef: "JOB-1043", contact: "dana@example.com" }, new Date(Date.now() - 3 * day));
+  await runJourneys(db, async () => ({ delivered: true }));
+
+  // MF7 — two watches with a baseline and a second reading.
+  const watchClock = { at: new Date(Date.now() - 2 * day) };
+  const collectors = simulatedCollectors(() => watchClock.at);
+  for (const [watchId, subject] of [["reviews_new", "gbp:bright-plumbing"], ["site_availability", "https://brightplumbing.example"]] as const) {
+    await subscribeWatch(db, { customerId: cid, vertical: V, watchId, subject }, collectors);
+  }
+  await runDueWatches(db, collectors, watchClock.at, { customerId: cid });
+  watchClock.at = new Date();
+  await runDueWatches(db, collectors, watchClock.at, { customerId: cid });
+
+  // MF8 — a reconciliation taken all the way to a signed-off close.
+  const recon = await openRun(db, { customerId: cid, vertical: V, reconType: "invoices_vs_bank",
+    periodStart: new Date(Date.now() - 30 * day), periodEnd: new Date() });
+  if (recon.ok) {
+    await ingest(db, recon.runId, "ours", [
+      { sourceKey: "INV-2201", reference: "INV-2201", amountCents: 42000, occurredOn: new Date(Date.now() - 20 * day) },
+      { sourceKey: "INV-2202", reference: "INV-2202", amountCents: 18500, occurredOn: new Date(Date.now() - 12 * day) },
+    ]);
+    await ingest(db, recon.runId, "theirs", [
+      { sourceKey: "BANK-88", reference: "INV 2201", amountCents: 42000, occurredOn: new Date(Date.now() - 18 * day) },
+      { sourceKey: "BANK-91", reference: "inv/2202", amountCents: 18450, occurredOn: new Date(Date.now() - 11 * day) },
+    ]);
+    await runReconciliation(db, recon.runId);
+    for (const d of await openDifferences(db, recon.runId)) {
+      await resolveDifference(db, d.id, "owner@brightplumbing.example", "bank charge, posted separately");
+    }
+    await closeRun(db, recon.runId, "owner@brightplumbing.example");
+  }
+
+  // MF12/MF13 — one post approved and published, one still awaiting the owner.
+  const facts = ["We cover Denver and Aurora.", "Open Monday to Friday, 7am to 6pm."];
+  const published = await draftPublication(db,
+    { customerId: cid, vertical: V, channel: "gbp_post", topic: "Winter pipe checks", facts },
+    factsOnlyDrafter());
+  if (published.ok) {
+    await approvePublication(db, published.publicationId, "owner@brightplumbing.example");
+    await publishApproved(db, simulatedConnectors(), new Date(), { customerId: cid });
+  }
+  await draftPublication(db,
+    { customerId: cid, vertical: V, channel: "social_post", topic: "Emergency call-outs this weekend", facts },
+    factsOnlyDrafter());
+
+  // MF11 — a missed call waiting to be returned.
+  await recordCall(db, { customerId: cid, provider: "demo", providerCallId: "call-7781",
+    outcome: "voicemail", callerNumber: "+13035550188", startedAt: new Date(Date.now() - 2 * 3_600_000),
+    transcript: "Hi, no hot water since this morning — can someone come out today?" },
+    { attemptFollowUp: true });
+}
+
 const counts = await db.one<{ b: string; c: string; v: string; r: string }>(
   "SELECT (SELECT count(*) FROM businesses) b, (SELECT count(*) FROM contacts) c, (SELECT count(*) FROM vendors) v, (SELECT count(*) FROM registry_roles WHERE champion IS NOT NULL) r",
 );
 const agent = await db.one<{ turns: string; gaps: string }>(
   "SELECT (SELECT count(*) FROM agent_turns) turns, (SELECT count(*) FROM agent_gaps) gaps",
 );
+const product = await db.one<{ cases: string; reminders: string; runs: string; watches: string; recon: string; pubs: string; calls: string }>(
+  `SELECT (SELECT count(*) FROM cases) cases, (SELECT count(*) FROM reminders) reminders,
+          (SELECT count(*) FROM journey_runs) runs, (SELECT count(*) FROM watch_subscriptions) watches,
+          (SELECT count(*) FROM recon_runs) recon, (SELECT count(*) FROM publications) pubs,
+          (SELECT count(*) FROM calls) calls`,
+);
 console.log(
   `✓ seeded: ${counts.b} businesses, ${counts.c} contacts, ${counts.v} vendors, ${counts.r} roles with champions, ` +
     `${pack.pairs.length} Q&A pairs, ${agent.turns} agent turns, ${agent.gaps} gaps`,
+);
+console.log(
+  `✓ product: ${product.cases} cases, ${product.reminders} reminders, ${product.runs} journey runs, ` +
+    `${product.watches} watches, ${product.recon} reconciliations, ${product.pubs} publications, ${product.calls} calls`,
 );
 await db.close();
