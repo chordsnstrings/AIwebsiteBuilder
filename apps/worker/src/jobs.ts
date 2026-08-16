@@ -118,6 +118,24 @@ export function documentsJob(run: (db: Db, now: Date) => Promise<unknown>): Job 
   };
 }
 
+/**
+ * Customer clocks (MF4) and multi-touch journeys (MF5).
+ *
+ * ⛔ Hourly, and deliberately NOT on the durable-timer engine. There was exactly
+ * one production `ctx.sleep` in this repository before MF4 — a 180-day lead
+ * cooldown — and extending that pattern to customer dates would park tens of
+ * thousands of executions on multi-month sleeps, so every engine upgrade would
+ * become a migration of live sleeping state. A due-date table is queryable and
+ * correctable by a human; a sleeping workflow is neither.
+ */
+export function clocksJob(run: (db: Db, now: Date) => Promise<unknown>): Job {
+  return {
+    name: "clocks_and_journeys",
+    intervalMs: 60 * 60_000,
+    run: async ({ db, now }) => void (await run(db, now)),
+  };
+}
+
 /** Dunning: advance any subscription whose next action is due (spec §29). */
 export function dunningJob(advance: (db: Db, subscriptionId: string) => Promise<unknown>): Job {
   return {

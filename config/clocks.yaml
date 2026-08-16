@@ -1,0 +1,412 @@
+# Customer clocks (catalogue MF4 — 73 units).
+#
+# MF4 is "renewal, recall, statutory, covenant, AR and reminder dates". The
+# durable timer engine already worked; what did not exist was any date bound to
+# a customer-facing event. There was exactly ONE production `ctx.sleep` in the
+# whole repository — a 180-day lead cooldown — and it belonged to ADW's own
+# outreach, not to any business we serve.
+#
+# A clock is: an anchor date the caller supplies, plus an offset. That is all.
+# Two numbers cover a dental recall (anchor = last visit, +180) and a gas safety
+# certificate (anchor = the legal expiry, -28, because you are reminded BEFORE a
+# deadline and AFTER an event).
+#
+# ⛔ `statutory` is set HERE, never by the caller. A caller who could pass
+# `statutory: false` alongside a licence renewal would have disarmed the one
+# clamp this file exists to hold: a statutory date is a fact about the law, and
+# nothing in this system may move one without a named human and a reason.
+#
+# ⛔ `recur_days` is present only where the next occurrence is knowable from
+# this one. An annual gas safety check recurs on the calendar. A dental recall
+# does NOT — the next recall is six months from the visit that has not happened
+# yet, and auto-recurring it would mail a patient who stopped attending, twice a
+# year, forever.
+#
+# `severity` is the owner-queue rank (1 most urgent). A missed EICR is not a
+# missed rebook, and a queue that sorts them together is a queue nobody reads.
+
+version: 1
+
+archetype_clocks:
+  # -------------------------------------------------------------------------
+  # A — emergency trades (plumber, electrician, locksmith, drainage)
+  # -------------------------------------------------------------------------
+  A:
+    - id: annual_service
+      label: "Annual service due"
+      anchor: last_service
+      offset_days: 335          # a month's warning on the anniversary
+      statutory: false
+      severity: 4
+      recur_days: 365
+    - id: landlord_gas_safety
+      label: "Landlord gas safety certificate expires"
+      anchor: certificate_expiry
+      offset_days: -28
+      statutory: true
+      severity: 2
+      recur_days: 365
+    - id: parts_warranty_expiry
+      label: "Parts warranty ends"
+      anchor: warranty_expiry
+      offset_days: -30
+      statutory: false
+      severity: 5
+    - id: invoice_overdue
+      label: "Invoice unpaid"
+      anchor: invoice_due
+      offset_days: 7
+      statutory: false
+      severity: 3
+
+  # -------------------------------------------------------------------------
+  # B — booked personal services (salon, barber, personal trainer, nails)
+  # -------------------------------------------------------------------------
+  B:
+    - id: rebook_due
+      label: "Due to rebook"
+      anchor: last_visit
+      offset_days: 42
+      statutory: false
+      severity: 5
+    - id: lapsed_client
+      label: "Client has not been back"
+      anchor: last_visit
+      offset_days: 120
+      statutory: false
+      severity: 5
+    - id: package_expiry
+      label: "Prepaid package expires"
+      anchor: package_expiry
+      offset_days: -21
+      statutory: false
+      severity: 4
+    - id: membership_renewal
+      label: "Membership renews"
+      anchor: term_end
+      offset_days: -14
+      statutory: false
+      severity: 4
+
+  # -------------------------------------------------------------------------
+  # C — regulated professions (lawyer, accountant, IFA, surveyor)
+  # -------------------------------------------------------------------------
+  C:
+    - id: limitation_date
+      label: "Limitation period expires"
+      anchor: limitation_expiry
+      offset_days: -90
+      # ⛔ The single most consequential date in this file. A missed limitation
+      # date is not a lost client, it is a negligence claim against the firm.
+      statutory: true
+      severity: 1
+    - id: filing_deadline
+      label: "Statutory filing due"
+      anchor: filing_due
+      offset_days: -28
+      statutory: true
+      severity: 1
+      recur_days: 365
+    - id: retainer_renewal
+      label: "Retainer renews"
+      anchor: term_end
+      offset_days: -60
+      statutory: false
+      severity: 3
+    - id: will_review
+      label: "Will review due"
+      anchor: executed_at
+      offset_days: 1825
+      statutory: false
+      severity: 5
+    - id: invoice_overdue
+      label: "Fee note unpaid"
+      anchor: invoice_due
+      offset_days: 14
+      statutory: false
+      severity: 3
+
+  # -------------------------------------------------------------------------
+  # D — project trades (builder, roofer, landscaper, kitchen fitter)
+  # -------------------------------------------------------------------------
+  D:
+    - id: quote_expiry
+      label: "Quote expires"
+      anchor: quote_expiry
+      offset_days: -7
+      statutory: false
+      severity: 4
+    - id: retention_release
+      label: "Retention becomes releasable"
+      anchor: practical_completion
+      offset_days: 365
+      statutory: false
+      severity: 3
+    - id: workmanship_warranty
+      label: "Workmanship guarantee ends"
+      anchor: warranty_expiry
+      offset_days: -60
+      statutory: false
+      severity: 5
+    - id: building_control_signoff
+      label: "Building control certificate outstanding"
+      anchor: completion_notice_due
+      offset_days: -14
+      statutory: true
+      severity: 2
+    - id: invoice_overdue
+      label: "Stage payment unpaid"
+      anchor: invoice_due
+      offset_days: 7
+      statutory: false
+      severity: 3
+
+  # -------------------------------------------------------------------------
+  # E — recurring B2B (IT MSP, commercial cleaning, facilities, security)
+  # -------------------------------------------------------------------------
+  E:
+    - id: contract_renewal
+      label: "Contract renews"
+      anchor: term_end
+      offset_days: -90
+      statutory: false
+      severity: 2
+    - id: notice_window_closes
+      label: "Last date to serve notice"
+      anchor: notice_deadline
+      offset_days: -14
+      # Contractual rather than legal, but it behaves the same way: past it, the
+      # term auto-renews and the customer is bound for another year.
+      statutory: true
+      severity: 2
+    - id: price_review
+      label: "Annual price review"
+      anchor: term_start
+      offset_days: 335
+      statutory: false
+      severity: 4
+      recur_days: 365
+    - id: insurance_expiry
+      label: "Liability insurance expires"
+      anchor: policy_expiry
+      offset_days: -30
+      statutory: true
+      severity: 2
+      recur_days: 365
+    - id: invoice_overdue
+      label: "Invoice unpaid"
+      anchor: invoice_due
+      offset_days: 30
+      statutory: false
+      severity: 3
+
+  # -------------------------------------------------------------------------
+  # F — hospitality and venues (restaurant, hotel, wedding venue, caterer)
+  # -------------------------------------------------------------------------
+  F:
+    - id: balance_due
+      label: "Event balance due"
+      anchor: event_date
+      offset_days: -42
+      statutory: false
+      severity: 3
+    - id: final_details_due
+      label: "Final numbers and details due"
+      anchor: event_date
+      offset_days: -14
+      statutory: false
+      severity: 3
+    - id: premises_licence_renewal
+      label: "Premises licence renewal"
+      anchor: licence_expiry
+      offset_days: -60
+      statutory: true
+      severity: 1
+      recur_days: 365
+    - id: food_hygiene_reinspection
+      label: "Food hygiene re-inspection window"
+      anchor: inspection_due
+      offset_days: -30
+      statutory: true
+      severity: 2
+    - id: allergen_matrix_review
+      label: "Allergen information review"
+      anchor: last_review
+      offset_days: 180
+      statutory: true
+      severity: 2
+      recur_days: 180
+
+  # -------------------------------------------------------------------------
+  # G — clinical health (dentist, physio, optician, veterinary, chiropractor)
+  # -------------------------------------------------------------------------
+  G:
+    - id: recall
+      label: "Check-up recall due"
+      anchor: last_visit
+      offset_days: 180
+      statutory: false
+      severity: 4
+      # ⛔ No recur_days. The next recall is six months from the visit that has
+      # not happened yet. Recurring it on the calendar mails a patient who
+      # stopped attending, twice a year, forever.
+    - id: vaccination_due
+      label: "Vaccination due"
+      anchor: last_dose
+      offset_days: 351
+      statutory: false
+      severity: 3
+    - id: prescription_review
+      label: "Prescription review due"
+      anchor: last_review
+      offset_days: 90
+      statutory: false
+      severity: 3
+    - id: professional_registration
+      label: "Professional registration renewal"
+      anchor: registration_expiry
+      offset_days: -60
+      # A clinician practising unregistered is a criminal matter, not a lapse.
+      statutory: true
+      severity: 1
+      recur_days: 365
+    - id: dbs_recheck
+      label: "DBS / background check renewal"
+      anchor: check_expiry
+      offset_days: -60
+      statutory: true
+      severity: 1
+    - id: equipment_calibration
+      label: "Equipment calibration due"
+      anchor: last_calibration
+      offset_days: 335
+      statutory: true
+      severity: 2
+      recur_days: 365
+
+  # -------------------------------------------------------------------------
+  # H — education and training (tutor, driving school, nursery, training co)
+  # -------------------------------------------------------------------------
+  H:
+    - id: term_reenrolment
+      label: "Re-enrolment opens"
+      anchor: term_start
+      offset_days: -45
+      statutory: false
+      severity: 4
+    - id: certification_expiry
+      label: "Learner certification expires"
+      anchor: certificate_expiry
+      offset_days: -60
+      statutory: true
+      severity: 2
+    - id: safeguarding_training_renewal
+      label: "Safeguarding training renewal"
+      anchor: training_expiry
+      offset_days: -45
+      statutory: true
+      severity: 1
+      recur_days: 1095
+    - id: dbs_recheck
+      label: "DBS / background check renewal"
+      anchor: check_expiry
+      offset_days: -60
+      statutory: true
+      severity: 1
+    - id: ratio_review
+      label: "Staffing ratio review"
+      anchor: last_review
+      offset_days: 90
+      statutory: true
+      severity: 2
+      recur_days: 90
+    - id: invoice_overdue
+      label: "Fees unpaid"
+      anchor: invoice_due
+      offset_days: 7
+      statutory: false
+      severity: 3
+
+  # -------------------------------------------------------------------------
+  # I — property and lettings (estate agent, letting agent, block manager)
+  # -------------------------------------------------------------------------
+  I:
+    - id: tenancy_renewal
+      label: "Tenancy ends"
+      anchor: tenancy_end
+      offset_days: -90
+      statutory: false
+      severity: 3
+    - id: deposit_protection_deadline
+      label: "Deposit must be protected"
+      anchor: deposit_received
+      offset_days: 21
+      # ⛔ 30 days by statute; the reminder lands at day 21 so there is still time
+      # to act. Missing it costs the landlord up to three times the deposit and
+      # blocks a section 21 notice. This is the reminder that pays for the file.
+      statutory: true
+      severity: 1
+    - id: gas_safety_certificate
+      label: "Gas safety certificate expires"
+      anchor: certificate_expiry
+      offset_days: -28
+      statutory: true
+      severity: 1
+      recur_days: 365
+    - id: eicr_expiry
+      label: "Electrical safety report expires"
+      anchor: certificate_expiry
+      offset_days: -60
+      statutory: true
+      severity: 1
+      recur_days: 1826
+    - id: epc_expiry
+      label: "EPC expires"
+      anchor: certificate_expiry
+      offset_days: -90
+      statutory: true
+      severity: 2
+      recur_days: 3653
+    - id: rent_arrears
+      label: "Rent in arrears"
+      anchor: rent_due
+      offset_days: 3
+      statutory: false
+      severity: 2
+    - id: inspection_due
+      label: "Property inspection due"
+      anchor: last_inspection
+      offset_days: 180
+      statutory: false
+      severity: 4
+      recur_days: 180
+
+  # -------------------------------------------------------------------------
+  # J — retail and product-led (shop, florist, bike shop, opticians retail)
+  # -------------------------------------------------------------------------
+  J:
+    - id: reorder_due
+      label: "Likely due to reorder"
+      anchor: last_order
+      offset_days: 90
+      statutory: false
+      severity: 5
+    - id: collection_reminder
+      label: "Order waiting for collection"
+      anchor: ready_at
+      offset_days: 7
+      statutory: false
+      severity: 4
+    - id: warranty_expiry
+      label: "Product warranty ends"
+      anchor: warranty_expiry
+      offset_days: -30
+      statutory: false
+      severity: 5
+    - id: service_interval
+      label: "Service interval reached"
+      anchor: last_service
+      offset_days: 335
+      statutory: false
+      severity: 4
+      recur_days: 365

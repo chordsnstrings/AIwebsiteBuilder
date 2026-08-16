@@ -65,3 +65,50 @@ describe("⛔ everything that names a vertical resolves for ALL of them", () => 
     expect(orphans.map((p) => p.id)).toEqual([]);
   });
 });
+
+describe("⛔ every trade has clocks, cases and journeys", () => {
+  // Ten archetype rows carry 145 trades. The failure this catches is a trade
+  // sitting in a cluster whose archetype nobody wrote a row for: the business
+  // gets a working site, a working agent, and silently no dates and no
+  // follow-up — the exact shape of "reports success while not working".
+
+  it("every trade resolves at least one clock, and none of them is unnamed", async () => {
+    const { clocksFor } = await import("@adw/journeys");
+    for (const t of allTrades()) {
+      const clocks = clocksFor(t);
+      expect(clocks.length, `clocks for ${t}`).toBeGreaterThan(0);
+      for (const c of clocks) expect(c.label.length, `${t}/${c.id} label`).toBeGreaterThan(0);
+    }
+  });
+
+  it("every trade resolves at least one journey, and every step has a template", async () => {
+    const { journeysFor } = await import("@adw/journeys");
+    for (const t of allTrades()) {
+      const journeys = journeysFor(t);
+      expect(journeys.length, `journeys for ${t}`).toBeGreaterThan(0);
+      for (const j of journeys) {
+        expect(j.steps.length, `${t}/${j.id} steps`).toBeGreaterThan(0);
+        for (const s of j.steps) expect(s.template.length, `${t}/${j.id} template`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("⛔ no trade runs a save journey with more than one step", async () => {
+    // The retention rule reaches every one of the 145, not just the archetypes
+    // someone checked. A second message to someone who has said they are
+    // leaving is not retention.
+    const { journeysFor } = await import("@adw/journeys");
+    for (const t of allTrades()) {
+      for (const j of journeysFor(t).filter((x) => x.kind === "save")) {
+        expect(j.steps.length, `${t}/${j.id}`).toBe(1);
+      }
+    }
+  });
+
+  it("every trade has a case type to hang a clock off", async () => {
+    const { caseTypesFor } = await import("@adw/cases");
+    for (const t of allTrades()) {
+      expect(caseTypesFor(t).length, `case types for ${t}`).toBeGreaterThan(0);
+    }
+  });
+});

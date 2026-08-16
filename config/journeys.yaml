@@ -1,0 +1,156 @@
+# Multi-touch journeys (catalogue MF5 — 54 units).
+#
+# Follow-up, nurture, save, reactivation and referral sequences. This existed in
+# exactly one place before: ADW's own cold outreach (steps 0/4/9, no fourth
+# touch). The platform was mistaken for the product — the sequencing engine
+# served the seller and not a single business we sell to.
+#
+# Journeys are defined ONCE and selected per archetype, rather than written out
+# ten times. A review request after a completed job is the same object whether
+# the job was a boiler or a bathroom; what differs is which archetypes run it
+# and what the steps say.
+#
+# ⛔ `after_days` is measured from the START of the run and must strictly
+# increase. Per-step deltas are how you end up with two steps on the same day
+# after someone edits the middle one.
+#
+# ⛔ A `kind: save` journey has EXACTLY ONE step, and the loader fails the build
+# if it does not. The spec's retention rule is "one save message maximum,
+# hard-coded" — a second message to someone who has already said they are
+# leaving is not retention, it is pestering someone who told you no.
+#
+# ⛔ `stop_on` lists the events that end a run. Every journey stops on
+# `unsubscribe` whether or not it says so; suppression is re-checked in code
+# before every single step, because consent at step 1 is not consent at step 3
+# twelve days later.
+
+version: 1
+
+journeys:
+  # -- after the work is done ------------------------------------------------
+  post_job_review:
+    label: "Review request after completed work"
+    kind: advocacy
+    steps:
+      - { after_days: 2, template: review_request, purpose: "Ask for a review while it is fresh" }
+      - { after_days: 9, template: review_nudge, purpose: "One nudge, then stop" }
+    stop_on: [review_left, reply, complaint]
+
+  post_visit_aftercare:
+    label: "Aftercare check-in"
+    kind: care
+    steps:
+      - { after_days: 1, template: aftercare_check, purpose: "Is everything alright" }
+      - { after_days: 7, template: aftercare_followup, purpose: "Anything outstanding" }
+    stop_on: [reply, complaint, case_reopened]
+
+  # -- when a quote goes quiet ----------------------------------------------
+  quote_follow_up:
+    label: "Quote follow-up"
+    kind: conversion
+    steps:
+      - { after_days: 3, template: quote_check, purpose: "Any questions on the quote" }
+      - { after_days: 10, template: quote_reminder, purpose: "The quote is still open" }
+      - { after_days: 21, template: quote_final, purpose: "Closing the file unless we hear back" }
+    # `booked` belongs here as much as `accepted`: for a trade, booking the work
+    # IS accepting the quote, and a chase that only listens for the word
+    # "accepted" keeps chasing someone whose job is already in the diary.
+    stop_on: [reply, accepted, declined, booked]
+
+  enquiry_nurture:
+    label: "Enquiry nurture"
+    kind: conversion
+    steps:
+      - { after_days: 1, template: enquiry_ack_followup, purpose: "Anything else we can answer" }
+      - { after_days: 6, template: enquiry_value, purpose: "What to expect working with us" }
+      - { after_days: 20, template: enquiry_last, purpose: "Last check before we close it" }
+    stop_on: [reply, booked, declined]
+
+  # -- when someone stops coming back ---------------------------------------
+  reactivation:
+    label: "Reactivation"
+    kind: reactivation
+    steps:
+      - { after_days: 0, template: reactivation_hello, purpose: "It has been a while" }
+      - { after_days: 14, template: reactivation_offer, purpose: "A reason to come back" }
+    stop_on: [reply, booked, unsubscribe]
+
+  # -- when someone is leaving ----------------------------------------------
+  save:
+    label: "Save"
+    kind: save
+    # ⛔ ONE step. Hard-coded, loader-enforced. See the header.
+    steps:
+      - { after_days: 0, template: save_offer, purpose: "One offer to stay, then it is their decision" }
+    stop_on: [reply, cancelled, retained]
+
+  # -- when someone is happy -------------------------------------------------
+  referral:
+    label: "Referral ask"
+    kind: advocacy
+    steps:
+      - { after_days: 30, template: referral_ask, purpose: "Ask once, after the work has settled" }
+    stop_on: [reply, referral_made]
+
+  # -- money -----------------------------------------------------------------
+  payment_chase:
+    label: "Payment chase"
+    kind: collections
+    steps:
+      - { after_days: 0, template: invoice_reminder, purpose: "A polite reminder" }
+      - { after_days: 7, template: invoice_overdue, purpose: "It is now overdue" }
+      - { after_days: 21, template: invoice_final, purpose: "Final notice before it goes to the owner" }
+    stop_on: [paid, disputed, payment_plan_agreed]
+
+  # -- documents and onboarding ---------------------------------------------
+  onboarding_welcome:
+    label: "New client onboarding"
+    kind: care
+    steps:
+      - { after_days: 0, template: welcome, purpose: "What happens next" }
+      - { after_days: 3, template: onboarding_next, purpose: "What we still need from you" }
+      - { after_days: 14, template: onboarding_settled, purpose: "How is it going" }
+    stop_on: [reply, offboarded]
+
+  # -- clinical / statutory adjacent ----------------------------------------
+  recall_sequence:
+    label: "Recall sequence"
+    kind: care
+    steps:
+      - { after_days: 0, template: recall_due, purpose: "Your check-up is due" }
+      - { after_days: 21, template: recall_reminder, purpose: "Still due — book when convenient" }
+    stop_on: [booked, reply, declined]
+
+  # -- events ----------------------------------------------------------------
+  event_countdown:
+    label: "Event countdown"
+    kind: care
+    steps:
+      - { after_days: 0, template: event_confirmed, purpose: "Confirmed and what is next" }
+      - { after_days: 7, template: event_details, purpose: "Details we need from you" }
+      - { after_days: 21, template: event_final, purpose: "Final confirmation" }
+    stop_on: [cancelled, reply]
+
+  # -- tenancy ---------------------------------------------------------------
+  renewal_sequence:
+    label: "Renewal sequence"
+    kind: conversion
+    steps:
+      - { after_days: 0, template: renewal_open, purpose: "Your term is coming to an end" }
+      - { after_days: 14, template: renewal_terms, purpose: "The terms on offer" }
+      - { after_days: 35, template: renewal_last, purpose: "Decision needed" }
+    stop_on: [renewed, notice_served, reply]
+
+# Which archetypes run which journeys. The archetype is the load-bearing key —
+# sixty hand-written lists would be sixty things to keep in sync.
+archetype_journeys:
+  A: [post_job_review, quote_follow_up, enquiry_nurture, reactivation, payment_chase, referral]
+  B: [post_visit_aftercare, reactivation, referral, save, onboarding_welcome]
+  C: [enquiry_nurture, onboarding_welcome, payment_chase, referral, save]
+  D: [quote_follow_up, post_job_review, enquiry_nurture, payment_chase, referral, reactivation]
+  E: [onboarding_welcome, renewal_sequence, payment_chase, save, referral]
+  F: [event_countdown, enquiry_nurture, post_job_review, payment_chase, reactivation]
+  G: [recall_sequence, post_visit_aftercare, reactivation, referral, onboarding_welcome]
+  H: [enquiry_nurture, onboarding_welcome, renewal_sequence, payment_chase, referral]
+  I: [renewal_sequence, enquiry_nurture, onboarding_welcome, payment_chase, post_visit_aftercare]
+  J: [post_job_review, reactivation, referral, quote_follow_up]

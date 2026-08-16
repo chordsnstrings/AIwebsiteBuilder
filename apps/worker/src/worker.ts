@@ -9,6 +9,7 @@ import { evaluateAssetHealth } from "@adw/fleet";
 import { EMAIL_VENDOR_IDS, getEmailTransport } from "@adw/vendors";
 import { applyEmailFeedback } from "@adw/inbound";
 import { runEscalations } from "@adw/protocol";
+import { runJourneys, runReminders } from "@adw/journeys";
 import { dueChases, purgeExpired } from "@adw/uploads";
 import { resolveObjectStore } from "@adw/vendors";
 import { advanceDunning } from "@adw/billing";
@@ -28,6 +29,7 @@ import { LocalKeyWrapper, LocalPgBackend } from "@adw/vault";
 import { registerActivities } from "./activities.ts";
 import { Scheduler } from "./scheduler.ts";
 import {
+  clocksJob,
   deliverabilityJob,
   documentsJob,
   protocolEscalationJob,
@@ -240,6 +242,56 @@ const scheduler = new Scheduler({
       }
       const store = await resolveObjectStore({ vault, forceMock });
       await purgeExpired({ db: database, store, now: () => at });
+    }),
+    clocksJob(async (database, at) => {
+      // ⛔ Raised into the OWNER's queue (customer_id set), not ADW's. A recall
+      // list and a vendor credential expiry in one undifferentiated stream is
+      // how the owner's console ended up with nothing to show, and MF3 exists
+      // to keep them apart.
+      //
+      // ⛔ And raised, not sent. The gate is the sole route to transport, and a
+      // business messaging its own patients on its own sending identity is not
+      // built. What IS built is the part that was missing entirely: the date
+      // existing, surviving a restart, and arriving.
+      await runReminders(database, async (r) => {
+        await database.query(
+          `INSERT INTO exceptions (trigger, severity, context, system_action, recommendation, customer_id)
+           VALUES ($1, $2, $3, 'reminder due', $4, $5)`,
+          [
+            `reminder_${r.kind}`,
+            r.severity,
+            JSON.stringify({
+              reminderId: r.id, kind: r.kind, subjectRef: r.subjectRef,
+              dueAt: r.dueAt, statutory: r.statutory, daysLate: r.daysLate,
+              // ⛔ Carried through so the owner decides. An unsubscribe from a
+              // business's marketing must not suppress "your gas safety
+              // certificate expires in 28 days".
+              contactSuppressed: r.contactSuppressed,
+            }),
+            `${r.label} — ${r.subjectRef}${r.statutory ? " (statutory date)" : ""}`,
+            r.customerId,
+          ],
+        );
+        return { delivered: true };
+      }, at);
+
+      await runJourneys(database, async (s) => {
+        await database.query(
+          `INSERT INTO exceptions (trigger, severity, context, system_action, recommendation, customer_id)
+           VALUES ($1, 4, $2, 'journey step due', $3, $4)`,
+          [
+            `journey_${s.journeyId}`,
+            JSON.stringify({
+              runId: s.runId, journeyId: s.journeyId, template: s.template,
+              subjectRef: s.subjectRef, contact: s.contact,
+              step: `${s.stepNumber} of ${s.stepCount}`,
+            }),
+            `${s.journeyLabel}, step ${s.stepNumber} of ${s.stepCount}: ${s.purpose}`,
+            s.customerId,
+          ],
+        );
+        return { delivered: true };
+      }, at);
     }),
     deliverabilityJob(async (database) => {
       await drainSimulatedFeedback(database);

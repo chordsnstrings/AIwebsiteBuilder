@@ -108,6 +108,9 @@ importers:
       '@adw/inbound':
         specifier: workspace:*
         version: link:../../packages/inbound
+      '@adw/journeys':
+        specifier: workspace:*
+        version: link:../../packages/journeys
       '@adw/kb':
         specifier: workspace:*
         version: link:../../packages/kb
@@ -262,6 +265,9 @@ importers:
       '@adw/billing':
         specifier: workspace:*
         version: link:../../packages/billing
+      '@adw/cases':
+        specifier: workspace:*
+        version: link:../../packages/cases
       '@adw/compliance':
         specifier: workspace:*
         version: link:../../packages/compliance
@@ -289,6 +295,9 @@ importers:
       '@adw/inbound':
         specifier: workspace:*
         version: link:../../packages/inbound
+      '@adw/journeys':
+        specifier: workspace:*
+        version: link:../../packages/journeys
       '@adw/kb':
         specifier: workspace:*
         version: link:../../packages/kb
@@ -589,6 +598,21 @@ importers:
       '@adw/db':
         specifier: workspace:*
         version: link:../db
+      '@adw/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
+
+  packages/journeys:
+    dependencies:
+      '@adw/config':
+        specifier: workspace:*
+        version: link:../config
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+      '@adw/taxonomy':
+        specifier: workspace:*
+        version: link:../taxonomy
       '@adw/telemetry':
         specifier: workspace:*
         version: link:../telemetry

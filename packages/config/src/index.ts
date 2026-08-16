@@ -194,6 +194,18 @@ export const config = {
     const raw = readFileSync(join(CONFIG_DIR, "document-packs.yaml"), "utf8");
     return { data: parse(raw), version: "document-packs@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
   },
+  /** Customer clocks (MF4). Recall, renewal, statutory and AR dates.
+   *  ⛔ Sensitive: `statutory: true` is what stops a licence-renewal date being
+   *  silently rescheduled by an automatic process. */
+  clocks: () => {
+    const raw = readFileSync(join(CONFIG_DIR, "clocks.yaml"), "utf8");
+    return { data: parse(raw), version: "clocks@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
+  },
+  /** Multi-touch journeys (MF5). Follow-up, save, reactivation, referral. */
+  journeys: () => {
+    const raw = readFileSync(join(CONFIG_DIR, "journeys.yaml"), "utf8");
+    return { data: parse(raw), version: "journeys@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
+  },
   /** Case types (MF2). Stage clocks and per-stage customer visibility. */
   caseTypes: () => {
     const raw = readFileSync(join(CONFIG_DIR, "case-types.yaml"), "utf8");

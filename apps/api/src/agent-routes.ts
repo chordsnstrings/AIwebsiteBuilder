@@ -38,6 +38,17 @@ import {
   readUpload,
   type UploadDeps,
 } from "@adw/uploads";
+import {
+  activeRuns,
+  cancelReminder,
+  journeyEvent,
+  journeysFor,
+  scheduleReminder,
+  startJourney,
+  stopJourney,
+  upcomingReminders,
+} from "@adw/journeys";
+import { cancelBooking, claimSlot } from "@adw/scheduling";
 import { handleMcpCall, mcpManifest, MCP_TOOLS, type McpContext, type RefusalChecker } from "@adw/mcp";
 import type { SessionUser } from "@adw/auth";
 import { enqueueIntent, executionId } from "@adw/workflows";
@@ -601,7 +612,193 @@ export function agentRoutes(deps: AgentRouteDeps): Hono<{ Variables: { user: Ses
     return c.json({ ok: true, complete: out.complete });
   });
 
+  // -------------------------------------------------------------------------
+  // Bookings (MF10), clocks (MF4) and journeys (MF5)
+  // -------------------------------------------------------------------------
+  //
+  // ⛔ `claimSlot` had ZERO callers. Written, tested, exported, and reachable
+  // from nothing — the same defect as `approvePack`, one family later. The
+  // concierge could offer three times and then had no way to take one.
+
+  /** Public via the session, like uploads: the person booking has no account. */
+  app.post("/agent/bookings", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as {
+      sessionId?: string; resourceId?: string; start?: string; end?: string;
+      contact?: string; idempotencyKey?: string;
+    };
+    if (typeof b.sessionId !== "string" || !UUID_RE.test(b.sessionId)) {
+      return c.json({ error: "a valid sessionId is required" }, 400);
+    }
+    const session = await loadSession(db, b.sessionId);
+    if (session === null) return c.json({ error: "unknown session" }, 404);
+    if (session.customerId === undefined) return c.json({ error: "session is not bound to a business" }, 409);
+    if (typeof b.resourceId !== "string" || !UUID_RE.test(b.resourceId)) {
+      return c.json({ error: "a valid resourceId is required" }, 400);
+    }
+    const start = new Date(b.start ?? "");
+    const end = new Date(b.end ?? "");
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+      return c.json({ error: "start and end must be dates, and end must be after start" }, 400);
+    }
+    const contact = (b.contact ?? "").trim();
+    if (contact.length === 0) return c.json({ error: "contact required" }, 400);
+    // ⛔ Derived from the session and the slot when the caller omits one, never
+    // random: a retried booking must be the same booking, and a key the client
+    // invents fresh on retry defeats the idempotency check entirely.
+    const idempotencyKey = typeof b.idempotencyKey === "string" && b.idempotencyKey.length > 0
+      ? b.idempotencyKey
+      : `session:${session.id}:${b.resourceId}:${start.toISOString()}`;
+
+    const out = await claimSlot(db, {
+      customerId: session.customerId,
+      resourceId: b.resourceId,
+      start,
+      end,
+      contact,
+      sessionId: session.id,
+      idempotencyKey,
+    });
+    if (!out.booked) return c.json({ error: out.reason ?? "not available" }, 409);
+
+    // ⛔ Booking is a stop event. Every sequence that exists to get this person
+    // to book must end the moment they do, or the reminder to book arrives
+    // three weeks after the appointment they already have.
+    await journeyEvent(db, { customerId: session.customerId, contact, event: "booked" }).catch(() => 0);
+    return c.json({ ok: true, bookingId: out.bookingId });
+  });
+
+  app.post("/agent/bookings/:bookingId/cancel", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const bookingId = c.req.param("bookingId");
+    if (!UUID_RE.test(bookingId)) return c.json({ error: "bad bookingId" }, 400);
+    const out = await cancelBooking(db, bookingId);
+    if (!out.cancelled) return c.json({ error: "unknown or already cancelled" }, 404);
+    return c.json({ ok: true, waitlisted: out.waiting.length });
+  });
+
+  /** The owner's calendar of dates: statutory first, then by severity. */
+  app.get("/agent/:customerId/reminders", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const customerId = c.req.param("customerId");
+    if (!UUID_RE.test(customerId)) return c.json({ error: "bad customerId" }, 400);
+    const withinDays = Number(c.req.query("withinDays") ?? 90);
+    return c.json({
+      reminders: await upcomingReminders(db, customerId, Number.isFinite(withinDays) ? withinDays : 90),
+    });
+  });
+
+  app.post("/agent/:customerId/reminders", async (c) => {
+    const operator = user(c);
+    if (operator === null) return c.json({ error: "unauthorised" }, 401);
+    const customerId = c.req.param("customerId");
+    if (!UUID_RE.test(customerId)) return c.json({ error: "bad customerId" }, 400);
+    const b = (await c.req.json().catch(() => ({}))) as {
+      kind?: string; subjectRef?: string; contact?: string; anchorAt?: string; reason?: string;
+    };
+    if (typeof b.kind !== "string" || typeof b.subjectRef !== "string" || b.subjectRef.trim() === "") {
+      return c.json({ error: "kind and subjectRef are required" }, 400);
+    }
+    const anchorAt = new Date(b.anchorAt ?? "");
+    if (Number.isNaN(anchorAt.getTime())) return c.json({ error: "anchorAt is not a date" }, 400);
+
+    const vertical = await verticalOf(db, customerId);
+    if (vertical === null) return c.json({ error: "unknown customer" }, 404);
+
+    const out = await scheduleReminder(db, {
+      customerId, vertical, kind: b.kind, subjectRef: b.subjectRef.trim(),
+      contact: b.contact, anchorAt,
+      // ⛔ A named human and a reason is the ONLY way a statutory date moves,
+      // and the route cannot supply one on the caller's behalf: an absent
+      // `reason` means no override, so the move is refused rather than applied
+      // with the operator's name attached to a blank justification.
+      ...(typeof b.reason === "string" && b.reason.trim() !== ""
+        ? { override: { actor: operator.email, reason: b.reason.trim() } }
+        : {}),
+    });
+    if (!out.ok) return c.json({ error: out.reason, detail: out.detail }, out.reason === "unknown_clock" ? 400 : 409);
+    return c.json({ ok: true, id: out.id, dueAt: out.dueAt, statutory: out.statutory, moved: out.moved });
+  });
+
+  app.post("/agent/reminders/:reminderId/cancel", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const reminderId = c.req.param("reminderId");
+    if (!UUID_RE.test(reminderId)) return c.json({ error: "bad reminderId" }, 400);
+    const b = (await c.req.json().catch(() => ({}))) as { reason?: string };
+    const ok = await cancelReminder(db, reminderId, (b.reason ?? "").trim() || "cancelled by owner");
+    return ok ? c.json({ ok: true }) : c.json({ error: "unknown, already fired, or already cancelled" }, 404);
+  });
+
+  app.get("/agent/:customerId/journeys", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const customerId = c.req.param("customerId");
+    if (!UUID_RE.test(customerId)) return c.json({ error: "bad customerId" }, 400);
+    const vertical = await verticalOf(db, customerId);
+    if (vertical === null) return c.json({ error: "unknown customer" }, 404);
+    return c.json({
+      available: journeysFor(vertical).map((j) => ({ id: j.id, label: j.label, kind: j.kind, steps: j.steps.length })),
+      running: await activeRuns(db, customerId, vertical),
+    });
+  });
+
+  app.post("/agent/:customerId/journeys", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const customerId = c.req.param("customerId");
+    if (!UUID_RE.test(customerId)) return c.json({ error: "bad customerId" }, 400);
+    const b = (await c.req.json().catch(() => ({}))) as { journeyId?: string; subjectRef?: string; contact?: string };
+    if (typeof b.journeyId !== "string" || typeof b.subjectRef !== "string" || typeof b.contact !== "string") {
+      return c.json({ error: "journeyId, subjectRef and contact are required" }, 400);
+    }
+    const vertical = await verticalOf(db, customerId);
+    if (vertical === null) return c.json({ error: "unknown customer" }, 404);
+    const out = await startJourney(db, {
+      customerId, vertical, journeyId: b.journeyId, subjectRef: b.subjectRef.trim(), contact: b.contact.trim(),
+    });
+    // ⛔ A suppressed contact is a 409 with the reason named, not a cheerful
+    // 200 over an enrolment that will never send. Enrolled-but-never-sent looks
+    // identical to working on every dashboard.
+    if (!out.started) return c.json({ error: out.reason }, out.reason === "unknown_journey" ? 400 : 409);
+    return c.json({ ok: true, runId: out.runId, nextStepAt: out.nextStepAt });
+  });
+
+  app.post("/agent/journeys/:runId/stop", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const runId = c.req.param("runId");
+    if (!UUID_RE.test(runId)) return c.json({ error: "bad runId" }, 400);
+    const b = (await c.req.json().catch(() => ({}))) as { reason?: string };
+    const ok = await stopJourney(db, runId, (b.reason ?? "").trim() || "stopped by owner");
+    return ok ? c.json({ ok: true }) : c.json({ error: "unknown or not running" }, 404);
+  });
+
+  /** The owner's systems reporting what happened: they replied, they paid, they
+   *  left a review. Without this route `stop_on` is a comment. */
+  app.post("/agent/:customerId/journeys/events", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const customerId = c.req.param("customerId");
+    if (!UUID_RE.test(customerId)) return c.json({ error: "bad customerId" }, 400);
+    const b = (await c.req.json().catch(() => ({}))) as { event?: string; subjectRef?: string; contact?: string };
+    if (typeof b.event !== "string" || b.event.trim() === "") return c.json({ error: "event required" }, 400);
+    if (typeof b.subjectRef !== "string" && typeof b.contact !== "string") {
+      return c.json({ error: "a subjectRef or a contact is required" }, 400);
+    }
+    const stopped = await journeyEvent(db, {
+      customerId,
+      event: b.event.trim(),
+      ...(typeof b.subjectRef === "string" ? { subjectRef: b.subjectRef.trim() } : {}),
+      ...(typeof b.contact === "string" ? { contact: b.contact.trim() } : {}),
+    });
+    return c.json({ ok: true, stopped });
+  });
+
   return app;
+}
+
+/** The business's trade, which is what every per-archetype lookup resolves from. */
+async function verticalOf(db: Db, customerId: string): Promise<string | null> {
+  const row = await db.maybeOne<{ vertical: string | null }>(
+    "SELECT b.vertical FROM customers c JOIN businesses b ON b.id = c.business_id WHERE c.id = $1",
+    [customerId],
+  );
+  return row === null ? null : row.vertical ?? "";
 }
 
 function escapeHtml(text: string): string {

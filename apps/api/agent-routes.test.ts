@@ -443,3 +443,133 @@ describe("⛔ pack approval — the step that unblocks going live", () => {
   });
 });
 
+
+// ---------------------------------------------------------------------------
+// Bookings, clocks and journeys
+// ---------------------------------------------------------------------------
+//
+// ⛔ `claimSlot` had ZERO callers before these routes. Written, tested,
+// exported, and reachable from nothing — the same defect as `approvePack` one
+// family earlier. The concierge could offer three times and then had no way to
+// take one.
+
+describe("bookings, clocks and journeys", () => {
+  const owner: SessionUser = { ...OWNER, role: "superadmin" };
+
+  async function resourceFor(customerId: string): Promise<string> {
+    const r = await db.one<{ id: string }>(
+      `INSERT INTO scheduling_resources (customer_id, name, kind, capacity)
+       VALUES ($1,$2,'crew',1) RETURNING id`,
+      [customerId, `van-${randomUUID()}`],
+    );
+    return r.id;
+  }
+
+  it("takes a booking, and a replay is the same booking", async () => {
+    const { customerId } = await seed();
+    const app = appAs(null);
+    const { sessionId } = (await (await app.request("/agent/session", json({ customerId }))).json()) as { sessionId: string };
+    const resourceId = await resourceFor(customerId);
+    const start = new Date(Date.now() + 3 * 86_400_000);
+    const body = {
+      sessionId, resourceId,
+      start: start.toISOString(),
+      end: new Date(start.getTime() + 3_600_000).toISOString(),
+      contact: `booker_${randomUUID()}@example.com`,
+    };
+    const first = await app.request("/agent/bookings", json(body));
+    expect(first.status).toBe(200);
+    const a = (await first.json()) as { bookingId: string };
+    expect(a.bookingId).toBeTruthy();
+
+    // ⛔ No idempotencyKey supplied, so the route derives one from the session
+    // and the slot. A key the client invents fresh on retry defeats the check
+    // entirely and books the same person twice.
+    const second = await app.request("/agent/bookings", json(body));
+    const b = (await second.json()) as { bookingId: string };
+    expect(b.bookingId).toBe(a.bookingId);
+  });
+
+  it("⛔ a booking stops every sequence that existed to get them to book", async () => {
+    // Otherwise the reminder to book arrives three weeks after the appointment
+    // they already have.
+    const { customerId } = await seed();
+    const app = appAs(null);
+    const { sessionId } = (await (await app.request("/agent/session", json({ customerId }))).json()) as { sessionId: string };
+    const contact = `rebooker_${randomUUID()}@example.com`;
+    const subjectRef = `job-${randomUUID()}`;
+
+    const started = await appAs(owner).request(
+      `/agent/${customerId}/journeys`,
+      json({ journeyId: "quote_follow_up", subjectRef, contact }),
+    );
+    expect(started.status).toBe(200);
+
+    const start = new Date(Date.now() + 4 * 86_400_000);
+    const booked = await app.request("/agent/bookings", json({
+      sessionId, resourceId: await resourceFor(customerId),
+      start: start.toISOString(), end: new Date(start.getTime() + 3_600_000).toISOString(), contact,
+    }));
+    // Asserted, so a refused booking cannot masquerade as a stop-event bug.
+    expect(booked.status).toBe(200);
+
+    const run = await db.one<{ state: string; stop_reason: string }>(
+      "SELECT state, stop_reason FROM journey_runs WHERE customer_id = $1 AND subject_ref = $2",
+      [customerId, subjectRef],
+    );
+    expect(run.state).toBe("stopped");
+    expect(run.stop_reason).toBe("event:booked");
+  });
+
+  it("⛔ will not move a statutory date without a reason", async () => {
+    const { customerId } = await seed();     // plumber — archetype A
+    const subjectRef = `flat-${randomUUID()}`;
+    const post = (body: unknown) => appAs(owner).request(`/agent/${customerId}/reminders`, json(body));
+
+    const created = await post({
+      kind: "landlord_gas_safety", subjectRef, anchorAt: "2026-06-01T00:00:00Z" });
+    expect(created.status).toBe(200);
+    expect(((await created.json()) as { statutory: boolean }).statutory).toBe(true);
+
+    // No `reason` in the body means no override, so the move is refused rather
+    // than applied with the operator's name against a blank justification.
+    const blocked = await post({ kind: "landlord_gas_safety", subjectRef, anchorAt: "2026-09-01T00:00:00Z" });
+    expect(blocked.status).toBe(409);
+    expect(((await blocked.json()) as { error: string }).error).toBe("statutory_locked");
+
+    const allowed = await post({
+      kind: "landlord_gas_safety", subjectRef, anchorAt: "2027-06-01T00:00:00Z",
+      reason: "new certificate issued" });
+    expect(allowed.status).toBe(200);
+    expect(((await allowed.json()) as { moved: boolean }).moved).toBe(true);
+  });
+
+  it("⛔ refuses to enrol a suppressed contact rather than reporting success", async () => {
+    // Enrolled-but-never-sent looks identical to working on every dashboard.
+    const { customerId } = await seed();
+    const contact = `gone_${randomUUID()}@example.com`;
+    await db.query("INSERT INTO suppression (email_hash, reason) VALUES ($1,'unsubscribe')", [emailHash(contact)]);
+    const res = await appAs(owner).request(
+      `/agent/${customerId}/journeys`,
+      json({ journeyId: "post_job_review", subjectRef: `job-${randomUUID()}`, contact }),
+    );
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe("suppressed");
+  });
+
+  it("lists what a trade can run and what is running", async () => {
+    const { customerId } = await seed();
+    const res = await appAs(owner).request(`/agent/${customerId}/journeys`);
+    const body = (await res.json()) as { available: { id: string }[]; running: unknown[] };
+    expect(body.available.map((j) => j.id)).toContain("post_job_review");
+    expect(Array.isArray(body.running)).toBe(true);
+  });
+
+  it("requires a login on every owner route", async () => {
+    const { customerId } = await seed();
+    const anon = appAs(null);
+    expect((await anon.request(`/agent/${customerId}/reminders`)).status).toBe(401);
+    expect((await anon.request(`/agent/${customerId}/journeys`)).status).toBe(401);
+    expect((await anon.request(`/agent/${customerId}/journeys`, json({}))).status).toBe(401);
+  });
+});
