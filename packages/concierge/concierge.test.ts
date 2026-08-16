@@ -804,3 +804,70 @@ describe("handleTurn", () => {
     expect(rate.rate).toBeCloseTo(0.5);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Protocols (MF14) — the layer that stops the agent
+// ---------------------------------------------------------------------------
+
+describe("⛔ a protocol pre-empts everything else the agent would have done", () => {
+  // The router ALREADY recognised "gas leak" and routed it to LEAD CAPTURE: it
+  // asked for a phone number and offered to book someone in. That is right for
+  // a burst pipe and wrong for a gas smell, and no routing table expresses the
+  // difference. These assert the difference exists.
+
+  it("stops the turn, opens an incident, and calls no model", async () => {
+    const ctx = await makeContext({ capabilities: ["answer", "capture_enquiry", "book"], calendarConnected: true });
+    const out = await handleTurn({ db }, ctx, "I can smell gas in the kitchen");
+
+    expect(out.route).toBe("protocol");
+    expect(out.answeredFrom).toBe("protocol");
+    expect(out.urgency).toBe("emergency");
+    expect(out.escalate).toBe(true);
+    expect(out.modelCalls).toBe(0);
+    expect(out.effect?.kind).toBe("incident");
+    expect(out.protocolId).toBe("gas_smell_co_reported_mid_chat");
+
+    const incident = await db.one<{ severity: number; trigger_text: string }>(
+      "SELECT severity, trigger_text FROM protocol_incidents WHERE id = $1",
+      [out.effect!.reference],
+    );
+    expect(incident.severity).toBe(1);
+    expect(incident.trigger_text).toBe("I can smell gas in the kitchen");
+  });
+
+  it("⛔ does not offer a booking, even with a connected calendar and the capability", async () => {
+    // This is the whole point. The pre-protocol behaviour was to take a lead.
+    const ctx = await makeContext({ capabilities: ["answer", "book", "capture_enquiry"], calendarConnected: true });
+    const out = await handleTurn({ db }, ctx, "gas smell coming from the boiler, can you come today?");
+    expect(out.route).toBe("protocol");
+    expect(out.effect?.kind).toBe("incident");
+    expect(out.answer).not.toMatch(/slot|appointment|book|available/i);
+  });
+
+  it("⛔ does not log it as a gap", async () => {
+    // A gap is a question the owner might add an answer for. Offering to "add
+    // an answer" for a safeguarding disclosure would be grotesque.
+    const ctx = await makeContext();
+    const out = await handleTurn({ db }, ctx, "my stepdad has been hitting me");
+    expect(out.route).toBe("protocol");
+    expect(out.gapLogged).toBe(false);
+    const gaps = await db.query("SELECT 1 FROM agent_gaps WHERE customer_id = $1", [ctx.session.customerId]);
+    expect(gaps.rows.length).toBe(0);
+  });
+
+  it("⛔ never repeats the disclosure back to the visitor", async () => {
+    const ctx = await makeContext();
+    const out = await handleTurn({ db }, ctx, "someone is hurting my little brother at home");
+    expect(out.answer).not.toMatch(/brother|hurting/i);
+  });
+
+  it("leaves ordinary questions completely alone", async () => {
+    // A protocol layer that fires on "what are your hours" would be removed
+    // within a week, and then it would not be there for the gas smell either.
+    const ctx = await makeContext();
+    const out = await handleTurn({ db }, ctx, "What are your opening hours?");
+    expect(out.route).toBe("retrieval");
+    expect(out.answeredFrom).toBe("pack");
+  });
+});
+

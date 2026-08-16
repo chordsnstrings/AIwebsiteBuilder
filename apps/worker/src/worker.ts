@@ -8,6 +8,7 @@ import { runWatches } from "@adw/orchestrator";
 import { evaluateAssetHealth } from "@adw/fleet";
 import { EMAIL_VENDOR_IDS, getEmailTransport } from "@adw/vendors";
 import { applyEmailFeedback } from "@adw/inbound";
+import { runEscalations } from "@adw/protocol";
 import { advanceDunning } from "@adw/billing";
 import { config } from "@adw/config";
 import { Engine } from "@adw/workflows";
@@ -26,6 +27,7 @@ import { registerActivities } from "./activities.ts";
 import { Scheduler } from "./scheduler.ts";
 import {
   deliverabilityJob,
+  protocolEscalationJob,
   dunningJob,
   intentDispatcherJob,
   heartbeatJob,
@@ -188,6 +190,30 @@ const scheduler = new Scheduler({
     // ⛔ Drain BEFORE the sweep, in that order. Sweeping first would score
     // assets against feedback the drain is about to deliver, so every reading
     // would be one cycle stale — 15 minutes behind a complaint spike.
+    // ⛔ Ahead of the slower loops in the list, and on its own one-minute
+    // cadence. The notification transport is injected so a page about a vendor
+    // never rides that vendor — the Sentinel's §73 rule, applied here too.
+    protocolEscalationJob((database, at) =>
+      runEscalations(database, async (n) => {
+        await database.query(
+          `INSERT INTO exceptions (trigger, severity, context, system_action, recommendation)
+           VALUES ($1, $2, $3, 'protocol escalation fired', $4)`,
+          [
+            `protocol_${n.protocolId}`,
+            n.severity,
+            JSON.stringify({
+              incidentId: n.incidentId,
+              notifyRole: n.notifyRole,
+              step: n.stepIndex,
+              minutesOpen: n.minutesOpen,
+              customerId: n.customerId,
+            }),
+            `Open incident ${n.incidentId} and acknowledge it. ${n.label}.`,
+          ],
+        );
+        return { delivered: true, detail: `exception raised for ${n.notifyRole}` };
+      }, at),
+    ),
     deliverabilityJob(async (database) => {
       await drainSimulatedFeedback(database);
       await sweepDeliverability(database);

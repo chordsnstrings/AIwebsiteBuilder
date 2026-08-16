@@ -85,6 +85,23 @@ export function deliverabilityJob(evaluate: (db: Db) => Promise<void>): Job {
   };
 }
 
+/**
+ * Protocol escalations (MF14).
+ *
+ * ⛔ ONE MINUTE. Every other job here runs on a 15-minute-to-hourly cadence,
+ * and this one does not, because a severity-1 chain has a step at +0 minutes.
+ * A safeguarding disclosure sitting in a queue for a quarter of an hour before
+ * anyone is told is the failure this family exists to prevent, and the interval
+ * is the difference between a chain and a report.
+ */
+export function protocolEscalationJob(run: (db: Db, now: Date) => Promise<unknown>): Job {
+  return {
+    name: "protocol_escalations",
+    intervalMs: 60_000,
+    run: async ({ db, now }) => void (await run(db, now)),
+  };
+}
+
 /** Dunning: advance any subscription whose next action is due (spec §29). */
 export function dunningJob(advance: (db: Db, subscriptionId: string) => Promise<unknown>): Job {
   return {

@@ -170,6 +170,17 @@ export const config = {
     const raw = readFileSync(join(CONFIG_DIR, "design-catalogue.yaml"), "utf8");
     return { data: parse(raw), version: "design@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
   },
+  /**
+   * The protocol & incident playbooks (MF14).
+   *
+   * ⛔ Restricted change class, and the one config file where a typo is a
+   * safety incident rather than a cosmetic bug — so the loader validates the
+   * interlock names against the closed set rather than trusting them.
+   */
+  protocols: () => {
+    const raw = readFileSync(join(CONFIG_DIR, "protocols.yaml"), "utf8");
+    return { data: parse(raw), version: "protocols@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
+  },
   _resetCache: () => {
     _cache = {};
   },

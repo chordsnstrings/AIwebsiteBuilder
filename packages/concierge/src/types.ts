@@ -5,10 +5,10 @@
 import type { QAPack, QAPair } from "@adw/qapack";
 
 /** Where the turn went. Mirrors agent_turns.route. */
-export type Route = "retrieval" | "booking" | "lead_capture" | "fallback" | "escalate" | "photo";
+export type Route = "retrieval" | "booking" | "lead_capture" | "fallback" | "escalate" | "photo" | "protocol";
 
 /** What produced the words. Mirrors agent_turns.answered_from. */
-export type AnsweredFrom = "pack" | "pack_hedged" | "fallback" | "refusal" | "state_machine";
+export type AnsweredFrom = "pack" | "pack_hedged" | "fallback" | "refusal" | "state_machine" | "protocol";
 
 export type Urgency = "emergency" | "urgent" | "normal";
 
@@ -103,8 +103,13 @@ export interface TurnResult {
   modelCalls: number;
   costCents: number;
   latencyMs: number;
-  /** Present on a state-machine turn once the machine has everything it needs. */
-  effect?: { kind: "enquiry" | "booking"; reference: string } | undefined;
+  /** Present on a state-machine turn once the machine has everything it needs.
+   *  `incident` is a protocol firing — the reference is the incident id, and it
+   *  is the only effect that means the conversation has been stopped. */
+  effect?: { kind: "enquiry" | "booking" | "incident"; reference: string } | undefined;
+  /** Set when a protocol fired. Names it so the transcript and the owner's
+   *  queue agree about what happened. */
+  protocolId?: string | undefined;
 }
 
 /** An unapproved pack must never reach a visitor (§21.3). */

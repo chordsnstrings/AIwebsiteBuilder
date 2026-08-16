@@ -18,6 +18,7 @@
 // it, and "it came from a pair you approved" is the defence.
 
 import type { Db } from "@adw/db";
+import { detectProtocol, openIncident } from "@adw/protocol";
 import { assertPackApproved, type ConciergeContext, type ConciergeSession, type Route, type TurnResult } from "./types.ts";
 import type { QAPack } from "@adw/qapack";
 import { buildPackIndex, retrieve, thresholds } from "./retrieval/index.ts";
@@ -256,6 +257,54 @@ export async function handleTurn(
   const replayed =
     opts.forceRoute === undefined ? await replayTurn(deps.db, ctx.session, turnIndex, text) : null;
   if (replayed !== null) return replayed;
+
+  // ---------------------------------------------------------------------
+  // 0. Protocols (MF14). BEFORE the refusal policy, before routing, before
+  //    retrieval — before anything that could answer.
+  // ---------------------------------------------------------------------
+  //
+  // ⛔ The order here is the safety property. The router already recognised
+  // trade emergencies like "gas leak" and routed them to LEAD CAPTURE — it
+  // asked for a phone number and offered to book someone in. That is the right
+  // handling for a burst pipe and the wrong handling for a gas smell, and the
+  // difference is not something a routing table expresses.
+  //
+  // A protocol match does not produce an answer with a warning attached. It
+  // STOPS the turn: no retrieval, no booking, no model, no follow-up sequence.
+  // The interlocks the catalogue attaches to it are recorded on the incident,
+  // and the words the visitor sees were written by a human in a reviewed file.
+  const incidentMatch = detectProtocol(text, { vertical: ctx.vertical, channel: ctx.session.channel });
+  if (incidentMatch !== null) {
+    const opened = await openIncident(deps.db, {
+      match: incidentMatch,
+      // ⛔ Verbatim. Several of these protocols say "capture verbatim" because
+      // a paraphrase of a disclosure is not evidence of the disclosure.
+      triggerText: text,
+      customerId: ctx.session.customerId,
+      businessId: ctx.session.businessId,
+      sessionId: ctx.session.id,
+      channel: ctx.session.channel,
+      detectedBy: "automatic",
+    });
+    return finish({
+      answer: incidentMatch.respond,
+      route: "protocol",
+      answeredFrom: "protocol",
+      // Severity 1 is an emergency whatever the language sounded like.
+      urgency: incidentMatch.protocol.severity === 1 ? "emergency" : "urgent",
+      refused: false,
+      escalate: true,
+      // ⛔ Not a gap. A gap is a question the pack could not answer and that the
+      // owner might add; this is not a question, and offering to "add an
+      // answer" for a safeguarding disclosure would be grotesque.
+      gapLogged: false,
+      injectionSuspected: false,
+      modelCalls: 0,
+      costCents: 0,
+      protocolId: incidentMatch.protocol.id,
+      effect: { kind: "incident", reference: opened.incidentId },
+    });
+  }
 
   const hard = policy.check(text, { vertical: ctx.vertical });
   if (hard !== null) {

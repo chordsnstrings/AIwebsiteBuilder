@@ -1,0 +1,2198 @@
+# Protocol & incident playbooks (catalogue MF14 — 141 units, 34 safety-critical).
+#
+# ⛔ Restricted change class. A protocol here is a promise about what the agent
+# will do when something has gone wrong, and editing one is a pull request with
+# a human reviewer, never a runtime decision.
+#
+# The shape of every unit in this family is the same and the runtime encodes it:
+#
+#     trigger  →  fixed response  →  interlocks  →  evidence capture  →  clock
+#
+# Four rules the loader enforces rather than trusting:
+#
+#   1. Detection is DETERMINISTIC. Patterns, never a model. A classifier that
+#      misses a gas smell one time in a hundred is not an acceptable component,
+#      and "the model usually gets it" is not a safety argument.
+#   2. `detection: manual` is honest and common. 121 of these cannot be spotted
+#      from a chat message — they start with a phone call, a sensor or a letter.
+#      Writing a pattern nobody believes in would be worse than admitting it.
+#   3. Interlocks come from the closed set below. An unknown name FAILS THE
+#      LOAD, because a typo must never silently disable a safety constraint.
+#   4. `verticals: []` means catalogued but not active — the unit belongs to a
+#      vertical this deployment does not serve. It is kept so the gap is
+#      visible rather than forgotten.
+
+version: 1
+
+# ---------------------------------------------------------------------------
+# Interlocks — what the agent must STOP doing once a protocol fires.
+# ---------------------------------------------------------------------------
+interlocks:
+  no_triage: "Never assess how serious, urgent or dangerous the situation is. Recognising the trigger is the whole of the agent's judgement."
+  no_advice: "Never advise, diagnose, reassure, or suggest a remedy \u2014 including 'you'll be fine' and 'it's probably nothing'."
+  no_further_questions: "Stop asking. Capture what was said and route it; questions after a disclosure are re-traumatising and contaminate a record."
+  no_liability: "Never admit, deny, apportion or speculate about fault, cause or cover."
+  no_booking: "Do not offer, hold, move or confirm an appointment on this turn."
+  no_pricing: "Do not quote, estimate or discuss cost."
+  no_auto_resume: "Whatever this paused may only be restarted by a named human, never by a timer and never by the visitor asking again."
+  verbatim_only: "Record the person's own words exactly. Never summarise, paraphrase, correct or tidy them."
+  no_disclosure: "Do not tell the visitor who this was routed to, or that it was escalated at all."
+  no_further_agent_contact: "Send nothing further to this person from the agent \u2014 no follow-up, no sequence, no review request."
+
+# ---------------------------------------------------------------------------
+# Who gets told, in order. Resolved to real people per customer at run time.
+# ---------------------------------------------------------------------------
+notify_roles:
+  designated_lead: "The person named for this protocol class (safeguarding lead, DPO, site manager)."
+  owner: "The business owner."
+  operator: "ADW's on-call operator. Reached only when the business has not acknowledged."
+
+protocols:
+  - id: no_show_first_offence
+    label: "No-show (first offence)"
+    severity: 3
+    safety_critical: false
+    verticals: ['*']
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "No-show logged; policy applied; rebook offer sent; slot refilled"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: late_cancellation_inside_fee_window
+    label: "Late cancellation inside fee window"
+    severity: 3
+    safety_critical: false
+    verticals: ['*']
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Fee applied or waived per rule; slot refilled; record kept"
+    stays_human: "Waiver outside rule bounds"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: angry_abusive_mid_conversation
+    label: "Angry/abusive mid-conversation"
+    severity: 3
+    safety_critical: false
+    verticals: ['*']
+    detection: automatic
+    triggers:
+      - "\\bfuck"
+      - "\\bcunt\\b"
+      - "\\bbastard\\b"
+      - "\\bidiots?\\b"
+      - "you people are"
+    interlocks: []
+    capture: "De-escalation transcript; human alerted; incident preserved"
+    stays_human: "Ban decision"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: customer_deceased_incapacitated
+    label: "Customer deceased / incapacitated"
+    severity: 3
+    safety_critical: false
+    verticals: ['*']
+    detection: automatic
+    triggers:
+      - "passed away"
+      - "has died"
+      - "deceased"
+      - "in hospice"
+      - "lost my (husband|wife|mother|father)"
+    interlocks: []
+    capture: "All outbound suppressed; condolence draft; closure workflow complete"
+    stays_human: "Condolence send; estate release of data"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: gdpr_ccpa_deletion_or_access_request
+    label: "GDPR/CCPA deletion or access request"
+    severity: 3
+    safety_critical: false
+    verticals: ['*']
+    detection: automatic
+    triggers:
+      - "delete my data"
+      - "erase my data"
+      - "right to be forgotten"
+      - "subject access request"
+      - "\\bdsar\\b"
+      - "gdpr"
+      - "ccpa"
+      - "copy of my data"
+    interlocks: []
+    capture: "DSAR collation pack; statutory clock met; response draft"
+    stays_human: "Legal exemption calls; final release"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: injury_or_property_damage_on_premises_by_crew
+    label: "Injury or property damage on premises / by crew"
+    severity: 1
+    safety_critical: true
+    verticals: ['*']
+    detection: automatic
+    triggers:
+      - "injured"
+      - "got hurt"
+      - "fell over"
+      - "damaged my"
+      - "broke my"
+      - "broken my"
+      - "smashed my"
+      - "ruined my"
+    interlocks: [no_advice, no_booking, no_liability, no_triage]
+    capture: "Incident record with photos and witnesses; insurer FNOL draft; aftercare scheduled"
+    stays_human: "All admissions of liability; insurer submission"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: staff_quits_without_notice
+    label: "Staff quits without notice"
+    severity: 3
+    safety_critical: false
+    verticals: ['*']
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Access revoked; open work reassigned; exit checklist complete"
+    stays_human: "Retention counter-offer"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: harassment_or_grievance_disclosure
+    label: "Harassment or grievance disclosure"
+    severity: 1
+    safety_critical: true
+    verticals: ['*']
+    detection: automatic
+    triggers:
+      - "harass"
+      - "inappropriate(ly)? touch"
+      - "made me uncomfortable"
+      - "grievance"
+      - "discriminat"
+    interlocks: [no_advice, no_booking, no_disclosure, no_triage]
+    capture: "Confidential capture record routed; clocks docketed; nothing else"
+    stays_human: "Everything after capture"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: product_recall_from_supplier
+    label: "Product recall from supplier"
+    severity: 3
+    safety_critical: false
+    verticals: ['*']
+    detection: automatic
+    triggers:
+      - "recall notice"
+      - "product recall"
+      - "batch recall"
+    interlocks: []
+    capture: "Affected stock and customer sweep done; records kept"
+    stays_human: "Public statement"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: premises_alarm_triggered_out_of_hours
+    label: "Premises alarm triggered out-of-hours"
+    severity: 3
+    safety_critical: false
+    verticals: ['*']
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Keyholder cascade executed; event log"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: pest_sighting_on_premises
+    label: "Pest sighting on premises"
+    severity: 3
+    safety_critical: false
+    verticals: ['*']
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Contractor dispatched; regulator-risk log where food"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: severe_weather_closure
+    label: "Severe weather closure"
+    severity: 3
+    safety_critical: false
+    verticals: ['*']
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Mass rebooking done; hours updated everywhere; staff notified"
+    stays_human: "Close/open call"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: power_or_internet_outage
+    label: "Power or internet outage"
+    severity: 3
+    safety_critical: false
+    verticals: ['*']
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Offline cache kept; customers notified; sync on restore"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: key_access_credential_lost
+    label: "Key / access credential lost"
+    severity: 3
+    safety_critical: false
+    verticals: ['*']
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Re-code arranged; access audit; custody log updated"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: suspected_data_breach
+    label: "Suspected data breach"
+    severity: 1
+    safety_critical: true
+    verticals: ['*']
+    detection: automatic
+    triggers:
+      - "data breach"
+      - "been hacked"
+      - "hacked"
+      - "ransomware"
+      - "leaked .{0,20}data"
+      - "phishing"
+      - "credentials .{0,15}(stolen|leaked)"
+    interlocks: [no_advice, no_booking, no_triage]
+    capture: "Incident clock started; scope assessment; notification drafts held for the decision"
+    stays_human: "Notify/not-notify; all external comms"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: legal_letter_received
+    label: "Legal letter received"
+    severity: 3
+    safety_critical: false
+    verticals: ['*']
+    detection: automatic
+    triggers:
+      - "letter before action"
+      - "solicitor'?s letter"
+      - "legal notice"
+      - "cease and desist"
+      - "letter of claim"
+    interlocks: []
+    capture: "Classified; deadline docketed; owner alerted same-hour"
+    stays_human: "Everything substantive"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: media_inquiry_received
+    label: "Media inquiry received"
+    severity: 3
+    safety_critical: false
+    verticals: ['*']
+    detection: automatic
+    triggers:
+      - "journalist"
+      - "reporter"
+      - "press (enquiry|inquiry)"
+      - "for a story"
+      - "on the record"
+    interlocks: []
+    capture: "Holding statement draft; owner alert; deadline tracked; nothing sent"
+    stays_human: "All statements"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: viral_complaint_social_pile_on
+    label: "Viral complaint / social pile-on"
+    severity: 3
+    safety_critical: false
+    verticals: ['*']
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Monitoring feed; response options; one-voice staff brief; timeline"
+    stays_human: "Public response"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: phishing_attempt_targeting_the_business
+    label: "Phishing attempt targeting the business"
+    severity: 3
+    safety_critical: false
+    verticals: ['*']
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Staff alert out; indicators logged; controls tightened"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: owner_on_vacation
+    label: "Owner on vacation"
+    severity: 3
+    safety_critical: false
+    verticals: ['*']
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Away mode active: rules enforced; digest only; queue kept"
+    stays_human: "Setting the thresholds"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: owner_sick_emergency
+    label: "Owner sick / emergency"
+    severity: 3
+    safety_critical: false
+    verticals: ['*']
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Immediate away mode plus deputy notified"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: succession_partner_change
+    label: "Succession / partner change"
+    severity: 3
+    safety_critical: false
+    verticals: ['*']
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Access and role remap executed; documented trail"
+    stays_human: "The decision itself"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: gas_smell_co_reported_mid_chat
+    label: "Gas smell / CO reported mid-chat"
+    severity: 1
+    safety_critical: true
+    verticals: [plumber, hvac, electrician, roofing]
+    detection: automatic
+    triggers:
+      - "smell(s|ing)? (of )?gas"
+      - "gas leak"
+      - "gas smell"
+      - "carbon monoxide"
+      - "\\bco alarm\\b"
+      - "co detector"
+      - "rotten egg smell"
+    interlocks: [no_advice, no_booking, no_triage]
+    capture: "Evacuation instructions delivered; emergency redirect logged"
+    stays_human: "Nothing - protocol is absolute"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: customer_not_home_at_arranged_window
+    label: "Customer not home at arranged window"
+    severity: 3
+    safety_critical: false
+    verticals: [plumber, hvac, electrician, roofing]
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Attendance proof; fee applied; rebooked"
+    stays_human: "Fee waiver"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: cold_snap_heat_wave_surge
+    label: "Cold-snap / heat-wave surge"
+    severity: 3
+    safety_critical: false
+    verticals: [plumber, hvac, electrician, roofing]
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Vulnerability-ordered queue; honest waits published"
+    stays_human: "Partner overflow terms"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: crew_damages_client_property
+    label: "Crew damages client property"
+    severity: 1
+    safety_critical: true
+    verticals: [roofing, landscaping]
+    detection: automatic
+    triggers:
+      - "damaged my"
+      - "broke my"
+      - "broken my"
+      - "smashed my"
+      - "ruined my"
+      - "scratched my"
+    interlocks: [no_advice, no_booking, no_liability, no_triage]
+    capture: "Incident, insurer FNOL and options prepared"
+    stays_human: "Liability admission"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: delay_event_occurs
+    label: "Delay event occurs"
+    severity: 3
+    safety_critical: false
+    verticals: [roofing]
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Same-day EOT notice draft with clause references"
+    stays_human: "Submission"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: client_key_alarm_code_lost_or_changed
+    label: "Client key/alarm code lost or changed"
+    severity: 3
+    safety_critical: false
+    verticals: [cleaning]
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Custody audit; re-issue; client disclosure draft"
+    stays_human: "Client notification wording"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: theft_alleged_at_client_site
+    label: "Theft alleged at client site"
+    severity: 1
+    safety_critical: true
+    verticals: [cleaning]
+    detection: automatic
+    triggers:
+      - "stolen"
+      - "theft"
+      - "stole"
+      - "went missing"
+      - "has gone missing"
+      - "taken my"
+    interlocks: [no_advice, no_booking, no_liability, no_triage]
+    capture: "Incident record and on-site roster produced"
+    stays_human: "Everything beyond records"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  # ⛔ Universal, overriding the catalogue's per-vertical placement. A
+  # disclosure happens to whoever is in front of the person, not to whoever the
+  # taxonomy expects — a child tells a hairdresser, a driving instructor, a
+  # plumber working in the house. Generated per-vertical; widened by hand after
+  # the test suite showed a nursery had no safeguarding protocol at all.
+  - id: allergic_reaction_during_after_treatment
+    label: "Allergic reaction during/after treatment"
+    severity: 1
+    safety_critical: true
+    verticals: ['*']
+    detection: automatic
+    triggers:
+      - "allergic reaction"
+      - "anaphyla"
+      - "throat .{0,12}(closing|swelling)"
+      - "swollen (face|lips|throat|tongue)"
+      - "hives"
+      - "epipen"
+    interlocks: [no_advice, no_booking, no_triage]
+    capture: "First-aid record; batch logged; follow-up booked"
+    stays_human: "Medical referral"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: patch_test_missing_or_expired
+    label: "Patch test missing or expired"
+    severity: 3
+    safety_critical: false
+    verticals: [beauty]
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Booking blocked until a valid test exists"
+    stays_human: "None - interlock"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: minor_requesting_treatment
+    label: "Minor requesting treatment"
+    severity: 3
+    safety_critical: false
+    verticals: [beauty]
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Consent flow enforced; record kept"
+    stays_human: "None - interlock"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: injury_during_session
+    label: "Injury during session"
+    severity: 1
+    safety_critical: true
+    verticals: [fitness]
+    detection: automatic
+    triggers:
+      - "injured"
+      - "got hurt"
+      - "fell over"
+      - "has fallen"
+      - "broke (my|her|his|their)"
+      - "fracture"
+    interlocks: [no_advice, no_booking, no_liability, no_triage]
+    capture: "Incident report, insurer notice, follow-up scheduled"
+    stays_human: "Liability comms"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  # ⛔ Universal, overriding the catalogue's per-vertical placement. A
+  # disclosure happens to whoever is in front of the person, not to whoever the
+  # taxonomy expects — a child tells a hairdresser, a driving instructor, a
+  # plumber working in the house. Generated per-vertical; widened by hand after
+  # the test suite showed a nursery had no safeguarding protocol at all.
+  - id: red_flag_symptom_in_chat
+    label: "Red-flag symptom in chat"
+    severity: 1
+    safety_critical: true
+    verticals: ['*']
+    detection: automatic
+    triggers:
+      - "chest pain"
+      - "pain in my chest"
+      - "can'?t breathe"
+      - "cannot breathe"
+      - "struggling to breathe"
+      - "difficulty breathing"
+      - "stroke"
+      - "face has dropped"
+      - "slurred speech"
+      - "bleeding heavily"
+      - "won'?t stop bleeding"
+      - "unconscious"
+      - "passed out"
+      - "not breathing"
+      - "overdose"
+      - "took too many"
+      - "suicidal"
+      - "kill myself"
+      - "end my life"
+    interlocks: [no_advice, no_booking, no_triage]
+    capture: "Emergency routing executed; interaction logged"
+    stays_human: "Nothing - protocol absolute"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  # ⛔ Universal, overriding the catalogue's per-vertical placement. A
+  # disclosure happens to whoever is in front of the person, not to whoever the
+  # taxonomy expects — a child tells a hairdresser, a driving instructor, a
+  # plumber working in the house. Generated per-vertical; widened by hand after
+  # the test suite showed a nursery had no safeguarding protocol at all.
+  - id: safeguarding_disclosure
+    label: "Safeguarding disclosure"
+    severity: 1
+    safety_critical: true
+    verticals: ['*']
+    detection: automatic
+    triggers:
+      - "safeguarding"
+      - "child protection"
+      - "\\b(hit|hits|hitting|beat|beats|beating|hurt|hurts|hurting|smack\\w*|punch\\w*|kick\\w*)\\b[^.?!]{0,15}\\b(me|him|her|them|us)\\b"
+      - "\\b(abus\\w+|molest\\w+|groom\\w+)\\b"
+      # "don't feel safe at home" contains no literal "not safe". Match the
+      # negation and the word, not the phrase someone would write in a report.
+      - "(not|n.t)\\s+(feel\\w*\\s+)?safe\\b"
+      - "\\btouch\\w*\\b[^.?!]{0,25}\\b(inappropriate\\w*|private|down there)\\b"
+      - "\\bscared (of|to go)\\b[^.?!]{0,25}\\b(home|him|her|them|dad|mum|mom|stepdad|stepmum)\\b"
+      - "\\bsomeone is hurting\\b"
+    interlocks: [no_advice, no_booking, no_disclosure, no_further_agent_contact, no_further_questions, no_triage, verbatim_only]
+    capture: "Verbatim capture routed to the lead only"
+    stays_human: "Everything"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: regulated_complaint_received
+    label: "Regulated complaint received"
+    severity: 3
+    safety_critical: false
+    verticals: [clinical]
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Procedure clock, compliant acknowledgement, assembled file"
+    stays_human: "Response content"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  # ⛔ Universal, overriding the catalogue's per-vertical placement. A
+  # disclosure happens to whoever is in front of the person, not to whoever the
+  # taxonomy expects — a child tells a hairdresser, a driving instructor, a
+  # plumber working in the house. Generated per-vertical; widened by hand after
+  # the test suite showed a nursery had no safeguarding protocol at all.
+  - id: suspected_poisoning_call
+    label: "Suspected poisoning call"
+    severity: 1
+    safety_critical: true
+    verticals: ['*']
+    detection: automatic
+    triggers:
+      - "ate (rat )?poison"
+      - "antifreeze"
+      - "xylitol"
+      - "ate chocolate"
+      - "ate grapes"
+      - "ate raisins"
+      - "swallowed .{0,20}(pill|tablet|battery)"
+      - "poisoned"
+      - "ingested"
+    interlocks: [no_advice, no_booking, no_triage]
+    capture: "Poison-line protocol done; slot held; notes captured"
+    stays_human: "Clinical advice"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: euthanasia_booking
+    label: "Euthanasia booking"
+    severity: 3
+    safety_critical: false
+    verticals: [veterinary]
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Quiet slot; papers ready; marketing suppressed"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: deceased_pet_aftercare
+    label: "Deceased pet aftercare"
+    severity: 3
+    safety_critical: false
+    verticals: [veterinary]
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Aftercare arranged; condolence sent; reminders off forever"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: joint_clients_give_conflicting_instructions
+    label: "Joint clients give conflicting instructions"
+    severity: 3
+    safety_critical: false
+    verticals: [lawyer, accountant]
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Neutral hold notices; matter paused"
+    stays_human: "Resolution"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: client_capacity_concern
+    label: "Client capacity concern"
+    severity: 1
+    safety_critical: true
+    verticals: [lawyer, accountant]
+    detection: manual
+    triggers: []
+    interlocks: [no_advice, no_booking, no_triage]
+    capture: "Pattern flag to the fee earner only"
+    stays_human: "Everything"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: refusal_received
+    label: "Refusal received"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Windows docketed; options pack to the consultant"
+    stays_human: "The advice"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  # ⛔ Universal, overriding the catalogue's per-vertical placement. A
+  # disclosure happens to whoever is in front of the person, not to whoever the
+  # taxonomy expects — a child tells a hairdresser, a driving instructor, a
+  # plumber working in the house. Generated per-vertical; widened by hand after
+  # the test suite showed a nursery had no safeguarding protocol at all.
+  - id: safeguarding_disclosure_2
+    label: "Safeguarding disclosure"
+    severity: 1
+    safety_critical: true
+    verticals: ['*']
+    detection: automatic
+    triggers:
+      - "safeguarding"
+      - "child protection"
+      - "\\b(hit|hits|hitting|beat|beats|beating|hurt|hurts|hurting|smack\\w*|punch\\w*|kick\\w*)\\b[^.?!]{0,15}\\b(me|him|her|them|us)\\b"
+      - "\\b(abus\\w+|molest\\w+|groom\\w+)\\b"
+      # "don't feel safe at home" contains no literal "not safe". Match the
+      # negation and the word, not the phrase someone would write in a report.
+      - "(not|n.t)\\s+(feel\\w*\\s+)?safe\\b"
+      - "\\btouch\\w*\\b[^.?!]{0,25}\\b(inappropriate\\w*|private|down there)\\b"
+      - "\\bscared (of|to go)\\b[^.?!]{0,25}\\b(home|him|her|them|dad|mum|mom|stepdad|stepmum)\\b"
+      - "\\bsomeone is hurting\\b"
+    interlocks: [no_advice, no_booking, no_disclosure, no_triage, verbatim_only]
+    capture: "Capture routed; statutory record only"
+    stays_human: "Everything"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: visa_refusal_for_a_placed_student
+    label: "Visa refusal for a placed student"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Options computed; university informed; consult booked"
+    stays_human: "The advice"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: child_unwell_at_nursery
+    label: "Child unwell at nursery"
+    severity: 3
+    safety_critical: false
+    verticals: [childcare]
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Contact cascade log; exclusion rule applied"
+    stays_human: "Medical judgement"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: child_uncollected_at_closing
+    label: "Child uncollected at closing"
+    severity: 1
+    safety_critical: true
+    verticals: [childcare]
+    detection: manual
+    triggers: []
+    interlocks: [no_advice, no_booking, no_triage]
+    capture: "Escalation clock executed; full log"
+    stays_human: "Authority call timing per protocol"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: allergy_incident
+    label: "Allergy incident"
+    severity: 1
+    safety_critical: true
+    verticals: [childcare]
+    detection: automatic
+    triggers:
+      - "allergic reaction"
+      - "anaphyla"
+      - "epipen"
+      - "allergy attack"
+    interlocks: [no_advice, no_booking, no_triage]
+    capture: "Action plan executed; incident recorded; parents contacted"
+    stays_human: "Medical response"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: pickup_person_change_request
+    label: "Pickup-person change request"
+    severity: 3
+    safety_critical: false
+    verticals: [childcare]
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Verified change; record updated"
+    stays_human: "None - interlock"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: allergy_order_flagged
+    label: "Allergy order flagged"
+    severity: 3
+    safety_critical: false
+    verticals: [hospitality]
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Kitchen alert and verification loop documented"
+    stays_human: "None - interlock"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: food_poisoning_allegation
+    label: "Food-poisoning allegation"
+    severity: 1
+    safety_critical: true
+    verticals: [hospitality]
+    detection: automatic
+    triggers:
+      - "food poisoning"
+      - "made me (sick|ill)"
+      - "been (sick|vomiting) since"
+      - "salmonella"
+    interlocks: [no_advice, no_booking, no_triage]
+    capture: "Regulator-ready trace log; no admissions"
+    stays_human: "All external response"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: transport_temperature_excursion
+    label: "Transport temperature excursion"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Breach log; quarantine; replacement sprint"
+    stays_human: "Serve/scrap call per rules"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: overbooking_guest_must_be_walked
+    label: "Overbooking - guest must be walked"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Comparable secured; transport; compensation; recovery note"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: sale_falls_through
+    label: "Sale falls through"
+    severity: 3
+    safety_critical: false
+    verticals: [property]
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Relisted same day; backups called; chain informed"
+    stays_human: "Price adjustment"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: urgent_repair_landlord_unresponsive
+    label: "Urgent repair - landlord unresponsive"
+    severity: 3
+    safety_critical: false
+    verticals: [property]
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Duty clock and escalation trail"
+    stays_human: "Spend authorization"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: lone_worker_viewing_safety
+    label: "Lone-worker viewing safety"
+    severity: 3
+    safety_critical: false
+    verticals: [property]
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Check-in protocol log; escalation on a miss"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: emergency_spend_above_authority
+    label: "Emergency spend above authority"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Quote to the right approver, fast; log"
+    stays_human: "Approval"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: extra_faults_found_mid_service
+    label: "Extra faults found mid-service"
+    severity: 3
+    safety_critical: false
+    verticals: [auto_repair]
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Evidence sent; authorization captured before work"
+    stays_human: "Customer decision facilitated"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: keys_locked_in_car_after_hours_pickup
+    label: "Keys locked in car / after-hours pickup"
+    severity: 3
+    safety_critical: false
+    verticals: [auto_repair]
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Verified secure release; log"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: lien_finance_discovered_on_title
+    label: "Lien/finance discovered on title"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Funds held; settlement chased; deal re-papered"
+    stays_human: "Deal call"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: auction_lot_materially_misdescribed
+    label: "Auction lot materially misdescribed"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Claim filed inside the window with evidence"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: pricing_error_discovered
+    label: "Pricing error discovered"
+    severity: 3
+    safety_critical: false
+    verticals: [retail]
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Policy applied by delta; comms drafted"
+    stays_human: "Big-delta calls"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: shoplifting_incident
+    label: "Shoplifting incident"
+    severity: 3
+    safety_critical: false
+    verticals: [retail]
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Incident log; evidence preserved"
+    stays_human: "Police involvement"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: manufacturer_recall
+    label: "Manufacturer recall"
+    severity: 3
+    safety_critical: false
+    verticals: [retail]
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Purchasers contacted; remedies processed"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: placed_candidate_reneges_pre_start
+    label: "Placed candidate reneges pre-start"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Guarantee applied; backfill sprint; client managed"
+    stays_human: "Fee position"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: right_to_work_check_fails
+    label: "Right-to-work check fails"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Hard stop; compliant notices; alternative sourced"
+    stays_human: "None - interlock"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: rain_decision_for_outdoor_event
+    label: "Rain decision for outdoor event"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Cutoff decision tree run; vendor cascade on the call"
+    stays_human: "The call itself"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: venue_double_books_or_cancels
+    label: "Venue double-books or cancels"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Backup sprint from the vetted list; remedies invoked"
+    stays_human: "Venue choice"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: airline_schedule_change
+    label: "Airline schedule change"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Itinerary revalidated; options priced"
+    stays_human: "Client choice facilitated"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: travel_advisory_changes_mid_booking
+    label: "Travel advisory changes mid-booking"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Affected-traveller sweep; rights compiled"
+    stays_human: "Cancel/proceed advice"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: supplier_insolvency
+    label: "Supplier insolvency"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Scheme positions; claims filed; rebooked"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: traveller_stranded_denied_boarding
+    label: "Traveller stranded / denied boarding"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Rights computed; rebooked; expenses documented"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: non_disclosure_discovered
+    label: "Non-disclosure discovered"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Position assessed; corrective disclosure drafted"
+    stays_human: "All decisions"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: critical_result_clinician_unreachable
+    label: "Critical result - clinician unreachable"
+    severity: 1
+    safety_critical: true
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: [no_advice, no_booking, no_triage]
+    capture: "Acknowledged escalation chain, fully logged"
+    stays_human: "Clinical action"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: patient_absconds_leaves_against_advice
+    label: "Patient absconds / leaves against advice"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Protocol notifications executed and documented"
+    stays_human: "Clinical/legal calls"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: shipment_temperature_excursion
+    label: "Shipment temperature excursion"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Quarantine plus stability pack to QA"
+    stays_human: "Disposition"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: chain_of_custody_breach_on_sample
+    label: "Chain-of-custody breach on sample"
+    severity: 1
+    safety_critical: true
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: [no_advice, no_booking, no_triage]
+    capture: "Flagged results; recollection sprint; notice pack"
+    stays_human: "Clinical notifications"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: critical_value_result
+    label: "Critical value result"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Acknowledged notification chain"
+    stays_human: "Clinical action"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: instrument_qc_failure
+    label: "Instrument QC failure"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Held runs; affected list; backlog replanned"
+    stays_human: "Result release"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: field_safety_notice_required
+    label: "Field safety notice required"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Trace, sweep and submission pack"
+    stays_human: "Submission"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: account_holder_deceased
+    label: "Account holder deceased"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Freeze, estate checklist, sensitive mode"
+    stays_human: "Release decisions"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: garnishment_attachment_order_received
+    label: "Garnishment/attachment order received"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Order processed on the clock; notices per rules"
+    stays_human: "Legal review"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: trade_error_identified
+    label: "Trade error identified"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Facts, impact and options file to compliance"
+    stays_human: "Remediation decision"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: client_requests_unsuitable_product
+    label: "Client requests unsuitable product"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Logged request routed to the adviser"
+    stays_human: "The advice"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: complaint_with_compensation_implications
+    label: "Complaint with compensation implications"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Regulated clock plus assembled file"
+    stays_human: "Resolution"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: catastrophe_event_declared
+    label: "Catastrophe event declared"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Surge triage running; routing rebalanced"
+    stays_human: "Reserving/major decisions"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: security_incident_affecting_customers
+    label: "Security incident affecting customers"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Status page plus gated notification drafts"
+    stays_human: "Send decision"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: public_security_researcher_disclosure
+    label: "Public security-researcher disclosure"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Intake, triage, response clock met"
+    stays_human: "Response"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: viral_outage_complaint_thread
+    label: "Viral outage complaint thread"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Synchronized status cadence across channels"
+    stays_human: "Messaging"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: p1_after_hours
+    label: "P1 after-hours"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Bridge assembled; context pack; comms cadence"
+    stays_human: "Technical response"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: ransomware_indicators_at_client
+    label: "Ransomware indicators at client"
+    severity: 1
+    safety_critical: true
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: [no_advice, no_booking, no_liability, no_triage]
+    capture: "Isolation executed; IR and insurer notified"
+    stays_human: "IR decisions"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: port_out_fraud_signals
+    label: "Port-out fraud signals"
+    severity: 1
+    safety_critical: true
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: [no_advice, no_booking, no_triage]
+    capture: "Frozen port plus verification challenge"
+    stays_human: "None - interlock"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: bereavement_account_closure
+    label: "Bereavement account closure"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Sensitive closure; marketing off"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: mass_outage_complaint_surge
+    label: "Mass outage complaint surge"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Area notifications ahead of tickets"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: vulnerable_customer_disconnection_risk
+    label: "Vulnerable customer disconnection risk"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Protection rules enforced before any action"
+    stays_human: "None - interlock"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: correction_retraction_needed
+    label: "Correction/retraction needed"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Versioned correction plus partner notices"
+    stays_human: "Editorial call"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: legal_takedown_notice
+    label: "Legal takedown notice"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Docketed; preserved; clocked"
+    stays_human: "Legal decision"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: source_requests_anonymity_retroactively
+    label: "Source requests anonymity retroactively"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Exposure assessment to the editor"
+    stays_human: "Editorial call"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: streamer_discovers_exploit_live
+    label: "Streamer discovers exploit live"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Severity triage; holding comms; fix tracked"
+    stays_human: "Public response"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: minor_spend_parental_complaint
+    label: "Minor-spend parental complaint"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Refund and controls per platform rules"
+    stays_human: "Exceptions"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: match_postponed
+    label: "Match postponed"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Ticket validity, exchange and refund cascade with comms"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: crowd_incident
+    label: "Crowd incident"
+    severity: 1
+    safety_critical: true
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: [no_advice, no_booking, no_triage]
+    capture: "Statutory pack plus welfare follow-ups"
+    stays_human: "All response"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: player_transfer_rumour_surge
+    label: "Player transfer rumour surge"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Approved-lines FAQ mode running"
+    stays_human: "The lines"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: academy_trialist_medical_flag
+    label: "Academy trialist medical flag"
+    severity: 1
+    safety_critical: true
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: [no_advice, no_booking, no_triage]
+    capture: "Routed to medical; process paused"
+    stays_human: "Everything"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: controversy_flare_up
+    label: "Controversy flare-up"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Monitoring plus drafted options; posting paused"
+    stays_human: "Response"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: recall_trace_demanded
+    label: "Recall trace demanded"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Batch-level trace in hours"
+    stays_human: "Recall decision"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: line_down_part_shortage
+    label: "Line-down - part shortage"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Air-versus-delay economics pack"
+    stays_human: "The call"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: machine_safety_interlock_tripped
+    label: "Machine safety interlock tripped"
+    severity: 1
+    safety_critical: true
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: [no_advice, no_auto_resume, no_booking, no_triage]
+    capture: "Lockout logged; restart workflow gated"
+    stays_human: "Restart"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: customer_line_stop_threat
+    label: "Customer line-stop threat"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Trace, expedite options, executive brief"
+    stays_human: "Commitments"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: counterfeit_part_suspicion_in_chain
+    label: "Counterfeit part suspicion in chain"
+    severity: 1
+    safety_critical: true
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: [no_advice, no_booking, no_triage]
+    capture: "Quarantine, provenance trace, notice pack"
+    stays_human: "Notifications"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: life_support_customer_in_outage_area
+    label: "Life-support customer in outage area"
+    severity: 1
+    safety_critical: true
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: [no_advice, no_booking, no_triage]
+    capture: "Priority contacts made; restoration flagged"
+    stays_human: "None - interlock"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: wildfire_storm_pre_emptive_shutoff
+    label: "Wildfire/storm pre-emptive shutoff"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Protocol cascade with vulnerable-customer handling"
+    stays_human: "The shutoff decision"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: driver_stranded_at_dead_charger
+    label: "Driver stranded at dead charger"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Alternative pushed; credit issued; fault escalated"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: grid_demand_response_event_called
+    label: "Grid demand-response event called"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Contracted load-shed executed; revenue logged"
+    stays_human: "Opt-out calls"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: ground_fault_safety_alert
+    label: "Ground-fault safety alert"
+    severity: 1
+    safety_critical: true
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: [no_advice, no_booking, no_triage]
+    capture: "Isolated; dispatched; reactivation gated on test"
+    stays_human: "Reactivation"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: permit_condition_breach_detected
+    label: "Permit condition breach detected"
+    severity: 1
+    safety_critical: true
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: [no_advice, no_booking, no_triage]
+    capture: "Stop-work executed; notification clock; evidence preserved"
+    stays_human: "Notifications and restart"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: lost_time_incident
+    label: "Lost-time incident"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Statutory report pack; investigation opened"
+    stays_human: "Investigation"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: disease_outbreak_nearby
+    label: "Disease outbreak nearby"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Lockdown comms plus authority records"
+    stays_human: "Lockdown decision"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: contamination_test_failure
+    label: "Contamination test failure"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Quarantine, two-way trace, buyer notices"
+    stays_human: "Disposition"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: unaccompanied_minor_handoff
+    label: "Unaccompanied minor handoff"
+    severity: 1
+    safety_critical: true
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: [no_advice, no_booking, no_triage]
+    capture: "Verified custody chain, complete"
+    stays_human: "None - interlock"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: medical_diversion
+    label: "Medical diversion"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Care, connections and report pack"
+    stays_human: "Operational decisions"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: lithium_battery_dangerous_goods_found
+    label: "Lithium battery / dangerous goods found"
+    severity: 1
+    safety_critical: true
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: [no_advice, no_booking, no_triage]
+    capture: "Protocol routing plus documentation"
+    stays_human: "Everything"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: reefer_temperature_deviation
+    label: "Reefer temperature deviation"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: [no_liability]
+    capture: "Notices, survey, preserved evidence"
+    stays_human: "Claims strategy"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: dangerous_goods_declaration_mismatch
+    label: "Dangerous-goods declaration mismatch"
+    severity: 1
+    safety_critical: true
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: [no_advice, no_booking, no_triage]
+    capture: "Held; corrected; compliance routed"
+    stays_human: "Release"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: vip_service_failure
+    label: "VIP service failure"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Recovery executed; follow-through verified"
+    stays_human: "Gesture size"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: death_serious_incident_in_property
+    label: "Death/serious incident in property"
+    severity: 1
+    safety_critical: true
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: [no_advice, no_booking, no_triage]
+    capture: "Protocol pack; comms locked to humans"
+    stays_human: "Everything"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: title_ix_class_disclosure
+    label: "Title-IX-class disclosure"
+    severity: 1
+    safety_critical: true
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: [no_advice, no_booking, no_disclosure, no_further_agent_contact, no_further_questions, no_triage]
+    capture: "Capture routed to officials only"
+    stays_human: "Everything"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: campus_emergency_notification
+    label: "Campus emergency notification"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Template cascade, delivery verified"
+    stays_human: "The trigger"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: election_period_comms_restrictions_begin
+    label: "Election-period comms restrictions begin"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Restricted publication mode enforced"
+    stays_human: "None - interlock"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: emergency_declaration
+    label: "Emergency declaration"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Verified update cascade; rumours queued"
+    stays_human: "Content"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: misdirected_citizen_data
+    label: "Misdirected citizen data"
+    severity: 1
+    safety_critical: true
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: [no_advice, no_booking, no_triage]
+    capture: "Breach clock, containment, drafts"
+    stays_human: "Notifications"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: volunteer_incident
+    label: "Volunteer incident"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Protocol capture plus care scheduled"
+    stays_human: "All judgement"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: garnishment_order_received
+    label: "Garnishment order received"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Processed per jurisdiction; notices done"
+    stays_human: "Legal questions"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: final_pay_deadline_termination
+    label: "Final-pay deadline (termination)"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Deadline computed; payment sprint executed"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: payroll_run_fails_pre_payday
+    label: "Payroll run fails pre-payday"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Runbook executed; fallback paid"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: anonymous_ethics_report
+    label: "Anonymous ethics report"
+    severity: 1
+    safety_critical: true
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: [no_advice, no_booking, no_disclosure, no_triage]
+    capture: "Confidential capture plus docketed clocks"
+    stays_human: "Everything"
+    escalation:
+      - { after_minutes: 0,  notify: designated_lead }
+      - { after_minutes: 15, notify: owner }
+      - { after_minutes: 60, notify: operator }
+
+  - id: litigation_hold_required
+    label: "Litigation hold required"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Notices out; acknowledgements tracked; preservation verified"
+    stays_human: "Scope"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: regulatory_inquiry_lands
+    label: "Regulatory inquiry lands"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Same-day documents, custodians, clock pack"
+    stays_human: "Strategy"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: capital_call_default
+    label: "Capital call default"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Cure clock, remedies, communications"
+    stays_human: "Remedy choice"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: key_person_event
+    label: "Key-person event"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Trigger analysis, docketed notices, drafts"
+    stays_human: "Everything external"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: client_complaint_regulated
+    label: "Client complaint (regulated)"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Regulated file; clock met"
+    stays_human: "Resolution"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }
+
+  - id: market_event_comms_surge
+    label: "Market-event comms surge"
+    severity: 3
+    safety_critical: false
+    verticals: []
+    detection: manual
+    triggers: []
+    interlocks: []
+    capture: "Approved-lines comms mode"
+    stays_human: "The lines"
+    escalation:
+      - { after_minutes: 0,   notify: owner }
+      - { after_minutes: 240, notify: operator }

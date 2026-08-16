@@ -289,6 +289,9 @@ importers:
       '@adw/orchestrator':
         specifier: workspace:*
         version: link:../../packages/orchestrator
+      '@adw/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       '@adw/provenance':
         specifier: workspace:*
         version: link:../../packages/provenance
@@ -406,6 +409,9 @@ importers:
       '@adw/mcp':
         specifier: workspace:*
         version: link:../mcp
+      '@adw/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       '@adw/qapack':
         specifier: workspace:*
         version: link:../qapack
@@ -597,6 +603,18 @@ importers:
         version: link:../telemetry
 
   packages/prompts: {}
+
+  packages/protocol:
+    dependencies:
+      '@adw/config':
+        specifier: workspace:*
+        version: link:../config
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+      '@adw/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
 
   packages/provenance:
     dependencies:

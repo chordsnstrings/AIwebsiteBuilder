@@ -34,6 +34,7 @@
     "@adw/agenteval": "workspace:*",
     "@adw/concierge": "workspace:*",
     "@adw/architect": "workspace:*",
-    "@adw/inbound": "workspace:*"
+    "@adw/inbound": "workspace:*",
+    "@adw/protocol": "workspace:*"
   }
 }
