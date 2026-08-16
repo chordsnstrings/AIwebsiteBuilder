@@ -35,6 +35,7 @@
     "@adw/uploads": "workspace:*",
     "@adw/vault": "workspace:*",
     "@adw/vendors": "workspace:*",
+    "@adw/watch": "workspace:*",
     "@adw/workflows": "workspace:*",
     "@hono/node-server": "^1.13.7",
     "hono": "^4.6.14",

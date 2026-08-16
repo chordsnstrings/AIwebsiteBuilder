@@ -144,6 +144,9 @@ importers:
       '@adw/vendors':
         specifier: workspace:*
         version: link:../../packages/vendors
+      '@adw/watch':
+        specifier: workspace:*
+        version: link:../../packages/watch
       '@adw/workflows':
         specifier: workspace:*
         version: link:../../packages/workflows
@@ -343,6 +346,9 @@ importers:
       '@adw/vendors':
         specifier: workspace:*
         version: link:../../packages/vendors
+      '@adw/watch':
+        specifier: workspace:*
+        version: link:../../packages/watch
       '@adw/workflows':
         specifier: workspace:*
         version: link:../../packages/workflows
@@ -833,6 +839,21 @@ importers:
       '@adw/vault':
         specifier: workspace:*
         version: link:../vault
+
+  packages/watch:
+    dependencies:
+      '@adw/config':
+        specifier: workspace:*
+        version: link:../config
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+      '@adw/taxonomy':
+        specifier: workspace:*
+        version: link:../taxonomy
+      '@adw/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
 
   packages/workflows:
     dependencies:

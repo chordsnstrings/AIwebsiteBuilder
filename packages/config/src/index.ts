@@ -201,6 +201,11 @@ export const config = {
     const raw = readFileSync(join(CONFIG_DIR, "clocks.yaml"), "utf8");
     return { data: parse(raw), version: "clocks@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
   },
+  /** Outward-facing watchers (MF7). Reviews, listings, registers, rules. */
+  watches: () => {
+    const raw = readFileSync(join(CONFIG_DIR, "watches.yaml"), "utf8");
+    return { data: parse(raw), version: "watches@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
+  },
   /** Multi-touch journeys (MF5). Follow-up, save, reactivation, referral. */
   journeys: () => {
     const raw = readFileSync(join(CONFIG_DIR, "journeys.yaml"), "utf8");

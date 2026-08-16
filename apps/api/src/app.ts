@@ -44,6 +44,7 @@ import { authenticateWebhook } from "./webhook-auth.ts";
 import { routeInbound } from "@adw/inbound";
 import { emailResponderAgent } from "@adw/agents";
 import { availableSlots } from "@adw/scheduling";
+import { httpCollectors, simulatedCollectors, type FetchLike } from "@adw/watch";
 import { agentRoutes, type AgentRouteDeps } from "./agent-routes.ts";
 import { enqueueIntent, executionId } from "@adw/workflows";
 import {
@@ -58,6 +59,8 @@ const MAX_REQUEST_TEXT = 2000;
 const MAX_CHANGES_PER_PREVIEW = 10;
 /** Fallback for the consent wording when the page did not send its own. */
 const DEFAULT_CONSENT_WORDING = "Text me updates about my website";
+
+const nodeFetch: FetchLike = (url, init) => fetch(url, init as RequestInit) as unknown as ReturnType<FetchLike>;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -135,6 +138,11 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
               ).map((s) => ({ start: s.start, end: s.end })),
       },
       ...(deps.uploads === undefined ? {} : { uploads: deps.uploads }),
+      // ⛔ Chosen by mode rather than defaulted. In demo the simulated sources
+      // are the honest answer; in live mode the HTTP collectors are, and the
+      // sources with no real adapter are simply absent from the map so
+      // `subscribeWatch` refuses them out loud.
+      watchCollectors: (deps.forceMock ?? true) ? simulatedCollectors() : httpCollectors(nodeFetch),
     }),
   );
 

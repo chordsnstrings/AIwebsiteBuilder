@@ -40,6 +40,7 @@
     "@adw/uploads": "workspace:*",
     "@adw/vault": "workspace:*",
     "@adw/vendors": "workspace:*",
+    "@adw/watch": "workspace:*",
     "@adw/workflows": "workspace:*"
   },
   "devDependencies": {}

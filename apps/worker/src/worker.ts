@@ -10,6 +10,7 @@ import { EMAIL_VENDOR_IDS, getEmailTransport } from "@adw/vendors";
 import { applyEmailFeedback } from "@adw/inbound";
 import { runEscalations } from "@adw/protocol";
 import { runJourneys, runReminders } from "@adw/journeys";
+import { httpCollectors, pruneObservations, runDueWatches, simulatedCollectors, type FetchLike } from "@adw/watch";
 import { dueChases, purgeExpired } from "@adw/uploads";
 import { resolveObjectStore } from "@adw/vendors";
 import { advanceDunning } from "@adw/billing";
@@ -30,6 +31,7 @@ import { registerActivities } from "./activities.ts";
 import { Scheduler } from "./scheduler.ts";
 import {
   clocksJob,
+  watchJob,
   deliverabilityJob,
   documentsJob,
   protocolEscalationJob,
@@ -185,6 +187,9 @@ async function drainSimulatedFeedback(database: typeof db): Promise<void> {
   }
 }
 
+const nodeFetch: FetchLike = (url, init) => fetch(url, init as RequestInit) as unknown as ReturnType<FetchLike>;
+const watchCollectors = forceMock ? simulatedCollectors() : httpCollectors(nodeFetch);
+
 const scheduler = new Scheduler({
   db,
   jobs: [
@@ -292,6 +297,31 @@ const scheduler = new Scheduler({
         );
         return { delivered: true };
       }, at);
+    }),
+    watchJob(async (database, at) => {
+      const summary = await runDueWatches(database, watchCollectors, at);
+      // ⛔ Only the severe findings reach the owner's exception queue; the rest
+      // live on the watch board. A queue that receives every competitor price
+      // tweak is a queue nobody opens, and MF3 exists precisely to keep "needs
+      // a human" separate from "worth knowing".
+      if (summary.findings > 0) {
+        await database.query(
+          `INSERT INTO exceptions (trigger, severity, context, system_action, recommendation, customer_id)
+           SELECT 'watch_' || f.watch_id, f.severity,
+                  jsonb_build_object('findingId', f.id, 'watchId', f.watch_id, 'subject', s.subject),
+                  'watcher reported a change', f.summary, f.customer_id
+             FROM watch_findings f
+             JOIN watch_subscriptions s ON s.id = f.subscription_id
+            WHERE f.found_at = $1 AND f.severity <= 2`,
+          [at],
+        );
+      }
+      // ⛔ Counted out loud. A deployment missing a collector would otherwise
+      // report a clean sweep over subscriptions it never touched.
+      if (summary.uncollectable > 0) {
+        console.warn(`[worker] ${summary.uncollectable} watch subscription(s) have no collector on this deployment`);
+      }
+      await pruneObservations(database, 90, at);
     }),
     deliverabilityJob(async (database) => {
       await drainSimulatedFeedback(database);

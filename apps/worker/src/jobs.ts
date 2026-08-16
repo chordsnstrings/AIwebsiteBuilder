@@ -136,6 +136,23 @@ export function clocksJob(run: (db: Db, now: Date) => Promise<unknown>): Job {
   };
 }
 
+/**
+ * Watchers for the customer's market (MF7).
+ *
+ * ⛔ Hourly, because the shortest cadence in the catalogue is one hour and the
+ * runner applies each watch's own cadence per row. A blanket 15-minute sweep
+ * would run a weekly competitor-price watch 672 times a week to fetch the same
+ * page, which is how a watcher gets a customer's IP blocked by the site it is
+ * watching.
+ */
+export function watchJob(run: (db: Db, now: Date) => Promise<unknown>): Job {
+  return {
+    name: "market_watchers",
+    intervalMs: 60 * 60_000,
+    run: async ({ db, now }) => void (await run(db, now)),
+  };
+}
+
 /** Dunning: advance any subscription whose next action is due (spec §29). */
 export function dunningJob(advance: (db: Db, subscriptionId: string) => Promise<unknown>): Job {
   return {

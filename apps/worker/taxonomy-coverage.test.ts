@@ -112,3 +112,20 @@ describe("⛔ every trade has clocks, cases and journeys", () => {
     }
   });
 });
+
+describe("⛔ every trade is watched", () => {
+  it("resolves at least one watch, and every one of them is collectable in demo", async () => {
+    // A watch whose source has no collector is refused at subscribe time, so a
+    // trade whose entire watch list is uncollectable would get a board with
+    // nothing on it and no error anywhere.
+    const { watchesFor, simulatedCollectors } = await import("@adw/watch");
+    const demo = simulatedCollectors();
+    for (const t of allTrades()) {
+      const watches = watchesFor(t);
+      expect(watches.length, `watches for ${t}`).toBeGreaterThan(0);
+      for (const w of watches) {
+        expect(demo[w.source], `${t}/${w.id} source ${w.source}`).toBeDefined();
+      }
+    }
+  });
+});

@@ -1,0 +1,229 @@
+# Watchers for the customer's market (catalogue MF7 — 92 units).
+#
+# The Sentinel watches OUR vendors. These 92 units are the same machine pointed
+# outward: at the customer's reviews, their listing, their ranking, a
+# competitor's prices, a register they appear on, a rule that changed. Nothing
+# in this system looked outward on a customer's behalf.
+#
+# A watch is: a SOURCE (which collector fetches it), a CADENCE, and a
+# MATERIALITY rule (what counts as worth telling a human about).
+#
+# ⛔ Materiality is not optional and `any_change` is used sparingly. A watch
+# that reports every difference reports the timestamp in a page footer, and the
+# owner learns to ignore the whole board — which is indistinguishable from not
+# watching.
+#
+# ⛔ Nothing here acts. Every unit in this family "flags, never clears". A price
+# change is reported; whether to match it is the owner's business.
+#
+# Rules available (closed set — the loader rejects anything else):
+#   any_change     the value's hash differs
+#   numeric_drop   value.<field> fell by `by` (absolute) or `pct`
+#   numeric_rise   ...rose
+#   new_items      value.items[] gained entries not seen before
+#   removed_items  value.items[] lost entries
+#   text_appeared  any of `terms` appears in the value's text
+
+version: 1
+
+watches:
+  # -- reputation ------------------------------------------------------------
+  reviews_new:
+    label: "New reviews"
+    source: reviews
+    cadence_hours: 6
+    severity: 3
+    rule: { kind: new_items }
+  reviews_rating_drop:
+    label: "Average rating fell"
+    source: reviews
+    cadence_hours: 12
+    severity: 2
+    rule: { kind: numeric_drop, field: rating, by: 0.2 }
+  brand_mentions:
+    label: "Mentions of the business"
+    source: index
+    cadence_hours: 24
+    severity: 4
+    rule: { kind: new_items }
+
+  # -- their own presence ----------------------------------------------------
+  listing_changed:
+    label: "Business listing edited"
+    source: listing
+    cadence_hours: 12
+    severity: 2
+    # ⛔ any_change is right here and almost nowhere else: an unexplained edit to
+    # opening hours or a phone number on a listing the owner does not control is
+    # the whole point, and there is no "small" version of it.
+    rule: { kind: any_change }
+  site_availability:
+    label: "Website reachable"
+    source: uptime
+    cadence_hours: 1
+    severity: 1
+    rule: { kind: numeric_drop, field: up, by: 1 }
+  search_visibility:
+    label: "Search position for key terms"
+    source: serp
+    cadence_hours: 24
+    severity: 3
+    rule: { kind: numeric_rise, field: position, by: 3 }
+
+  # -- competitors -----------------------------------------------------------
+  competitor_pricing:
+    label: "Competitor price list changed"
+    source: web_page
+    cadence_hours: 168
+    severity: 4
+    rule: { kind: any_change }
+  competitor_new_entrant:
+    label: "New competitor in the area"
+    source: index
+    cadence_hours: 168
+    severity: 4
+    rule: { kind: new_items }
+
+  # -- rules that change under them ------------------------------------------
+  regulator_bulletin:
+    label: "Regulator bulletin"
+    source: feed
+    cadence_hours: 24
+    severity: 2
+    rule: { kind: new_items }
+  legislation_change:
+    label: "Legislation affecting this trade"
+    source: feed
+    cadence_hours: 24
+    severity: 2
+    rule: { kind: new_items }
+  guidance_update:
+    label: "Professional guidance updated"
+    source: feed
+    cadence_hours: 24
+    severity: 3
+    rule: { kind: new_items }
+  standards_update:
+    label: "Technical standard revised"
+    source: feed
+    cadence_hours: 168
+    severity: 3
+    rule: { kind: new_items }
+  safeguarding_guidance:
+    label: "Safeguarding guidance updated"
+    source: feed
+    cadence_hours: 24
+    severity: 1
+    rule: { kind: new_items }
+
+  # -- registers the business appears on -------------------------------------
+  register_status:
+    label: "Public register entry"
+    source: register
+    cadence_hours: 24
+    severity: 1
+    # A registration lapsing, a licence being suspended, a rating being
+    # downgraded. Any movement on a register entry is the owner's business.
+    rule: { kind: any_change }
+  hygiene_rating:
+    label: "Food hygiene rating"
+    source: register
+    cadence_hours: 24
+    severity: 1
+    rule: { kind: numeric_drop, field: rating, by: 1 }
+  inspection_published:
+    label: "Inspection report published"
+    source: register
+    cadence_hours: 24
+    severity: 1
+    rule: { kind: new_items }
+  licensing_scheme:
+    label: "Local licensing scheme change"
+    source: feed
+    cadence_hours: 168
+    severity: 2
+    rule: { kind: new_items }
+
+  # -- demand and supply -----------------------------------------------------
+  severe_weather:
+    label: "Severe weather in the service area"
+    source: weather
+    cadence_hours: 3
+    severity: 2
+    rule: { kind: text_appeared, terms: [storm, flood, freeze, snow, gale] }
+  materials_price:
+    label: "Materials price index"
+    source: index
+    cadence_hours: 168
+    severity: 4
+    rule: { kind: numeric_rise, field: index, pct: 5 }
+  supplier_stock:
+    label: "Supplier stock or price"
+    source: marketplace
+    cadence_hours: 24
+    severity: 4
+    rule: { kind: any_change }
+  marketplace_position:
+    label: "Marketplace listing position"
+    source: marketplace
+    cadence_hours: 24
+    severity: 4
+    rule: { kind: numeric_rise, field: position, by: 3 }
+
+  # -- work coming up for tender --------------------------------------------
+  tender_notices:
+    label: "Tenders and contract notices"
+    source: feed
+    cadence_hours: 24
+    severity: 3
+    rule: { kind: new_items }
+  planning_applications:
+    label: "Planning applications in the area"
+    source: feed
+    cadence_hours: 24
+    severity: 4
+    rule: { kind: new_items }
+  property_listings:
+    label: "New listings in the patch"
+    source: index
+    cadence_hours: 12
+    severity: 4
+    rule: { kind: new_items }
+
+  # -- money -----------------------------------------------------------------
+  interest_or_rate_change:
+    label: "Rate or index used in pricing"
+    source: index
+    cadence_hours: 168
+    severity: 3
+    rule: { kind: any_change }
+  insurer_panel_change:
+    label: "Insurer or funder panel change"
+    source: feed
+    cadence_hours: 168
+    severity: 3
+    rule: { kind: new_items }
+
+# Every archetype watches its own reputation, its own listing and its own site.
+# The rest is what actually differs between a plumber and a nursery.
+archetype_watches:
+  A: [reviews_new, reviews_rating_drop, listing_changed, site_availability, search_visibility,
+      competitor_pricing, severe_weather, materials_price, brand_mentions]
+  B: [reviews_new, reviews_rating_drop, listing_changed, site_availability, search_visibility,
+      competitor_pricing, competitor_new_entrant, brand_mentions]
+  C: [reviews_new, reviews_rating_drop, listing_changed, site_availability, search_visibility,
+      register_status, regulator_bulletin, legislation_change, guidance_update, brand_mentions]
+  D: [reviews_new, reviews_rating_drop, listing_changed, site_availability, search_visibility,
+      competitor_pricing, materials_price, planning_applications, standards_update, severe_weather]
+  E: [reviews_new, listing_changed, site_availability, search_visibility, competitor_pricing,
+      tender_notices, register_status, standards_update, insurer_panel_change, brand_mentions]
+  F: [reviews_new, reviews_rating_drop, listing_changed, site_availability, search_visibility,
+      hygiene_rating, licensing_scheme, competitor_pricing, severe_weather, brand_mentions]
+  G: [reviews_new, reviews_rating_drop, listing_changed, site_availability, search_visibility,
+      register_status, regulator_bulletin, guidance_update, inspection_published, brand_mentions]
+  H: [reviews_new, reviews_rating_drop, listing_changed, site_availability, search_visibility,
+      inspection_published, safeguarding_guidance, regulator_bulletin, register_status, brand_mentions]
+  I: [reviews_new, reviews_rating_drop, listing_changed, site_availability, search_visibility,
+      legislation_change, licensing_scheme, property_listings, interest_or_rate_change, competitor_pricing]
+  J: [reviews_new, reviews_rating_drop, listing_changed, site_availability, search_visibility,
+      supplier_stock, marketplace_position, competitor_pricing, brand_mentions]

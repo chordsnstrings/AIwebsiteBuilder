@@ -49,6 +49,16 @@ import {
   upcomingReminders,
 } from "@adw/journeys";
 import { cancelBooking, claimSlot } from "@adw/scheduling";
+import {
+  acknowledgeFinding,
+  dismissFinding,
+  openFindings,
+  pauseWatch,
+  subscribeWatch,
+  watchBoard,
+  watchesFor,
+  type Collectors,
+} from "@adw/watch";
 import { handleMcpCall, mcpManifest, MCP_TOOLS, type McpContext, type RefusalChecker } from "@adw/mcp";
 import type { SessionUser } from "@adw/auth";
 import { enqueueIntent, executionId } from "@adw/workflows";
@@ -65,6 +75,10 @@ export interface AgentRouteDeps {
   /** Absent means the upload routes refuse with 503 rather than silently
    *  accepting files nothing stores. */
   uploads?: UploadDeps;
+  /** ⛔ Absent means the watch routes refuse with 503. The same rule as
+   *  uploads: a subscription this deployment cannot collect looks identical on
+   *  every board to one that runs and finds nothing. */
+  watchCollectors?: Collectors;
 }
 
 // ---------------------------------------------------------------------------
@@ -787,6 +801,80 @@ export function agentRoutes(deps: AgentRouteDeps): Hono<{ Variables: { user: Ses
       ...(typeof b.contact === "string" ? { contact: b.contact.trim() } : {}),
     });
     return c.json({ ok: true, stopped });
+  });
+
+  // -------------------------------------------------------------------------
+  // Watchers (MF7)
+  // -------------------------------------------------------------------------
+
+  app.get("/agent/:customerId/watches", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const customerId = c.req.param("customerId");
+    if (!UUID_RE.test(customerId)) return c.json({ error: "bad customerId" }, 400);
+    const vertical = await verticalOf(db, customerId);
+    if (vertical === null) return c.json({ error: "unknown customer" }, 404);
+    return c.json({
+      available: watchesFor(vertical).map((w) => ({
+        id: w.id, label: w.label, source: w.source, cadenceHours: w.cadenceHours, severity: w.severity,
+        // ⛔ Whether this deployment can actually run it, stated up front. A
+        // list that offers a watch nothing can collect is a list of promises.
+        collectable: deps.watchCollectors !== undefined && deps.watchCollectors[w.source] !== undefined,
+      })),
+      board: await watchBoard(db, customerId),
+    });
+  });
+
+  app.post("/agent/:customerId/watches", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const customerId = c.req.param("customerId");
+    if (!UUID_RE.test(customerId)) return c.json({ error: "bad customerId" }, 400);
+    if (deps.watchCollectors === undefined) {
+      return c.json({ error: "watches are not configured on this deployment" }, 503);
+    }
+    const b = (await c.req.json().catch(() => ({}))) as { watchId?: string; subject?: string; params?: Record<string, unknown> };
+    if (typeof b.watchId !== "string" || typeof b.subject !== "string" || b.subject.trim() === "") {
+      return c.json({ error: "watchId and subject are required" }, 400);
+    }
+    const vertical = await verticalOf(db, customerId);
+    if (vertical === null) return c.json({ error: "unknown customer" }, 404);
+    const out = await subscribeWatch(
+      db,
+      { customerId, vertical, watchId: b.watchId, subject: b.subject.trim(), params: b.params },
+      deps.watchCollectors,
+    );
+    if (!out.ok) return c.json({ error: out.reason, detail: out.detail }, out.reason === "unknown_watch" ? 400 : 503);
+    return c.json({ ok: true, subscriptionId: out.id, created: out.created });
+  });
+
+  app.post("/agent/watches/:subscriptionId/pause", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const id = c.req.param("subscriptionId");
+    if (!UUID_RE.test(id)) return c.json({ error: "bad subscriptionId" }, 400);
+    return (await pauseWatch(db, id)) ? c.json({ ok: true }) : c.json({ error: "unknown or already paused" }, 404);
+  });
+
+  app.get("/agent/:customerId/findings", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const customerId = c.req.param("customerId");
+    if (!UUID_RE.test(customerId)) return c.json({ error: "bad customerId" }, 400);
+    return c.json({ findings: await openFindings(db, customerId) });
+  });
+
+  app.post("/agent/findings/:findingId/acknowledge", async (c) => {
+    const operator = user(c);
+    if (operator === null) return c.json({ error: "unauthorised" }, 401);
+    const id = c.req.param("findingId");
+    if (!UUID_RE.test(id)) return c.json({ error: "bad findingId" }, 400);
+    return (await acknowledgeFinding(db, id, operator.email))
+      ? c.json({ ok: true })
+      : c.json({ error: "unknown or already handled" }, 404);
+  });
+
+  app.post("/agent/findings/:findingId/dismiss", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const id = c.req.param("findingId");
+    if (!UUID_RE.test(id)) return c.json({ error: "bad findingId" }, 400);
+    return (await dismissFinding(db, id)) ? c.json({ ok: true }) : c.json({ error: "unknown or already dismissed" }, 404);
   });
 
   return app;
