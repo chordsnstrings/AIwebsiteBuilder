@@ -188,6 +188,12 @@ export const config = {
     const raw = readFileSync(join(CONFIG_DIR, "verticals.yaml"), "utf8");
     return { data: parse(raw), version: "verticals@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
   },
+  /** Document requirement packs (MF6). Sensitive: identity-document retention
+   *  periods live here. */
+  documentPacks: () => {
+    const raw = readFileSync(join(CONFIG_DIR, "document-packs.yaml"), "utf8");
+    return { data: parse(raw), version: "document-packs@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
+  },
   protocols: () => {
     const raw = readFileSync(join(CONFIG_DIR, "protocols.yaml"), "utf8");
     return { data: parse(raw), version: "protocols@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };

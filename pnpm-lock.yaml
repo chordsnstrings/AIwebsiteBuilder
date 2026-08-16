@@ -129,6 +129,9 @@ importers:
       '@adw/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry
+      '@adw/uploads':
+        specifier: workspace:*
+        version: link:../../packages/uploads
       '@adw/vault':
         specifier: workspace:*
         version: link:../../packages/vault
@@ -319,6 +322,9 @@ importers:
       '@adw/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry
+      '@adw/uploads':
+        specifier: workspace:*
+        version: link:../../packages/uploads
       '@adw/vault':
         specifier: workspace:*
         version: link:../../packages/vault
@@ -740,6 +746,24 @@ importers:
       '@types/react-dom':
         specifier: ^18.3.5
         version: 18.3.7(@types/react@18.3.31)
+
+  packages/uploads:
+    dependencies:
+      '@adw/config':
+        specifier: workspace:*
+        version: link:../config
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+      '@adw/taxonomy':
+        specifier: workspace:*
+        version: link:../taxonomy
+      '@adw/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
+      '@adw/vendors':
+        specifier: workspace:*
+        version: link:../vendors
 
   packages/vault:
     dependencies:

@@ -37,6 +37,7 @@
     "@adw/inbound": "workspace:*",
     "@adw/protocol": "workspace:*",
     "@adw/designer": "workspace:*",
-    "@adw/taxonomy": "workspace:*"
+    "@adw/taxonomy": "workspace:*",
+    "@adw/uploads": "workspace:*"
   }
 }

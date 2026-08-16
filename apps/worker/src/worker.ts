@@ -9,6 +9,8 @@ import { evaluateAssetHealth } from "@adw/fleet";
 import { EMAIL_VENDOR_IDS, getEmailTransport } from "@adw/vendors";
 import { applyEmailFeedback } from "@adw/inbound";
 import { runEscalations } from "@adw/protocol";
+import { dueChases, purgeExpired } from "@adw/uploads";
+import { resolveObjectStore } from "@adw/vendors";
 import { advanceDunning } from "@adw/billing";
 import { config } from "@adw/config";
 import { Engine } from "@adw/workflows";
@@ -27,6 +29,7 @@ import { registerActivities } from "./activities.ts";
 import { Scheduler } from "./scheduler.ts";
 import {
   deliverabilityJob,
+  documentsJob,
   protocolEscalationJob,
   dunningJob,
   intentDispatcherJob,
@@ -214,6 +217,30 @@ const scheduler = new Scheduler({
         return { delivered: true, detail: `exception raised for ${n.notifyRole}` };
       }, at),
     ),
+    documentsJob(async (database, at) => {
+      // Chases first: an outstanding document is worth more than a tidy bucket.
+      for (const chase of await dueChases(database, at)) {
+        // ⛔ Raised as an exception rather than emailed from here. The gate is
+        // the sole route to transport, and a chase is an outbound message to
+        // someone who may have unsubscribed since the pack was opened.
+        await database.query(
+          `INSERT INTO exceptions (trigger, severity, context, system_action, recommendation)
+           VALUES ('document_chase_due', 4, $1, 'chase scheduled', $2)`,
+          [
+            JSON.stringify({
+              requestId: chase.requestId,
+              customerId: chase.customerId,
+              subjectRef: chase.subjectRef,
+              outstanding: chase.outstanding.map((o) => o.key),
+              chaseNumber: chase.chaseNumber,
+            }),
+            `Send chase ${chase.chaseNumber} for "${chase.packLabel}" — ${chase.outstanding.length} item(s) outstanding.`,
+          ],
+        );
+      }
+      const store = await resolveObjectStore({ vault, forceMock });
+      await purgeExpired({ db: database, store, now: () => at });
+    }),
     deliverabilityJob(async (database) => {
       await drainSimulatedFeedback(database);
       await sweepDeliverability(database);

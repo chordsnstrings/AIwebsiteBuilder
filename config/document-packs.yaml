@@ -1,0 +1,151 @@
+# Document requirement packs (catalogue MF6 — 100 units).
+#
+# A pack is "these are the things we need from this person before the job can
+# proceed". The catalogue describes 100 variations of exactly that, and says the
+# same thing about almost all of them:
+#
+#     "Collects and tracks on schedule; performs no assessment"
+#     "Scheduled collection and tracking, no assessment"
+#
+# ⛔ That is the load-bearing constraint and the runtime enforces it. An item is
+# `outstanding` or `received`. It is never `valid`, `accepted`, `approved` or
+# `sufficient`, because deciding whether a certificate is genuine, current and
+# adequate is the professional judgement the customer is licensed for and we are
+# not. A clerk that grades a document has replaced its owner's liability with
+# ours.
+#
+# `expires_on` is a date TRANSCRIBED from a document, never inferred, and it
+# feeds a reminder — never a pass/fail.
+#
+# Packs resolve per ARCHETYPE with per-trade overrides, like every other
+# per-vertical default in this system.
+
+version: 1
+
+# How often we ask again, in hours since the last chase.
+# ⛔ Widening, and finite. A pack that chases forever is a pack the recipient
+# marks as spam, and then the NEXT business using us cannot reach them either.
+chase_schedule: [24, 72, 168, 336]
+max_chases: 4
+
+archetype_packs:
+  A:   # emergency trades — almost nothing before the job; the job is now
+    - id: emergency_access
+      label: "Access and site details"
+      items:
+        - { key: access_notes, label: "How to get in (gate codes, parking, keys)", mandatory: false }
+        - { key: site_photo, label: "A photo of the problem", mandatory: false }
+  B:   # booked personal services
+    - id: treatment_intake
+      label: "Before your appointment"
+      items:
+        - { key: health_questionnaire, label: "Health and allergy questionnaire", mandatory: true }
+        - { key: consent_form, label: "Signed treatment consent", mandatory: true }
+        - { key: patch_test_record, label: "Patch test record (where the treatment requires one)", mandatory: false }
+  C:   # regulated professions — the heaviest packs in the product
+    - id: client_onboarding
+      label: "Client onboarding and identity"
+      items:
+        - { key: photo_id, label: "Photo identification", mandatory: true, retention_days: 2555 }
+        - { key: proof_of_address, label: "Proof of address dated within 3 months", mandatory: true }
+        - { key: engagement_letter, label: "Signed engagement letter", mandatory: true }
+        - { key: source_of_funds, label: "Source of funds declaration", mandatory: false }
+    - id: matter_documents
+      label: "Documents for your matter"
+      items:
+        - { key: prior_correspondence, label: "Any prior correspondence", mandatory: false }
+        - { key: contracts, label: "Relevant contracts or agreements", mandatory: false }
+  D:   # project trades
+    - id: project_scope
+      label: "Before we quote"
+      items:
+        - { key: site_photos, label: "Photographs of the area", mandatory: true }
+        - { key: measurements, label: "Measurements or a plan, if you have one", mandatory: false }
+        - { key: planning_reference, label: "Planning or building-control reference", mandatory: false }
+  E:   # recurring B2B
+    - id: supplier_onboarding
+      label: "Supplier onboarding"
+      items:
+        - { key: company_registration, label: "Company registration certificate", mandatory: true }
+        - { key: insurance_certificate, label: "Public liability insurance certificate", mandatory: true }
+        - { key: vat_registration, label: "VAT or tax registration", mandatory: false }
+        - { key: signed_contract, label: "Signed contract", mandatory: true }
+        - { key: bank_details_form, label: "Bank details on company letterhead", mandatory: true }
+  F:   # hospitality and venues
+    - id: event_booking
+      label: "To confirm your booking"
+      items:
+        - { key: signed_booking_form, label: "Signed booking form", mandatory: true }
+        - { key: deposit_confirmation, label: "Deposit payment confirmation", mandatory: true }
+        - { key: dietary_requirements, label: "Dietary and access requirements", mandatory: false }
+        - { key: run_sheet, label: "Event run sheet or schedule", mandatory: false }
+  G:   # clinical and health
+    - id: patient_intake
+      label: "Before your appointment"
+      items:
+        - { key: medical_history, label: "Medical history form", mandatory: true, retention_days: 2555 }
+        - { key: consent_to_treat, label: "Consent to treatment", mandatory: true, retention_days: 2555 }
+        - { key: referral_letter, label: "Referral letter, if you have one", mandatory: false }
+        - { key: insurance_details, label: "Insurance details", mandatory: false }
+  H:   # education and training
+    - id: enrolment
+      label: "Enrolment paperwork"
+      items:
+        - { key: application_form, label: "Completed application form", mandatory: true }
+        - { key: transcripts, label: "Academic transcripts", mandatory: true }
+        - { key: references, label: "References", mandatory: true }
+        - { key: personal_statement, label: "Personal statement", mandatory: false }
+        - { key: photo_id, label: "Photo identification", mandatory: true }
+  I:   # property and lettings
+    - id: tenancy_referencing
+      label: "Referencing for your tenancy"
+      items:
+        - { key: photo_id, label: "Photo identification", mandatory: true, retention_days: 2555 }
+        - { key: right_to_rent, label: "Right to rent documentation", mandatory: true, retention_days: 2555 }
+        - { key: proof_of_income, label: "Proof of income", mandatory: true }
+        - { key: landlord_reference, label: "Previous landlord reference", mandatory: false }
+        - { key: signed_tenancy, label: "Signed tenancy agreement", mandatory: true }
+  J:   # retail — the catalogue marks this a weak fit; nothing to collect
+    - id: none
+      label: "No document pack"
+      items: []
+
+# ---------------------------------------------------------------------------
+# Per-trade overrides. Only where a trade genuinely differs from its archetype.
+# ---------------------------------------------------------------------------
+trade_packs:
+  veterinary:
+    - id: boarding_records
+      label: "Before your pet stays with us"
+      items:
+        - { key: vaccination_record, label: "Up-to-date vaccination record", mandatory: true }
+        - { key: vet_contact, label: "Your usual vet's details", mandatory: true }
+        - { key: medication_notes, label: "Medication and feeding notes", mandatory: false }
+  childcare:
+    - id: child_registration
+      label: "Registration"
+      items:
+        - { key: birth_certificate, label: "Birth certificate", mandatory: true, retention_days: 2555 }
+        - { key: immunisation_record, label: "Immunisation record", mandatory: true, retention_days: 2555 }
+        - { key: collection_authority, label: "Authorised collection list", mandatory: true, retention_days: 2555 }
+        - { key: allergy_action_plan, label: "Allergy action plan, where one applies", mandatory: false, retention_days: 2555 }
+        - { key: parental_consent, label: "Signed parental consent forms", mandatory: true, retention_days: 2555 }
+  freight_forwarder:
+    - id: customs_pack
+      label: "Customs documentation"
+      items:
+        - { key: commercial_invoice, label: "Commercial invoice", mandatory: true }
+        - { key: packing_list, label: "Packing list", mandatory: true }
+        - { key: certificate_of_origin, label: "Certificate of origin", mandatory: false }
+        - { key: dangerous_goods_declaration, label: "Dangerous goods declaration, where applicable", mandatory: false }
+        - { key: bill_of_lading, label: "Bill of lading or airway bill", mandatory: true }
+  immigration_consultant:
+    - id: visa_application
+      label: "Visa application documents"
+      items:
+        - { key: passport, label: "Passport", mandatory: true, retention_days: 2555 }
+        - { key: photographs, label: "Passport photographs", mandatory: true }
+        - { key: proof_of_funds, label: "Proof of funds", mandatory: true }
+        - { key: sponsor_letter, label: "Sponsor or employer letter", mandatory: false }
+        - { key: medical_certificate, label: "Medical certificate", mandatory: false }
+        - { key: police_clearance, label: "Police clearance certificate", mandatory: false }

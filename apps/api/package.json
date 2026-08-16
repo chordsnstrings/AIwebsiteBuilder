@@ -35,6 +35,7 @@
     "@adw/kb": "workspace:*",
     "@adw/architect": "workspace:*",
     "@adw/vendors": "workspace:*",
-    "@adw/inbound": "workspace:*"
+    "@adw/inbound": "workspace:*",
+    "@adw/uploads": "workspace:*"
   }
 }

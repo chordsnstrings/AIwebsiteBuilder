@@ -30,6 +30,14 @@ import {
   type ConciergeDeps,
 } from "@adw/concierge";
 import { approvePack, loadQAPack, type QAPack } from "@adw/qapack";
+import {
+  UnsupportedUploadError,
+  acceptUpload,
+  attachDocument,
+  loadRequest,
+  readUpload,
+  type UploadDeps,
+} from "@adw/uploads";
 import { handleMcpCall, mcpManifest, MCP_TOOLS, type McpContext, type RefusalChecker } from "@adw/mcp";
 import type { SessionUser } from "@adw/auth";
 import { enqueueIntent, executionId } from "@adw/workflows";
@@ -43,6 +51,9 @@ export interface AgentRouteDeps {
   concierge?: Omit<ConciergeDeps, "db">;
   /** Test hook, mirroring createApp. */
   authOverride?: SessionUser | null;
+  /** Absent means the upload routes refuse with 503 rather than silently
+   *  accepting files nothing stores. */
+  uploads?: UploadDeps;
 }
 
 // ---------------------------------------------------------------------------
@@ -471,6 +482,123 @@ export function agentRoutes(deps: AgentRouteDeps): Hono<{ Variables: { user: Ses
       // not found, so a human has to start onboarding by hand.
       onboardingReleased: lead !== null,
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Uploads (MF6, MF9) — the primitive 112 catalogue units were blocked on
+  // -------------------------------------------------------------------------
+  //
+  // ⛔ There was no upload route anywhere in the API. Not a stub, not a
+  // half-built one: none. 100 document-collection units and 12 vision units
+  // were dead on arrival for want of a way to receive a file.
+  //
+  // Public by design, like the rest of the visitor surface — a customer sending
+  // photographs of a leak has no account. The protections are content sniffing,
+  // size caps, a scan gate that fails closed, and unguessable keys, NOT a login.
+
+  app.post("/agent/uploads", async (c) => {
+    const form = await c.req.formData().catch(() => null);
+    if (form === null) return c.json({ error: "expected a multipart form" }, 400);
+    const file = form.get("file");
+    if (typeof file === "string" || file === null) return c.json({ error: "no file in the form" }, 400);
+
+    const sessionId = form.get("sessionId");
+    if (typeof sessionId !== "string" || !UUID_RE.test(sessionId)) {
+      return c.json({ error: "a valid sessionId is required" }, 400);
+    }
+    const session = await loadSession(db, sessionId);
+    if (session === null) return c.json({ error: "unknown session" }, 404);
+
+    if (deps.uploads === undefined) {
+      // ⛔ Refused loudly rather than accepted and dropped. A 200 on an upload
+      // nobody stored is the shape of bug this whole audit kept finding.
+      return c.json({ error: "uploads are not configured on this deployment" }, 503);
+    }
+
+    const bytes = Buffer.from(await file.arrayBuffer());
+    try {
+      const accepted = await acceptUpload(
+        {
+          bytes,
+          declaredName: file.name ?? "upload",
+          ...(session.customerId === undefined ? {} : { customerId: session.customerId }),
+          ...(session.businessId === undefined ? {} : { businessId: session.businessId }),
+          sessionId: session.id,
+          uploadedBy: "visitor",
+        },
+        deps.uploads,
+      );
+      return c.json({
+        uploadId: accepted.id,
+        kind: accepted.kind,
+        bytes: accepted.bytes,
+        deduplicated: accepted.deduplicated,
+        // ⛔ Never the storage key. It is the capability — anyone holding it and
+        // a bucket URL has the file.
+      });
+    } catch (err) {
+      if (err instanceof UnsupportedUploadError) return c.json({ error: err.message }, 415);
+      throw err;
+    }
+  });
+
+  /** Owner-only. Every read is logged before the bytes move. */
+  app.get("/agent/uploads/:uploadId", async (c) => {
+    const operator = user(c);
+    if (operator === null) return c.json({ error: "unauthorised" }, 401);
+    const uploadId = c.req.param("uploadId");
+    if (!UUID_RE.test(uploadId)) return c.json({ error: "bad uploadId" }, 400);
+    if (deps.uploads === undefined) return c.json({ error: "uploads are not configured" }, 503);
+    try {
+      const found = await readUpload(uploadId, operator.email, deps.uploads);
+      c.header("content-type", found.mime);
+      // ⛔ Always an attachment, never inline. A PDF rendered inline on our
+      // origin is a script running on our origin.
+      c.header("content-disposition", `attachment; filename="${found.name.replace(/"/g, "")}"`);
+      c.header("x-content-type-options", "nosniff");
+      return c.body(new Uint8Array(found.bytes));
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "unavailable" }, 404);
+    }
+  });
+
+  /** What is still outstanding on a document request. Public via the session
+   *  that owns it, because the person filling it in has no account. */
+  app.get("/agent/documents/:requestId", async (c) => {
+    const requestId = c.req.param("requestId");
+    if (!UUID_RE.test(requestId)) return c.json({ error: "bad requestId" }, 400);
+    const record = await loadRequest(db, requestId);
+    if (record === null) return c.json({ error: "unknown request" }, 404);
+    return c.json({
+      requestId: record.id,
+      label: record.label,
+      state: record.state,
+      outstanding: record.outstanding,
+      // ⛔ `received`, never `valid`. The clerk collects; it performs no
+      // assessment, and a status word implying otherwise moves the customer's
+      // professional judgement onto us.
+      received: record.received.map((r) => ({ key: r.key, label: r.label, status: "received" })),
+    });
+  });
+
+  app.post("/agent/documents/:requestId/items/:itemKey", async (c) => {
+    const requestId = c.req.param("requestId");
+    const itemKey = c.req.param("itemKey");
+    if (!UUID_RE.test(requestId)) return c.json({ error: "bad requestId" }, 400);
+    const b = (await c.req.json().catch(() => ({}))) as { uploadId?: string; expiresOn?: string; note?: string };
+    if (typeof b.uploadId !== "string" || !UUID_RE.test(b.uploadId)) {
+      return c.json({ error: "a valid uploadId is required" }, 400);
+    }
+    const expires = b.expiresOn === undefined ? undefined : new Date(b.expiresOn);
+    if (expires !== undefined && Number.isNaN(expires.getTime())) {
+      return c.json({ error: "expiresOn is not a date" }, 400);
+    }
+    const out = await attachDocument(db, requestId, itemKey, b.uploadId, {
+      expiresOn: expires,
+      note: b.note,
+    });
+    if (!out.attached) return c.json({ error: "no such item on that request" }, 404);
+    return c.json({ ok: true, complete: out.complete });
   });
 
   return app;

@@ -102,6 +102,22 @@ export function protocolEscalationJob(run: (db: Db, now: Date) => Promise<unknow
   };
 }
 
+/**
+ * Document chases (MF6) and upload retention.
+ *
+ * ⛔ Hourly, and the retention half is not optional. An identity document with
+ * no expiry is an identity document kept forever by accident, and the storage
+ * layer sets a retain_until on every row precisely so something has to come
+ * along and honour it. A retention policy nothing enforces is a paragraph.
+ */
+export function documentsJob(run: (db: Db, now: Date) => Promise<unknown>): Job {
+  return {
+    name: "documents_and_retention",
+    intervalMs: 60 * 60_000,
+    run: async ({ db, now }) => void (await run(db, now)),
+  };
+}
+
 /** Dunning: advance any subscription whose next action is due (spec §29). */
 export function dunningJob(advance: (db: Db, subscriptionId: string) => Promise<unknown>): Job {
   return {
