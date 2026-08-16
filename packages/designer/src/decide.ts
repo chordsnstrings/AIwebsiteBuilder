@@ -42,7 +42,16 @@ export interface DesignerDeps {
   propose?: (input: DesignerInput, options: ReturnType<typeof openOptions>) => Promise<DesignProposal>;
 }
 
-const DEFAULT_SECTIONS = ["proof", "services", "work", "about", "contact"];
+/**
+ * The sections below the hero, in the order they rotate.
+ *
+ * ⛔ `contact` is NOT in here. Rotating all five put contact third of five on a
+ * roofer and fourth on a plumber, with the service list arriving after it — a
+ * page that asks for the call before it has said what it does. Contact is
+ * terminal by function, so it is appended rather than shuffled.
+ */
+const ROTATING_SECTIONS = ["proof", "services", "work", "about"];
+const TERMINAL_SECTION = "contact";
 
 /**
  * A stable index derived from the business id. Two businesses in one vertical
@@ -123,10 +132,15 @@ export function chooseDeterministic(input: DesignerInput): Omit<DesignManifest, 
   const parallax =
     motionRow?.parallax_allowed === true && rules.forbid?.includes("photographic_motion") !== true && input.imageCount >= 3;
 
-  // Rotate the section order too. Two sites with the same archetype still read
-  // differently if the page tells its story in a different order.
-  const rot = seedIndex(`${input.businessId}:order`, DEFAULT_SECTIONS.length);
-  const sectionOrder = [...DEFAULT_SECTIONS.slice(rot), ...DEFAULT_SECTIONS.slice(0, rot)];
+  // Rotate the story too. Two sites with the same archetype still read
+  // differently if the page makes its case in a different order — proof first
+  // is a different argument from services first.
+  const rot = seedIndex(`${input.businessId}:order`, ROTATING_SECTIONS.length);
+  const sectionOrder = [
+    ...ROTATING_SECTIONS.slice(rot),
+    ...ROTATING_SECTIONS.slice(0, rot),
+    TERMINAL_SECTION,
+  ];
 
   return {
     businessId: input.businessId,
@@ -141,6 +155,12 @@ export function chooseDeterministic(input: DesignerInput): Omit<DesignManifest, 
       `Chosen deterministically from what the catalogue leaves open for ${input.vertical}: ` +
       `${picked.a} hero, ${picked.p.display} over ${picked.p.text}, ${motion} motion, ${density} density.`,
   };
+}
+
+/** Whatever order was proposed, with contact moved to the end. */
+function orderWithContactLast(proposed: string[]): string[] {
+  const body = proposed.filter((s) => s !== TERMINAL_SECTION);
+  return body.length > 0 ? [...body, TERMINAL_SECTION] : [...ROTATING_SECTIONS, TERMINAL_SECTION];
 }
 
 function paletteFor(input: DesignerInput): DesignManifest["palette"] {
@@ -180,7 +200,11 @@ export async function decideDesign(input: DesignerInput, deps: DesignerDeps = {}
         motion: proposal.motion as MotionVocabulary,
         parallax: proposal.parallax,
         density: proposal.density as Density,
-        sectionOrder: proposal.sectionOrder.length > 0 ? proposal.sectionOrder : DEFAULT_SECTIONS,
+        // ⛔ Contact goes last whatever the model proposed. It is the one
+        // ordering fact that is not a matter of taste, and leaving it to a
+        // proposal means some fraction of customers get the ask before the
+        // pitch.
+        sectionOrder: orderWithContactLast(proposal.sectionOrder),
         rationale: proposal.rationale,
         palette,
         catalogueVersion: version,

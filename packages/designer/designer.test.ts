@@ -220,6 +220,31 @@ describe("⛔ two customers in one trade must not get the same site", () => {
     for (let i = 0; i < 6; i++) orders.add(chooseDeterministic(input({ businessId: `b-${i}` })).sectionOrder.join(","));
     expect(orders.size).toBeGreaterThan(1);
   });
+
+  it("⛔ never rotates contact into the middle of the page", async () => {
+    // Rotating all five sections put contact third of five on the roofer and
+    // fourth on the plumber, with the service list arriving AFTER it — a page
+    // that asks for the call before it has said what it does. Contact is
+    // terminal by function, so it is appended, not shuffled.
+    for (let i = 0; i < 12; i++) {
+      const order = chooseDeterministic(input({ businessId: `b-${i}` })).sectionOrder;
+      expect(order.at(-1), order.join(",")).toBe("contact");
+      expect(order.filter((s) => s === "contact")).toHaveLength(1);
+    }
+    // And a model proposing otherwise is corrected rather than obeyed.
+    const m = await decideDesign(input({ vertical: "auto_repair" }), {
+      propose: async () => ({
+        heroArchetype: "ledger",
+        typePairingId: "archivo_inter",
+        motion: "mechanical",
+        parallax: false,
+        density: "dense",
+        sectionOrder: ["contact", "services", "proof"],
+        rationale: "Lead with the phone number.",
+      }),
+    });
+    expect(m.sectionOrder).toEqual(["services", "proof", "contact"]);
+  });
 });
 
 describe("the model proposes, the catalogue disposes", () => {
