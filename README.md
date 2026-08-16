@@ -35,9 +35,16 @@ pnpm demo                # boots the API + apps and runs the end-to-end demo
   enforcement, per-role cost-per-passing-output budgets, escalation, and an
   eval-selected role registry. No model name appears in agent code
   (lint-enforced).
-- **`packages/agents`** — the agent roster as typed activities with capability
-  unions. Capabilities like `write:config` / `charge:money` do not exist in the
-  type.
+- **`packages/agents`** — the agent roster: 26 typed activities with capability
+  unions, one for each role the registry resolves to a model. Capabilities like
+  `write:config` / `charge:money` do not exist in the type. Six further roles in
+  the system are deterministic code with no model at all and correctly appear in
+  neither list.
+- **`packages/designer`** — decides how a site looks before any markup exists.
+  The model proposes five tokens; `config/design-catalogue.yaml` and a diversity
+  guard dispose. Two businesses in one trade cannot receive the same hero and
+  the same typeface — enforced in code, because the prose version of that rule
+  produced four identical typefaces out of six.
 - **`packages/workflows`** — an in-house journaled-step durable workflow engine
   with Temporal-shaped semantics (durable timers, signals, versioning) and a
   time-skipping test engine. Swappable for Temporal Cloud later.

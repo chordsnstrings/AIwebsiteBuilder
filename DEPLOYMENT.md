@@ -111,6 +111,52 @@ real embedding provider produces a **different vector space**: packs must be
 re-embedded, and `qa_packs.coverage.embeddingProvider` records which one built
 them so mismatches are detectable rather than silently compared.
 
+### How a site gets its design
+
+The website is included and never sold, but it is still the thing the owner
+looks at, and nine sites that read as one template is a churn problem before it
+is an aesthetic one.
+
+Design is decided **before any markup exists**, by `design_decide`
+(`packages/designer`). It emits a nine-field manifest — hero archetype, type
+pairing, motion vocabulary, parallax, density, section order, palette strategy,
+rationale, catalogue version — and that manifest is rendered into the build
+brief between the vertical register and the business facts. The order is
+load-bearing: the builder that meets business facts before it meets the rules
+reverts to a headline over a photograph.
+
+The agent proposes. `config/design-catalogue.yaml` and the diversity guard
+dispose:
+
+- **Catalogue** — every token must exist *and* be permitted for the vertical.
+  Permission is the half that matters: `photographic` motion is a real
+  vocabulary and a real disaster on a pest-control site, where discretion is
+  what is being bought, so that vertical forbids it and no argument from the
+  model overrides it. A token outside the catalogue fails the build; adding one
+  is a pull request, not a runtime decision.
+- **Diversity** — two businesses in one trade must not receive the same
+  archetype × type pairing within a window of 8. Checked against stored
+  manifests, in code.
+
+A proposal failing either is **replaced wholesale**, never patched — a manifest
+half-chosen by a model and half-corrected by code is a design nobody decided.
+The same business always produces the same manifest (the chooser is seeded from
+its id), so a rebuild cannot silently redesign a live site.
+
+⛔ The diversity rule is arithmetic because the prose version was measured and
+failed. Instructed *"two sites in the same vertical must differ"*, the model
+varied layout and then put **four of six sites in the same typeface**. A model
+asked to avoid an attractor still walks to it. The same trap has a second door:
+forcing the `ledger` hero whenever a business publishes a price put **six of
+nine trades on one hero**, because most trades publish something — a preference
+that always wins is a template. Both are regression-tested with the measured
+numbers in `packages/designer/designer.test.ts`.
+
+Every vertical must keep **more archetype × pairing combinations than the
+diversity window**, or the ninth customer in that trade becomes unbuildable
+during a real onboarding. That invariant is asserted against the catalogue, so
+narrowing a vertical fails in CI rather than at 2am.
+
 ### Agent runtime cost
 
 The retrieval path makes **zero model calls** — routing is code, and the answer
