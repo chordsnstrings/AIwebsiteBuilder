@@ -153,6 +153,23 @@ export function watchJob(run: (db: Db, now: Date) => Promise<unknown>): Job {
   };
 }
 
+/**
+ * Releasing approved publications (MF12).
+ *
+ * ⛔ Hourly, and the cadence floor lives in the publisher rather than here. An
+ * owner working through their queue on a Sunday evening approves eight posts in
+ * ten minutes; a job that simply drained the queue would release all eight, and
+ * a business posting eight times in an hour looks automated — which is the one
+ * thing this whole product exists to avoid.
+ */
+export function publishJob(run: (db: Db, now: Date) => Promise<unknown>): Job {
+  return {
+    name: "publish_approved",
+    intervalMs: 60 * 60_000,
+    run: async ({ db, now }) => void (await run(db, now)),
+  };
+}
+
 /** Dunning: advance any subscription whose next action is due (spec §29). */
 export function dunningJob(advance: (db: Db, subscriptionId: string) => Promise<unknown>): Job {
   return {

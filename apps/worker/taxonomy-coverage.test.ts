@@ -145,3 +145,19 @@ describe("⛔ every trade can reconcile something", () => {
     }
   });
 });
+
+describe("⛔ every trade can say something afterwards", () => {
+  it("resolves publishing channels, and nothing that carries a claim publishes unattended", async () => {
+    // The system could build a site and then had no way to say anything. The
+    // rule that keeps that safe is per channel, so it has to hold for all 145
+    // trades and not just the archetypes someone checked.
+    const { channelsFor } = await import("@adw/publish");
+    for (const t of allTrades()) {
+      const channels = channelsFor(t);
+      expect(channels.length, `channels for ${t}`).toBeGreaterThan(0);
+      for (const ch of channels) {
+        if (ch.carriesClaims) expect(ch.approvalRequired, `${t}/${ch.id}`).toBe(true);
+      }
+    }
+  });
+});

@@ -61,6 +61,15 @@ import {
   type IngestLine,
 } from "@adw/reconcile";
 import {
+  approvePublication,
+  channelsFor,
+  draftPublication,
+  pendingApproval,
+  publicationLog,
+  rejectPublication,
+  type Drafter,
+} from "@adw/publish";
+import {
   acknowledgeFinding,
   dismissFinding,
   openFindings,
@@ -90,6 +99,9 @@ export interface AgentRouteDeps {
    *  uploads: a subscription this deployment cannot collect looks identical on
    *  every board to one that runs and finds nothing. */
   watchCollectors?: Collectors;
+  /** ⛔ Absent means the drafting route refuses with 503 rather than
+   *  manufacturing copy from nothing. */
+  drafter?: Drafter;
 }
 
 // ---------------------------------------------------------------------------
@@ -982,6 +994,86 @@ export function agentRoutes(deps: AgentRouteDeps): Hono<{ Variables: { user: Ses
     return out.ok
       ? c.json({ ok: true })
       : c.json({ error: out.reason, ...(out.outstanding === undefined ? {} : { outstanding: out.outstanding }) }, 409);
+  });
+
+  // -------------------------------------------------------------------------
+  // Publishing (MF12) and drafting (MF13)
+  // -------------------------------------------------------------------------
+
+  app.get("/agent/:customerId/publications", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const customerId = c.req.param("customerId");
+    if (!UUID_RE.test(customerId)) return c.json({ error: "bad customerId" }, 400);
+    const vertical = await verticalOf(db, customerId);
+    if (vertical === null) return c.json({ error: "unknown customer" }, 404);
+    return c.json({
+      channels: channelsFor(vertical).map((ch) => ({
+        id: ch.id, label: ch.label, approvalRequired: ch.approvalRequired,
+        cadenceDays: ch.cadenceDays, maxChars: ch.maxChars,
+      })),
+      awaitingApproval: await pendingApproval(db, customerId),
+      log: await publicationLog(db, customerId),
+    });
+  });
+
+  app.post("/agent/:customerId/publications", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const customerId = c.req.param("customerId");
+    if (!UUID_RE.test(customerId)) return c.json({ error: "bad customerId" }, 400);
+    if (deps.drafter === undefined) {
+      return c.json({ error: "drafting is not configured on this deployment" }, 503);
+    }
+    const b = (await c.req.json().catch(() => ({}))) as {
+      channel?: string; topic?: string; body?: string; payload?: Record<string, unknown>;
+    };
+    if (typeof b.channel !== "string" || typeof b.topic !== "string" || b.topic.trim() === "") {
+      return c.json({ error: "channel and topic are required" }, 400);
+    }
+    const agent = await loadLiveAgent(db, customerId);
+    if (agent === null) return c.json({ error: "no live agent for that customer" }, 404);
+
+    const out = await draftPublication(
+      db,
+      {
+        customerId, vertical: agent.vertical, channel: b.channel, topic: b.topic.trim(),
+        // ⛔ The verified KB slice, and only that. The drafter has no other
+        // source, so a claim in the copy is a claim the business made to us.
+        facts: agent.kbSlice,
+        body: b.body,
+        payload: b.payload,
+      },
+      deps.drafter,
+    );
+    if (!out.ok) {
+      return c.json({ error: out.reason, detail: out.detail }, out.reason === "unknown_channel" ? 400 : 422);
+    }
+    // ⛔ `state: draft`, said out loud in the response. A 200 that reads like a
+    // publish is how an owner ends up believing something went out.
+    return c.json({ ok: true, publicationId: out.publicationId, body: out.body, state: "draft" });
+  });
+
+  app.post("/agent/publications/:publicationId/approve", async (c) => {
+    const operator = user(c);
+    if (operator === null) return c.json({ error: "unauthorised" }, 401);
+    const id = c.req.param("publicationId");
+    if (!UUID_RE.test(id)) return c.json({ error: "bad publicationId" }, 400);
+    const b = (await c.req.json().catch(() => ({}))) as { body?: string; payload?: Record<string, unknown> };
+    const out = await approvePublication(db, id, operator.email, {
+      ...(typeof b.body === "string" ? { body: b.body } : {}),
+      ...(b.payload === undefined ? {} : { payload: b.payload }),
+    });
+    if (!out.ok) return c.json({ error: out.reason, detail: out.detail }, out.reason === "unknown" ? 404 : 409);
+    return c.json({ ok: true, edited: out.edited, queued: true });
+  });
+
+  app.post("/agent/publications/:publicationId/reject", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const id = c.req.param("publicationId");
+    if (!UUID_RE.test(id)) return c.json({ error: "bad publicationId" }, 400);
+    const b = (await c.req.json().catch(() => ({}))) as { reason?: string };
+    return (await rejectPublication(db, id, (b.reason ?? "").trim() || "rejected by owner"))
+      ? c.json({ ok: true })
+      : c.json({ error: "unknown or not a draft" }, 404);
   });
 
   return app;

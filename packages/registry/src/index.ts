@@ -13,7 +13,7 @@ export type RoleId =
   | "sentinel" | "ceo"
   // v3.0 — the transaction layer.
   //
-  // Twenty-six roles resolve to a model and appear here, one-for-one with
+  // Twenty-eight roles resolve to a model and appear here, one-for-one with
   // `allAgents`. Six further roles in the system are deterministic code with no
   // model at all — the Compliance Gate, the Reviewer, the agent eval gate, the
   // booking and lead-capture state machines, and the DNS cutover controller —
@@ -21,7 +21,7 @@ export type RoleId =
   // costs money and can be wrong.
   | "vertical_architect" | "kb_extract" | "qa_generate" | "intent_router"
   | "concierge_fallback" | "photo_triage" | "review_responder" | "lead_sourcing"
-  | "design_decide" | "email_responder";
+  | "design_decide" | "email_responder" | "content_drafter";
 
 export type ModelRef = string; // e.g. "modelark/seed-2-0-pro"
 export type DataClass = "PUB" | "PUBLISHABLE" | "CUST" | "PAY";

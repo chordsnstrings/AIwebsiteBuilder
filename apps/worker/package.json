@@ -30,6 +30,7 @@
     "@adw/orchestrator": "workspace:*",
     "@adw/protocol": "workspace:*",
     "@adw/provenance": "workspace:*",
+    "@adw/publish": "workspace:*",
     "@adw/qapack": "workspace:*",
     "@adw/reconcile": "workspace:*",
     "@adw/registry": "workspace:*",

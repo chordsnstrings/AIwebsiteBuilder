@@ -56,6 +56,7 @@ export {
   isQuestionShaped,
   REFUSAL_TEXT,
   refusalPolicy,
+  refusalRuleMatches,
   refusalRules,
   type AnswerGuardContext,
   type RefusalPolicy,

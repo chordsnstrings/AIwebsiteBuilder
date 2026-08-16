@@ -1,0 +1,135 @@
+# Publishing channels (catalogue MF12 — 12 units) and what may be drafted for
+# them (MF13 — 13 units).
+#
+# The system could already build a site. What it could not do was say anything
+# afterwards: no post, no listing update, no offer, no article, no ping to tell
+# a search engine the site had changed.
+#
+# ⛔ `approval` is the load-bearing field, and it is `required` for every channel
+# that puts WORDS in the business's name. A system that posts unattended to a
+# business's Google profile can say something wrong on their behalf, in public,
+# under their brand, and the correction never travels as far as the mistake.
+#
+# `not_required` is reserved for mechanical signals that carry no new claim: a
+# sitemap ping, a regenerated llms.txt. If a channel can express a price, a
+# promise or an opinion, it is `required` and there is no argument to be had.
+#
+# `cadence_days` is a floor between publications on the same channel. Ten
+# approved posts released in one afternoon is a business that looks automated,
+# which is the one thing the whole product is for avoiding.
+
+version: 1
+
+channels:
+  gbp_post:
+    label: "Google Business Profile post"
+    connector: gbp
+    approval: required
+    cadence_days: 7
+    max_chars: 1500
+    carries_claims: true
+
+  offer_update:
+    label: "Offer or promotion"
+    connector: gbp
+    approval: required
+    cadence_days: 14
+    max_chars: 600
+    carries_claims: true
+
+  social_post:
+    label: "Social post"
+    connector: social
+    approval: required
+    cadence_days: 2
+    max_chars: 280
+    carries_claims: true
+
+  site_article:
+    label: "Article on their own site"
+    connector: site
+    approval: required
+    cadence_days: 14
+    max_chars: 6000
+    carries_claims: true
+
+  review_reply:
+    label: "Reply to a review"
+    connector: reviews
+    approval: required
+    cadence_days: 0
+    max_chars: 1000
+    carries_claims: true
+
+  event_listing:
+    label: "Event listing"
+    connector: listings
+    approval: required
+    cadence_days: 1
+    max_chars: 1200
+    carries_claims: true
+
+  job_listing:
+    label: "Job listing"
+    connector: listings
+    approval: required
+    cadence_days: 1
+    max_chars: 4000
+    carries_claims: true
+
+  directory_listing:
+    label: "Directory listing details"
+    connector: directory
+    approval: required
+    cadence_days: 30
+    max_chars: 0
+    # ⛔ Data, not prose — but still `required`, because a wrong phone number
+    # syndicated to forty directories is harder to undo than a bad sentence.
+    carries_claims: false
+
+  product_feed:
+    label: "Product or service feed"
+    connector: feed
+    approval: required
+    cadence_days: 1
+    max_chars: 0
+    carries_claims: false
+
+  ad_audience_sync:
+    label: "Ad audience and budget sync"
+    connector: ads
+    approval: required
+    cadence_days: 1
+    max_chars: 0
+    # Spends the owner's money. There is no version of this that is automatic.
+    carries_claims: false
+
+  sitemap_ping:
+    label: "Tell search engines the site changed"
+    connector: search
+    approval: not_required
+    cadence_days: 0
+    max_chars: 0
+    carries_claims: false
+
+  answer_file_refresh:
+    label: "Refresh the AI answer file (llms.txt)"
+    connector: site
+    approval: not_required
+    cadence_days: 0
+    max_chars: 0
+    carries_claims: false
+
+# Which archetypes publish to which channels. Everyone can post, reply and ping;
+# the rest is what actually differs.
+archetype_channels:
+  A: [gbp_post, offer_update, social_post, review_reply, site_article, directory_listing, sitemap_ping, answer_file_refresh]
+  B: [gbp_post, offer_update, social_post, review_reply, directory_listing, sitemap_ping, answer_file_refresh, ad_audience_sync]
+  C: [gbp_post, site_article, review_reply, directory_listing, sitemap_ping, answer_file_refresh, job_listing]
+  D: [gbp_post, social_post, review_reply, site_article, directory_listing, sitemap_ping, answer_file_refresh]
+  E: [site_article, job_listing, review_reply, directory_listing, sitemap_ping, answer_file_refresh, ad_audience_sync]
+  F: [gbp_post, offer_update, social_post, review_reply, event_listing, directory_listing, sitemap_ping, answer_file_refresh]
+  G: [gbp_post, site_article, review_reply, directory_listing, sitemap_ping, answer_file_refresh]
+  H: [gbp_post, site_article, event_listing, review_reply, directory_listing, sitemap_ping, answer_file_refresh]
+  I: [gbp_post, social_post, review_reply, product_feed, directory_listing, sitemap_ping, answer_file_refresh]
+  J: [gbp_post, offer_update, social_post, review_reply, product_feed, directory_listing, sitemap_ping, answer_file_refresh, ad_audience_sync]

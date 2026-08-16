@@ -27,6 +27,7 @@
     "@adw/kb": "workspace:*",
     "@adw/mcp": "workspace:*",
     "@adw/orchestrator": "workspace:*",
+    "@adw/publish": "workspace:*",
     "@adw/qapack": "workspace:*",
     "@adw/reconcile": "workspace:*",
     "@adw/registry": "workspace:*",

@@ -87,6 +87,18 @@ function ruleMatches(rule: RefusalRule, text: string): boolean {
   return rule.matches.some((m) => cachedMatcher(m).test(text));
 }
 
+/**
+ * Exported so a caller can ask WHICH rule fired rather than only whether one
+ * did — the drafter needs that to tell "the business published this credential"
+ * from "the model introduced one".
+ *
+ * ⛔ Exported rather than reimplemented. Two copies of this matcher drift, and
+ * the drift is invisible until one surface refuses something the other allows.
+ */
+export function refusalRuleMatches(rule: RefusalRule, text: string): boolean {
+  return ruleMatches(rule, text);
+}
+
 /** Every rule that applies to this vertical: the universal set plus its own. */
 export function refusalRules(vertical: string): RefusalRule[] {
   const data = config.playbooks().data as {

@@ -1079,6 +1079,52 @@ export const orchestratorAgent = genericAgent("vendor_orchestrator", "vendor_orc
 export const sentinelAgent = genericAgent("sentinel", "sentinel", "PUB", ["read:metrics", "write:exception", "trigger:remediation"]);
 export const ceoAgent = genericAgent("ceo", "ceo", "CUST", ["read:metrics", "write:exception"]);
 
+// --- Content drafting (MF13) — ⛔ writes a DRAFT, never a publication -------
+const draftIn = z.object({
+  vertical: z.string(),
+  channel: z.string(),
+  topic: z.string(),
+  facts: z.array(z.string()).min(1),
+  maxChars: z.number().int().positive(),
+});
+const draftOut = z.object({
+  body: z.string(),
+  usedFacts: z.array(z.string()),
+});
+export const contentDrafterAgent = defineAgent({
+  id: "content_drafter",
+  role: "content_drafter",
+  dataClass: "CUST",
+  // ⛔ No publish capability, and none exists to grant. The only path from these
+  // words to a platform runs through an owner pressing approve.
+  capabilities: ["read:customer", "write:draft"],
+  inputSchema: draftIn,
+  outputSchema: draftOut,
+  maxTokensOut: 900,
+  budgetUsdPerPassingOutput: 0.004,
+  buildPrompt: (input) =>
+    prompts.content_drafter!.build({
+      facts: {
+        vertical: input.vertical,
+        channel: input.channel,
+        topic: input.topic,
+        maxChars: input.maxChars,
+        available_facts: input.facts,
+      },
+      outputShape: "{ body, usedFacts }",
+    }),
+  // ⛔ Trimmed to the limit in CODE as well as asked for in the prompt. A model
+  // that overshoots by twenty characters would otherwise fail the whole draft,
+  // and a model that overshoots by four hundred must not be trusted to have
+  // stopped anywhere sensible — so the caller still refuses an over-long body
+  // rather than this quietly making one fit.
+  postProcess: (out) => ({ ...out, body: out.body.trim() }),
+  simulate: (input) => ({
+    body: [`${input.topic}.`, ...input.facts.slice(0, 3)].join(" ").slice(0, input.maxChars),
+    usedFacts: input.facts.slice(0, 3),
+  }),
+});
+
 export const allAgents = {
   enrichment: enrichmentAgent,
   site_scoring: siteScoringAgent,
@@ -1108,4 +1154,5 @@ export const allAgents = {
   lead_sourcing: leadSourcingAgent,
   design_decide: designAgent,
   email_responder: emailResponderAgent,
+  content_drafter: contentDrafterAgent,
 };

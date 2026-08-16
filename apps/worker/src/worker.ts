@@ -11,6 +11,7 @@ import { applyEmailFeedback } from "@adw/inbound";
 import { runEscalations } from "@adw/protocol";
 import { runJourneys, runReminders } from "@adw/journeys";
 import { httpCollectors, pruneObservations, runDueWatches, simulatedCollectors, type FetchLike } from "@adw/watch";
+import { publishApproved, simulatedConnectors } from "@adw/publish";
 import { dueChases, purgeExpired } from "@adw/uploads";
 import { resolveObjectStore } from "@adw/vendors";
 import { advanceDunning } from "@adw/billing";
@@ -32,6 +33,7 @@ import { Scheduler } from "./scheduler.ts";
 import {
   clocksJob,
   watchJob,
+  publishJob,
   deliverabilityJob,
   documentsJob,
   protocolEscalationJob,
@@ -189,6 +191,12 @@ async function drainSimulatedFeedback(database: typeof db): Promise<void> {
 
 const nodeFetch: FetchLike = (url, init) => fetch(url, init as RequestInit) as unknown as ReturnType<FetchLike>;
 const watchCollectors = forceMock ? simulatedCollectors() : httpCollectors(nodeFetch);
+// ⛔ In demo the simulated connectors record and hand back an id. In live mode
+// this map is EMPTY until a platform adapter exists, and `publishApproved`
+// counts what it could not send rather than reporting a clean sweep — an
+// approved post silently never leaving is exactly the failure this codebase
+// keeps finding.
+const publishConnectors = forceMock ? simulatedConnectors() : {};
 
 const scheduler = new Scheduler({
   db,
@@ -322,6 +330,12 @@ const scheduler = new Scheduler({
         console.warn(`[worker] ${summary.uncollectable} watch subscription(s) have no collector on this deployment`);
       }
       await pruneObservations(database, 90, at);
+    }),
+    publishJob(async (database, at) => {
+      const out = await publishApproved(database, publishConnectors, at);
+      if (out.unconnected > 0) {
+        console.warn(`[worker] ${out.unconnected} approved publication(s) have no connector on this deployment`);
+      }
     }),
     deliverabilityJob(async (database) => {
       await drainSimulatedFeedback(database);

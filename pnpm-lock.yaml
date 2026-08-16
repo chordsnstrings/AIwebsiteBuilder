@@ -120,6 +120,9 @@ importers:
       '@adw/orchestrator':
         specifier: workspace:*
         version: link:../../packages/orchestrator
+      '@adw/publish':
+        specifier: workspace:*
+        version: link:../../packages/publish
       '@adw/qapack':
         specifier: workspace:*
         version: link:../../packages/qapack
@@ -319,6 +322,9 @@ importers:
       '@adw/provenance':
         specifier: workspace:*
         version: link:../../packages/provenance
+      '@adw/publish':
+        specifier: workspace:*
+        version: link:../../packages/publish
       '@adw/qapack':
         specifier: workspace:*
         version: link:../../packages/qapack
@@ -705,6 +711,24 @@ importers:
       '@adw/workflows':
         specifier: workspace:*
         version: link:../workflows
+
+  packages/publish:
+    dependencies:
+      '@adw/concierge':
+        specifier: workspace:*
+        version: link:../concierge
+      '@adw/config':
+        specifier: workspace:*
+        version: link:../config
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+      '@adw/taxonomy':
+        specifier: workspace:*
+        version: link:../taxonomy
+      '@adw/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
 
   packages/qapack:
     dependencies:

@@ -201,6 +201,13 @@ export const config = {
     const raw = readFileSync(join(CONFIG_DIR, "clocks.yaml"), "utf8");
     return { data: parse(raw), version: "clocks@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
   },
+  /** Publishing channels (MF12/MF13).
+   *  ⛔ Sensitive: `approval: not_required` on a channel that carries claims
+   *  would let this system speak in a business's name unattended. */
+  channels: () => {
+    const raw = readFileSync(join(CONFIG_DIR, "channels.yaml"), "utf8");
+    return { data: parse(raw), version: "channels@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
+  },
   /** Reconciliation definitions (MF8). Match strategies and tolerances.
    *  ⛔ Sensitive: `tolerance_cents: 0` on a client account is a regulatory
    *  obligation, not a tuning parameter. */

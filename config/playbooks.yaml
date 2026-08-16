@@ -38,7 +38,17 @@ universal_refusals:
   # this sayable, so it belongs to every vertical. Matches are the arrival sense
   # specifically: "we'll be there in the morning" is a plan, not a guarantee.
   - id: arrival_guarantee
-    matches: [guaranteed arrival, guaranteed to arrive, within the hour, be there within, "guarantee we'll be", "guarantee someone"]
+    # The first six phrasings caught a chat answer and missed the way the same
+    # promise is written in marketing copy: "we guarantee an engineer at your
+    # door within 60 minutes" matched none of them. A rule that only fires on
+    # the conversational phrasing is a rule with a publishing-shaped hole in it,
+    # and the marketing version is the one that goes out in public and stays up.
+    matches: [guaranteed arrival, guaranteed to arrive, within the hour, be there within,
+              "guarantee we'll be", "guarantee we will be", "guarantee someone",
+              "guarantee an engineer", "guarantee a technician", "guarantee an appointment",
+              "guarantee to be with you", "guarantee to attend", "guaranteed same day",
+              "guaranteed same-day", "guaranteed callout", "guaranteed call-out",
+              "at your door within", "on site within", "on-site within"]
     reason: "Never guarantee an arrival time"
 
 verticals:

@@ -45,6 +45,8 @@ import { routeInbound } from "@adw/inbound";
 import { emailResponderAgent } from "@adw/agents";
 import { availableSlots } from "@adw/scheduling";
 import { httpCollectors, simulatedCollectors, type FetchLike } from "@adw/watch";
+import { factsOnlyDrafter, type Drafter } from "@adw/publish";
+import { contentDrafterAgent, type AgentDeps } from "@adw/agents";
 import { agentRoutes, type AgentRouteDeps } from "./agent-routes.ts";
 import { enqueueIntent, executionId } from "@adw/workflows";
 import {
@@ -59,6 +61,26 @@ const MAX_REQUEST_TEXT = 2000;
 const MAX_CHANGES_PER_PREVIEW = 10;
 /** Fallback for the consent wording when the page did not send its own. */
 const DEFAULT_CONSENT_WORDING = "Text me updates about my website";
+
+/**
+ * The model-backed drafter.
+ *
+ * ⛔ Returns the model's words unaltered. It is tempting to trim an over-long
+ * body here so the draft "works"; the caller refuses one instead, because a
+ * model that overshot by four hundred characters cannot be trusted to have
+ * stopped anywhere sensible and the cut lands wherever it happens to land —
+ * frequently in the middle of a price.
+ */
+function agentDrafter(db: Parameters<typeof createApp>[0]["db"], vault: SecretsBackend, forceMock: boolean): Drafter {
+  const agentDeps: AgentDeps = { db, vault, forceMock };
+  return async ({ channel, vertical, topic, facts, maxChars }) => {
+    const out = await contentDrafterAgent.run(
+      { vertical, channel: channel.id, topic, facts, maxChars },
+      agentDeps,
+    );
+    return { body: out.result.body, usedFacts: out.result.usedFacts };
+  };
+}
 
 const nodeFetch: FetchLike = (url, init) => fetch(url, init as RequestInit) as unknown as ReturnType<FetchLike>;
 
@@ -143,6 +165,10 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
       // sources with no real adapter are simply absent from the map so
       // `subscribeWatch` refuses them out loud.
       watchCollectors: (deps.forceMock ?? true) ? simulatedCollectors() : httpCollectors(nodeFetch),
+      // ⛔ In demo the facts-only drafter is the honest answer: it says exactly
+      // what it was given and nothing more. In live mode the model writes, and
+      // the same refusal guard and the same owner approval apply to both.
+      drafter: (deps.forceMock ?? true) ? factsOnlyDrafter() : agentDrafter(db, vault, deps.forceMock ?? false),
     }),
   );
 
