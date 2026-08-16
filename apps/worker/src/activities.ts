@@ -32,7 +32,7 @@ import {
   uxAgent,
   type AgentDeps,
 } from "@adw/agents";
-import { gatedSend, type OutboundMessage } from "@adw/gate";
+import { buildsHalted, gatedSend, paymentsOnboardingHalted, readEngagedSwitches, type OutboundMessage } from "@adw/gate";
 import { mintUnsubscribeToken, unsubscribeHeaders, unsubscribeSecret, unsubscribeUrl } from "@adw/compliance";
 import { mintReplyToken, replyAddress } from "@adw/inbound";
 import { renderSite, buildArtifactFromHtml, familyForCategory } from "@adw/site-templates";
@@ -736,6 +736,13 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
   });
 
   on("payments_prescreen", async (input: { customerId: string }) => {
+    // ⛔ HALT_PAYMENTS_ONBOARDING, at the top of the funnel rather than at the
+    // bottom. Runbook R12 pulls this when a charge_type anomaly appears; the
+    // point is that nobody NEW is offered payments while it is engaged, and
+    // refusing at the prescreen means no merchant is left half-onboarded.
+    if (paymentsOnboardingHalted(await readEngagedSwitches(db))) {
+      return { offered: false, reason: "HALT_PAYMENTS_ONBOARDING" };
+    }
     const customer = await db.maybeOne<{ status: string }>("SELECT status FROM customers WHERE id = $1", [
       input.customerId,
     ]);
@@ -743,6 +750,9 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
   });
 
   on("create_connected_account", async (input: { customerId: string }) => {
+    if (paymentsOnboardingHalted(await readEngagedSwitches(db))) {
+      throw new Error("HALT_PAYMENTS_ONBOARDING is engaged — no new merchant may be onboarded");
+    }
     // The Orchestrator never creates accounts or signs terms; this records the
     // reference a human-completed onboarding produced.
     return { accountId: `acct_pending_${input.customerId}` };
@@ -1037,6 +1047,11 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
   });
 
   on("cutover_dns", async (input: { customerId: string; domain?: string }) => {
+    // ⛔ Checked here too, and not only on the render. A cutover points a live
+    // business's domain at an artefact that may be the reason the switch was
+    // pulled, and a build finished five minutes before the incident is exactly
+    // the one an operator wants stopped.
+    await assertBuildsAllowed();
     const customer = await db.one<{ domain: string | null }>("SELECT domain FROM customers WHERE id = $1", [
       input.customerId,
     ]);
@@ -1092,12 +1107,31 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
     return new DohResolver();
   }
 
+  /**
+   * ⛔ HALT_BUILDS, at the one chokepoint every build passes through.
+   *
+   * The switch was settable from the console, stored, and displayed as engaged,
+   * and read by nothing that halted. An operator pulling it during a
+   * malicious-content incident (runbook R6) would have watched the board turn
+   * red and the builds carry on — worse than having no switch, because a switch
+   * that appears to work stops anyone looking for the real off button.
+   *
+   * Placed on the RENDER rather than on each workflow step: a build that is
+   * halted must not spend a model call discovering it.
+   */
+  async function assertBuildsAllowed(): Promise<void> {
+    if (buildsHalted(await readEngagedSwitches(db))) {
+      throw new Error("HALT_BUILDS is engaged — no site may be rendered or deployed");
+    }
+  }
+
   /** Render a business into a full-mode site and store it. Returns the key. */
   async function renderAndStore(
     businessId: string,
     requestedChanges: string[],
     keyPrefix: string,
   ): Promise<string> {
+    await assertBuildsAllowed();
     const biz = await business(db, businessId);
     const family = familyForCategory(biz.category ?? "general");
     const copy = await developerAgent.run(

@@ -1,6 +1,9 @@
 export { gate, type GateDeps } from "./gate.ts";
 export {
   KILL_SWITCHES,
+  agentHalted,
+  buildsHalted,
+  paymentsOnboardingHalted,
   readEngagedSwitches,
   clearKillSwitchCache,
   sendingHalted,

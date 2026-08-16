@@ -30,6 +30,42 @@ export function clearKillSwitchCache(): void {
   cache = null;
 }
 
+/**
+ * ⛔ THE THREE SWITCHES NOTHING READ.
+ *
+ * `HALT_BUILDS`, `HALT_PAYMENTS_ONBOARDING` and `HALT_AGENT:<role>` were
+ * settable from the console, stored, displayed as engaged, and read by
+ * absolutely nothing that halted. An operator pulling one during an incident
+ * would have watched the board turn red and the builds carry on — which is
+ * worse than having no switch at all, because a switch that appears to work
+ * stops anyone looking for the real off button.
+ *
+ * The readers below are consumed at the three chokepoints: the gateway (every
+ * model call), the build activities, and payments onboarding.
+ */
+
+/** Halts every build and every deploy. Runbook R6: malicious content found. */
+export function buildsHalted(engaged: Set<string>): boolean {
+  return engaged.has("HALT_BUILDS");
+}
+
+/** Halts new merchant onboarding. Runbook R12: charge_type anomaly. */
+export function paymentsOnboardingHalted(engaged: Set<string>): boolean {
+  return engaged.has("HALT_PAYMENTS_ONBOARDING");
+}
+
+/**
+ * Halts ONE agent role. Runbook R5: a canary fired, quarantine the role for 24
+ * hours.
+ *
+ * ⛔ Exact-match on the role, never a prefix. `HALT_AGENT:developer` must not
+ * silence `developer_review` as well — an incident response that halts more
+ * than the operator asked for makes the next operator hesitate to use it.
+ */
+export function agentHalted(engaged: Set<string>, role: string): boolean {
+  return engaged.has(`HALT_AGENT:${role}`);
+}
+
 /** Does any engaged kill switch halt a send on this channel/class? */
 export function sendingHalted(
   engaged: Set<string>,

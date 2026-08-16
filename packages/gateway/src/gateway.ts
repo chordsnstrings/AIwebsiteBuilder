@@ -7,6 +7,7 @@ import type { SecretsBackend } from "@adw/vault";
 import { resolveRail, priceFor, type LlmRail } from "@adw/vendors";
 import { resolveRole, type DataClass, type ModelRef, type RoleId } from "@adw/registry";
 import { emit } from "@adw/telemetry";
+import { agentHalted, readEngagedSwitches } from "@adw/gate";
 import type { z } from "zod";
 import { dataClassEligible } from "./dataclass.ts";
 import { BudgetExceededError, roleSpendTodayUsd } from "./budget.ts";
@@ -56,6 +57,17 @@ export async function complete<Out>(
   deps: GatewayDeps,
 ): Promise<GatewayResult<Out>> {
   const { db } = deps;
+
+  // ⛔ HALT_AGENT:<role> — runbook R5, quarantine one role for 24 hours after a
+  // canary fires. Checked here rather than at each of the twenty-eight call
+  // sites, because a switch that only halts the roles somebody remembered to
+  // wire is a switch nobody can rely on during an incident.
+  //
+  // Ahead of the budget check on purpose: a quarantined role must not spend
+  // another penny, and it must not be the budget that reports why it stopped.
+  if (agentHalted(await readEngagedSwitches(db), req.role)) {
+    throw new GatewayError(`role ${req.role} is halted by HALT_AGENT:${req.role}`, "ROLE_HALTED");
+  }
 
   // Budget check (per-role daily). A breach halts, never escalates.
   const spent = await roleSpendTodayUsd(db, req.role);

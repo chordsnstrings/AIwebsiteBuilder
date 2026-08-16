@@ -150,6 +150,9 @@ importers:
       '@adw/vendors':
         specifier: workspace:*
         version: link:../../packages/vendors
+      '@adw/voice':
+        specifier: workspace:*
+        version: link:../../packages/voice
       '@adw/watch':
         specifier: workspace:*
         version: link:../../packages/watch
@@ -301,6 +304,9 @@ importers:
       '@adw/gate':
         specifier: workspace:*
         version: link:../../packages/gate
+      '@adw/gateway':
+        specifier: workspace:*
+        version: link:../../packages/gateway
       '@adw/inbound':
         specifier: workspace:*
         version: link:../../packages/inbound
@@ -358,12 +364,18 @@ importers:
       '@adw/vendors':
         specifier: workspace:*
         version: link:../../packages/vendors
+      '@adw/voice':
+        specifier: workspace:*
+        version: link:../../packages/voice
       '@adw/watch':
         specifier: workspace:*
         version: link:../../packages/watch
       '@adw/workflows':
         specifier: workspace:*
         version: link:../../packages/workflows
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
 
   packages/agenteval:
     dependencies:
@@ -595,6 +607,9 @@ importers:
       '@adw/db':
         specifier: workspace:*
         version: link:../db
+      '@adw/gate':
+        specifier: workspace:*
+        version: link:../gate
       '@adw/registry':
         specifier: workspace:*
         version: link:../registry
@@ -884,6 +899,21 @@ importers:
       '@adw/vault':
         specifier: workspace:*
         version: link:../vault
+
+  packages/voice:
+    dependencies:
+      '@adw/compliance':
+        specifier: workspace:*
+        version: link:../compliance
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+      '@adw/gate':
+        specifier: workspace:*
+        version: link:../gate
+      '@adw/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
 
   packages/watch:
     dependencies:

@@ -23,6 +23,7 @@
     "@adw/dns": "workspace:*",
     "@adw/fleet": "workspace:*",
     "@adw/gate": "workspace:*",
+    "@adw/gateway": "workspace:*",
     "@adw/inbound": "workspace:*",
     "@adw/journeys": "workspace:*",
     "@adw/kb": "workspace:*",
@@ -42,8 +43,10 @@
     "@adw/uploads": "workspace:*",
     "@adw/vault": "workspace:*",
     "@adw/vendors": "workspace:*",
+    "@adw/voice": "workspace:*",
     "@adw/watch": "workspace:*",
-    "@adw/workflows": "workspace:*"
+    "@adw/workflows": "workspace:*",
+    "zod": "^3.24.1"
   },
   "devDependencies": {}
 }

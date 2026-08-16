@@ -49,6 +49,7 @@ import {
   upcomingReminders,
 } from "@adw/journeys";
 import { cancelBooking, claimSlot } from "@adw/scheduling";
+import { markReturned, missedCalls, recordCall } from "@adw/voice";
 import {
   closeRun,
   ingest,
@@ -1074,6 +1075,72 @@ export function agentRoutes(deps: AgentRouteDeps): Hono<{ Variables: { user: Ses
     return (await rejectPublication(db, id, (b.reason ?? "").trim() || "rejected by owner"))
       ? c.json({ ok: true })
       : c.json({ error: "unknown or not a draft" }, 404);
+  });
+
+  // -------------------------------------------------------------------------
+  // Telephony (MF11)
+  // -------------------------------------------------------------------------
+
+  /**
+   * A call event from a telephony provider.
+   *
+   * ⛔ Authenticated as an operator rather than left open. A public route that
+   * writes enquiries from an unsigned body is a spam endpoint; the real
+   * provider webhooks arrive at /webhooks/:provider, which verifies signatures,
+   * and this is the internal seam behind it.
+   */
+  app.post("/agent/:customerId/calls", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const customerId = c.req.param("customerId");
+    if (!UUID_RE.test(customerId)) return c.json({ error: "bad customerId" }, 400);
+    const b = (await c.req.json().catch(() => ({}))) as {
+      provider?: string; providerCallId?: string; outcome?: string;
+      callerNumber?: string; startedAt?: string; durationSeconds?: number;
+      transcript?: string; countryCode?: string; attemptFollowUp?: boolean;
+    };
+    if (b.outcome !== "missed" && b.outcome !== "answered" && b.outcome !== "voicemail") {
+      return c.json({ error: "outcome must be missed, answered or voicemail" }, 400);
+    }
+    if (typeof b.callerNumber !== "string" || b.callerNumber.trim() === "") {
+      return c.json({ error: "callerNumber required" }, 400);
+    }
+    if (typeof b.providerCallId !== "string" || b.providerCallId.trim() === "") {
+      // ⛔ Required. Without it there is no idempotency, and a redelivered
+      // webhook rings the same person twice.
+      return c.json({ error: "providerCallId required" }, 400);
+    }
+    const startedAt = new Date(b.startedAt ?? "");
+    const out = await recordCall(db, {
+      customerId,
+      provider: (b.provider ?? "unknown").trim(),
+      providerCallId: b.providerCallId.trim(),
+      outcome: b.outcome,
+      callerNumber: b.callerNumber,
+      startedAt: Number.isNaN(startedAt.getTime()) ? new Date() : startedAt,
+      durationSeconds: b.durationSeconds,
+      transcript: b.transcript,
+      countryCode: b.countryCode,
+    }, { attemptFollowUp: b.attemptFollowUp === true });
+    return c.json({
+      ok: true, callId: out.callId, created: out.created, enquiryId: out.enquiryId,
+      // ⛔ The gate's verdict is returned rather than swallowed. A caller that
+      // asked for a text-back must be told it did not happen and why.
+      followUp: out.followUp,
+    });
+  });
+
+  app.get("/agent/:customerId/calls/missed", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const customerId = c.req.param("customerId");
+    if (!UUID_RE.test(customerId)) return c.json({ error: "bad customerId" }, 400);
+    return c.json({ missed: await missedCalls(db, customerId) });
+  });
+
+  app.post("/agent/calls/:callId/returned", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const callId = c.req.param("callId");
+    if (!UUID_RE.test(callId)) return c.json({ error: "bad callId" }, 400);
+    return (await markReturned(db, callId)) ? c.json({ ok: true }) : c.json({ error: "unknown call" }, 404);
   });
 
   return app;

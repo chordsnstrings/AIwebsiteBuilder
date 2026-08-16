@@ -45,6 +45,22 @@ export class Engine {
     this.activities.set(name, fn);
   }
 
+  /**
+   * Invoke a registered activity directly.
+   *
+   * ⛔ For tests and operational tooling only — no workflow path calls this,
+   * because an activity run outside an execution has no journal entry and so no
+   * replay guarantee. It exists so that a test can assert an activity's
+   * behaviour through the registry it is actually reached by, rather than by
+   * calling the helper underneath it. That distinction is the difference
+   * between proving a kill switch is wired and proving a function exists.
+   */
+  async runActivity(name: string, input: unknown): Promise<unknown> {
+    const fn = this.activities.get(name);
+    if (fn === undefined) throw new Error(`Unregistered activity: ${name}`);
+    return fn(input);
+  }
+
   registerWorkflow<In, Out>(def: WorkflowDefinition<In, Out>): void {
     this.workflows.set(def.type, def as WorkflowDefinition<unknown, unknown>);
   }
