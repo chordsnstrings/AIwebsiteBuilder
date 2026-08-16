@@ -325,6 +325,81 @@ describe("routing, end to end", () => {
     expect(Number(after.n)).toBeGreaterThan(Number(before.n));
   });
 
+  it("⛔ signals PENDING rather than intent 0 when the responder cannot run", async () => {
+    // Zero is below the workflow's parking threshold. Treating a gateway outage
+    // as "no interest" would silently discard a real prospect, and parking is
+    // silent by design — nobody would ever find out.
+    const payloads: unknown[] = [];
+    const seeded = await seedOneThread(db, `pending-${Date.now()}@example.com`);
+    await routeInbound(mime({ From: seeded.email, Subject: "Re: preview" }, "Yes — what does it cost?"), {
+      db,
+      replyTokenSecret: SECRET,
+      signalWorkflow: async (_id, _n, p) => void payloads.push(p),
+      respond: async () => {
+        throw new Error("gateway down");
+      },
+    });
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0]).toMatchObject({ pending: true, intent: 0 });
+  });
+
+  it("carries the responder's score and draft through to the workflow", async () => {
+    const payloads: Record<string, unknown>[] = [];
+    const seeded = await seedOneThread(db, `scored-${Date.now()}@example.com`);
+    await routeInbound(mime({ From: seeded.email, Subject: "Re: preview" }, "How much?"), {
+      db,
+      replyTokenSecret: SECRET,
+      signalWorkflow: async (_id, _n, p) => void payloads.push(p as Record<string, unknown>),
+      respond: async () => ({
+        intent: 72,
+        disposition: "question",
+        replyText: "Happy to explain.",
+        requestsNoContact: false,
+        escalate: false,
+      }),
+    });
+    expect(payloads[0]).toMatchObject({ intent: 72, pending: false, replyText: "Happy to explain." });
+  });
+
+  it("⛔ suppresses on a soft opt-out the keyword matcher deliberately misses", async () => {
+    // "Please don't chase this" contains none of the stop phrases. Reading
+    // intent out of prose is the model's job; acting on it is not optional.
+    const email = `soft-${Date.now()}@example.com`;
+    const seeded = await seedOneThread(db, email);
+    const out = await routeInbound(mime({ From: seeded.email, Subject: "Re: preview" }, "Please don't chase this."), {
+      db,
+      replyTokenSecret: SECRET,
+      signalWorkflow: async () => {},
+      respond: async () => ({
+        intent: 5,
+        disposition: "not_interested",
+        replyText: "",
+        requestsNoContact: true,
+        escalate: false,
+      }),
+    });
+    expect(out.suppressed).toBe(true);
+    expect(await db.maybeOne("SELECT 1 AS x FROM suppression WHERE email_hash = $1", [emailHash(email)])).not.toBeNull();
+  });
+
+  it("⛔ never pays a model to read an out-of-office", async () => {
+    let called = 0;
+    const seeded = await seedOneThread(db, `ooo2-${Date.now()}@example.com`);
+    await routeInbound(
+      mime({ From: seeded.email, "Auto-Submitted": "auto-replied", Subject: "Out of office" }, "back on the 3rd"),
+      {
+        db,
+        replyTokenSecret: SECRET,
+        signalWorkflow: async () => {},
+        respond: async () => {
+          called++;
+          return { intent: 90, disposition: "interested", replyText: "hi", requestsNoContact: false, escalate: false };
+        },
+      },
+    );
+    expect(called, "the classifier settles this off the headers").toBe(0);
+  });
+
   it("⛔ never writes the message body into the event log", async () => {
     const secretPhrase = `commercially-sensitive-${Date.now()}`;
     await routeInbound(mime({ From: `body-${Date.now()}@example.com` }, secretPhrase), {
@@ -338,6 +413,33 @@ describe("routing, end to end", () => {
     expect(hit, "message bodies are not logged at any level").toBeNull();
   });
 });
+
+/** One contact with one open thread and a lead, so the sole-open-thread match
+ *  and the signal path have something real to run against. */
+async function seedOneThread(db: Db, email: string): Promise<{ email: string; leadId: string }> {
+  const batch = await db.one<{ id: string }>(
+    "INSERT INTO ingest_batches (vendor, licence_ref, record_count, cost_cents, checksum) VALUES ('d','LIC',1,0,'x') RETURNING id",
+  );
+  const biz = await db.one<{ id: string }>(
+    `INSERT INTO businesses (source_vendor, source_batch_id, name, country_code, region_code, segment)
+     VALUES ('d',$1,'One Co','GB','R2','no_site') RETURNING id`,
+    [batch.id],
+  );
+  const contact = await db.one<{ id: string }>(
+    "INSERT INTO contacts (business_id, email, email_hash, verification) VALUES ($1,$2,$3,'valid') RETURNING id",
+    [biz.id, email, emailHash(email)],
+  );
+  const campaign = await db.one<{ id: string }>(
+    "INSERT INTO campaigns (name, region_code) VALUES ($1,'R2') RETURNING id",
+    [`one-${Date.now()}-${Math.round(performance.now())}`],
+  );
+  const lead = await db.one<{ id: string }>(
+    "INSERT INTO leads (contact_id, campaign_id, state, workflow_id) VALUES ($1,$2,'CONTACTED',$3) RETURNING id",
+    [contact.id, campaign.id, `lead:${contact.id}`],
+  );
+  await db.query("INSERT INTO conversations (lead_id, channel) VALUES ($1,'email')", [lead.id]);
+  return { email, leadId: lead.id };
+}
 
 /** Two open conversations for one contact, so the ambiguity branch has something
  *  real to refuse. Returns how many were created. */

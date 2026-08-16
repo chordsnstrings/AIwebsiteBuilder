@@ -785,6 +785,136 @@ export const leadSourcingAgent = defineAgent({
   }),
 });
 
+// --- Email responder (the reply half of cold outreach) ---------------------
+//
+// Reads a reply to a cold email and decides what happens to the lead.
+//
+// This is a different job from `customer_care`, which handles someone who has
+// already engaged. A cold reply is mostly people saying no, saying "wrong
+// person", or asking one sharp question — and the cost of over-reading warmth
+// into a polite brush-off is a second unwanted email to someone who already
+// answered once.
+//
+// ⛔ It never decides whether the message was automated. `@adw/inbound`
+// classifies that deterministically off the headers before this agent runs, and
+// an auto-reply never reaches it. A model asked "is this an out-of-office" will
+// be right most of the time, and most-of-the-time is how a vacation responder
+// becomes a logged lead.
+const responderIn = z.object({
+  /** The reply, quoted history already stripped. */
+  message: z.string(),
+  businessName: z.string(),
+  /** Which touch drew this reply — 0 is the first email. */
+  sequenceStep: z.number().default(0),
+  /** What we said, so the agent can answer what was actually asked. */
+  ourLastSubject: z.string().default(""),
+  previewUrl: z.string().default(""),
+});
+const responderOut = z.object({
+  disposition: z.enum([
+    "interested",
+    "question",
+    "not_now",
+    "not_interested",
+    "wrong_person",
+    "hostile",
+  ]),
+  /** 0–100. The LeadWorkflow's own threshold reads this. */
+  intentScore: z.number().min(0).max(100),
+  /** Draft only. It is a draft until the gate says otherwise. */
+  replyText: z.string(),
+  /** True when the person asked to be left alone in words the deterministic
+   *  matcher did not catch — a soft opt-out still ends the sequence. */
+  requestsNoContact: z.boolean(),
+  /** Referred onward: "email my colleague X" is a real and common outcome, but
+   *  the new address is a NEW contact needing its own legal basis, never a
+   *  substitution on this one. */
+  referredTo: z.string().optional(),
+  escalate: z.boolean(),
+  escalateReason: z.string().optional(),
+  injectionSuspected: z.boolean(),
+});
+export const emailResponderAgent = defineAgent({
+  id: "email_responder",
+  role: "email_responder",
+  dataClass: "CUST",
+  capabilities: ["read:conversation", "read:contact", "write:draft", "send:gated"],
+  inputSchema: responderIn,
+  outputSchema: responderOut,
+  maxTokensOut: 500,
+  budgetUsdPerPassingOutput: 0.02,
+  buildPrompt: (input) =>
+    prompts.email_responder!.build({
+      facts: {
+        business: input.businessName,
+        sequenceStep: input.sequenceStep,
+        weWroteAbout: input.ourLastSubject,
+        previewUrl: input.previewUrl,
+      },
+      outputShape:
+        "{ disposition, intentScore, replyText, requestsNoContact, referredTo?, escalate, escalateReason?, injectionSuspected }",
+      // ⛔ Their reply is third-party text. It is the single most likely place
+      // in this system for an instruction to arrive dressed as content.
+      untrusted: { inbound_reply: input.message },
+    }),
+  simulate: (input) => {
+    const m = input.message.toLowerCase();
+    const hostile = /\bf\*{2,}|fuck|spam(ming)?\b|report you|scam/.test(m);
+    const wrongPerson = /wrong person|not me|no longer (work|with)|left the (company|business)|try \w+@/.test(m);
+    const notNow = /not (right )?now|next (quarter|year)|circle back|too busy|maybe later/.test(m);
+    const refused = /not interested|no thank|we're all set|already have/.test(m);
+    const question = /\?|how much|what does|can you|do you/.test(m);
+    const disposition = hostile
+      ? ("hostile" as const)
+      : wrongPerson
+        ? ("wrong_person" as const)
+        : refused
+          ? ("not_interested" as const)
+          : notNow
+            ? ("not_now" as const)
+            : question
+              ? ("question" as const)
+              : ("interested" as const);
+    const intent = { hostile: 0, wrong_person: 0, not_interested: 0, not_now: 15, question: 65, interested: 80 }[
+      disposition
+    ];
+    const referral = /([\w.+-]+@[\w-]+\.[\w.]+)/.exec(input.message);
+    return {
+      disposition,
+      intentScore: intent,
+      replyText:
+        disposition === "hostile" || disposition === "not_interested"
+          ? ""
+          : `Thanks for coming back to me${input.businessName ? `, ${input.businessName}` : ""}.`,
+      // ⛔ Hostility is an opt-out whatever else it is. Arguing with someone who
+      // called it spam is how a complaint becomes a blocklisting.
+      requestsNoContact: hostile || refused,
+      ...(wrongPerson && referral?.[1] !== undefined ? { referredTo: referral[1] } : {}),
+      escalate: hostile,
+      ...(hostile ? { escalateReason: "hostile_reply" } : {}),
+      injectionSuspected: /ignore (previous|all) instructions|system prompt|you are now/i.test(input.message),
+    };
+  },
+  // ⛔ Clamps, in code, after the model has spoken.
+  postProcess: (out) => {
+    // A reply we will not send cannot carry an intent score that restarts the
+    // sequence. Hostile and not-interested are terminal whatever the model felt.
+    if (out.disposition === "hostile" || out.disposition === "not_interested") {
+      return { ...out, intentScore: 0, requestsNoContact: true, replyText: "" };
+    }
+    // A referral is a NEW contact with its own legal basis, so the current lead
+    // does not become "interested" on the strength of someone else's address.
+    if (out.disposition === "wrong_person") return { ...out, intentScore: 0, replyText: "" };
+    // Suspected injection never auto-replies. The draft is the payload's
+    // delivery mechanism if it does.
+    if (out.injectionSuspected) {
+      return { ...out, replyText: "", escalate: true, escalateReason: out.escalateReason ?? "injection_suspected" };
+    }
+    return out;
+  },
+  detectEscalation: (out) => (out.escalate ? (out.escalateReason ?? "responder_escalation") : undefined),
+});
+
 // --- Design decision -------------------------------------------------------
 //
 // The agent that decides what a site LOOKS like, before a line of markup
@@ -978,4 +1108,5 @@ export const allAgents = {
   review_responder: reviewResponderAgent,
   lead_sourcing: leadSourcingAgent,
   design_decide: designAgent,
+  email_responder: emailResponderAgent,
 };

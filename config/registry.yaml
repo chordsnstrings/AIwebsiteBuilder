@@ -221,3 +221,15 @@ roles:
     re_eval_cadence: monthly
     data_class: PUB
     eval_suite: design_decide
+  # Reads a reply to a cold email and decides what happens to the lead.
+  #
+  # ⛔ Not a pure cost race. The expensive mistake is reading warmth into a
+  # polite brush-off and sending a second email to someone who already answered
+  # once — that is a complaint, and complaint rate is what kills the channel.
+  email_responder:
+    candidates: ["modelark/seed-2-0-lite", "modelark/seed-2-0-pro", "google/gemini-3-6-flash", "modelark/glm-5-2"]
+    escalation: ["modelark/seed-2-0-pro", "anthropic/sonnet-5"]
+    selection_metric: cost_per_pass
+    re_eval_cadence: monthly
+    data_class: CUST
+    eval_suite: email_responder

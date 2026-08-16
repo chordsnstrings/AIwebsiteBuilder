@@ -42,6 +42,7 @@ import {
 import { applyWebhookEffects } from "./webhooks.ts";
 import { authenticateWebhook } from "./webhook-auth.ts";
 import { routeInbound } from "@adw/inbound";
+import { emailResponderAgent } from "@adw/agents";
 import { agentRoutes } from "./agent-routes.ts";
 import { enqueueIntent, executionId } from "@adw/workflows";
 import {
@@ -719,6 +720,22 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
           routeInbound(mime, {
             db,
             replyTokenSecret: replyTokenSecret(),
+            // ⛔ Only reached for a message already classified as written by a
+            // human. An auto-reply never costs a model call and never scores.
+            respond: async ({ text, subject }) => {
+              const out = await emailResponderAgent.run(
+                { message: text, businessName: "", ourLastSubject: subject },
+                { db, vault, forceMock: deps.forceMock ?? true },
+              );
+              return {
+                intent: out.result.intentScore,
+                disposition: out.result.disposition,
+                replyText: out.result.replyText,
+                requestsNoContact: out.result.requestsNoContact,
+                escalate: out.result.escalate,
+                escalateReason: out.result.escalateReason,
+              };
+            },
             // Through the outbox, not straight at the engine: the API and the
             // worker are different processes, and only one of them replays
             // journals.

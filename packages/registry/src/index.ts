@@ -21,7 +21,7 @@ export type RoleId =
   // costs money and can be wrong.
   | "vertical_architect" | "kb_extract" | "qa_generate" | "intent_router"
   | "concierge_fallback" | "photo_triage" | "review_responder" | "lead_sourcing"
-  | "design_decide";
+  | "design_decide" | "email_responder";
 
 export type ModelRef = string; // e.g. "modelark/seed-2-0-pro"
 export type DataClass = "PUB" | "PUBLISHABLE" | "CUST" | "PAY";

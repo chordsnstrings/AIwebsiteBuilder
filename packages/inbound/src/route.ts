@@ -37,6 +37,28 @@ export interface InboundDeps {
   replyTokenSecret: string;
   /** Deliver the `reply` signal. Absent in tests that only assert persistence. */
   signalWorkflow?: (workflowId: string, name: string, payload: unknown) => Promise<void>;
+  /**
+   * Score a human reply and draft an answer. The `email_responder` agent in
+   * production.
+   *
+   * ⛔ Only ever called for a `human` classification. An auto-reply must not
+   * reach a model at all: paying to have one read is the smaller problem, and
+   * a model asked "is this an out-of-office" being right most of the time is
+   * how a vacation responder becomes a logged lead.
+   *
+   * ⛔ Its absence must not mean "score 0". A reply that arrives while the
+   * responder is unavailable is signalled as PENDING and left for a human,
+   * because 0 is below the workflow's parking threshold and would silently
+   * discard a genuinely interested prospect.
+   */
+  respond?: (input: { text: string; subject: string }) => Promise<{
+    intent: number;
+    disposition: string;
+    replyText: string;
+    requestsNoContact: boolean;
+    escalate: boolean;
+    escalateReason?: string | undefined;
+  }>;
   /** Store the body out of line. Defaults to a content-addressed key only —
    *  bodies are never logged and never inlined into events. */
   storeBody?: (key: string, body: string) => Promise<void>;
@@ -145,11 +167,38 @@ export async function routeInbound(raw: string, deps: InboundDeps): Promise<Inbo
       match.leadId,
     ]);
     if (lead !== null) {
-      // Intent is deliberately NOT scored here. The workflow's threshold reads
-      // it, and a deterministic keyword guess would be a second, worse copy of
-      // the router that already exists. The responder agent supplies it.
-      await deps.signalWorkflow(lead.workflow_id, "reply", { intent: 0, pending: true });
+      const scored = deps.respond === undefined
+        ? null
+        : await deps.respond({ text: email.text, subject: email.subject }).catch(() => null);
+
+      // A soft opt-out — "we're all set", "please don't chase this" — is honoured
+      // exactly like the hard one. The deterministic matcher deliberately does
+      // not try to catch these; reading intent out of prose is the model's job,
+      // and acting on it is not optional once it has.
+      if (scored?.requestsNoContact === true && email.from.includes("@")) {
+        await deps.db.query(
+          `INSERT INTO suppression (email_hash, reason, channel_scope)
+           VALUES ($1, 'reply_stop_request', 'all') ON CONFLICT DO NOTHING`,
+          [emailHash(email.from)],
+        );
+        outcome.suppressed = true;
+      }
+
+      await deps.signalWorkflow(lead.workflow_id, "reply", {
+        // ⛔ `pending` rather than 0 when the responder could not run. Zero is
+        // below the parking threshold and would discard a real prospect on the
+        // strength of a gateway outage.
+        intent: scored?.intent ?? 0,
+        pending: scored === null,
+        disposition: scored?.disposition ?? "unscored",
+        replyText: scored?.requestsNoContact === true ? "" : (scored?.replyText ?? ""),
+        escalate: scored?.escalate ?? false,
+        ...(scored?.escalateReason === undefined ? {} : { escalateReason: scored.escalateReason }),
+      });
       outcome.signalled = true;
+      if (scored === null && deps.respond !== undefined) {
+        outcome.exception = "responder unavailable; reply signalled as pending for a human";
+      }
     }
   }
 

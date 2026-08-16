@@ -138,6 +138,26 @@ export const leadWorkflow: WorkflowDefinition<LeadInput, LeadOutput> = {
 };
 
 /**
+ * What arrives on the `reply` signal.
+ *
+ * Emitted by `@adw/inbound` once a received email has been classified as
+ * written by a human and scored by the `email_responder` agent. ⛔ An
+ * out-of-office never produces one of these — auto-replies are filtered off the
+ * headers before anything reaches this workflow, because counting one as
+ * engagement stops the sequence for someone who never read the message.
+ */
+interface ReplySignal {
+  intent: number;
+  /** The responder could not run. NOT the same as a low score. */
+  pending?: boolean;
+  disposition?: string;
+  /** Empty when the responder declined to answer at all. */
+  replyText?: string;
+  escalate?: boolean;
+  escalateReason?: string;
+}
+
+/**
  * The follow-up sequence and its durable timers. Steps at +4d and +9d, exhausted
  * at +14d, then a 180-day cooldown.
  *
@@ -150,12 +170,39 @@ async function waitOutSequence(
   flags: { previewGenerated: boolean; agentBound: boolean },
 ): Promise<LeadOutput> {
   for (let step = 1; step <= 3; step++) {
-    const reply = await ctx.waitForSignal<{ intent: number }>(
+    const reply = await ctx.waitForSignal<ReplySignal>(
       "reply",
       step === 3 ? 14 * DAY : (step === 1 ? 4 : 5) * DAY,
     );
     if (reply.received) {
-      const intent = reply.payload?.intent ?? 0;
+      const payload = reply.payload;
+      const intent = payload?.intent ?? 0;
+
+      // ⛔ An unscored reply goes to a human, not to the parking threshold.
+      // `pending` means the responder could not run — a gateway outage, a
+      // budget stop. Treating that as intent 0 would park a genuinely
+      // interested prospect on the strength of an infrastructure failure, and
+      // parking is silent.
+      if (payload?.pending === true) {
+        await ctx.activity("raise_lead_exception", { ...input, reason: "reply_unscored" });
+        return { finalState: "PARKED", contacted: true, ...flags };
+      }
+
+      // The draft is sent through the gate like anything else. An empty draft
+      // is the responder declining to answer — hostile, not interested, wrong
+      // person, or suspected injection — and silence is the correct reply to
+      // all four.
+      if (typeof payload?.replyText === "string" && payload.replyText.length > 0) {
+        await ctx.activity("send_reply", { ...input, replyText: payload.replyText });
+      }
+      if (payload?.escalate === true) {
+        await ctx.activity("raise_lead_exception", {
+          ...input,
+          reason: payload.escalateReason ?? "responder_escalation",
+        });
+        return { finalState: "PARKED", contacted: true, ...flags };
+      }
+
       if (intent >= 30) {
         await ctx.activity("mark_engaged", { ...input, intent });
         return { finalState: "ENGAGED", contacted: true, ...flags };

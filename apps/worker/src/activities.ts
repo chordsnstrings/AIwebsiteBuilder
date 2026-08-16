@@ -308,6 +308,89 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
     return { sent: result.sent, decisionId: result.decisionId };
   });
 
+  // Answer a reply. ⛔ Through `gatedSend` like everything else — a reply is
+  // still an outbound message to a contact who may have been suppressed between
+  // writing to us and us answering, and "they emailed us first" is not a legal
+  // basis the gate knows about.
+  on("send_reply", async (input: LeadRef & { replyText: string }) => {
+    const lead = await db.maybeOne<{ contact_id: string; campaign_id: string }>(
+      "SELECT contact_id, campaign_id FROM leads WHERE id = $1",
+      [input.leadId],
+    );
+    if (!lead) return { sent: false, reason: "lead_missing" };
+    const contact = await db.maybeOne<{ id: string; email: string; subscriber_type: string | null }>(
+      "SELECT id, email, subscriber_type FROM contacts WHERE id = $1",
+      [lead.contact_id],
+    );
+    const biz = await db.maybeOne<{ country_code: string | null; timezone: string | null; region_code: string | null }>(
+      `SELECT b.country_code, b.timezone, b.region_code FROM businesses b
+        JOIN contacts c ON c.business_id = b.id WHERE c.id = $1`,
+      [lead.contact_id],
+    );
+    if (!contact || !biz) return { sent: false, reason: "contact_missing" };
+
+    const conversation = await db.maybeOne<{ id: string }>(
+      "SELECT id FROM conversations WHERE lead_id = $1 AND channel = 'email' LIMIT 1",
+      [input.leadId],
+    );
+    const asset = await pickAsset(db, "cold");
+    if (!asset) {
+      await raise(db, "no_sendable_asset", 2, { leadId: input.leadId, reason: "reply" });
+      return { sent: false, reason: "no_sendable_asset" };
+    }
+
+    const unsubUrl = unsubscribeUrl(
+      publicBase,
+      mintUnsubscribeToken({ contactId: contact.id, campaignId: lead.campaign_id }, unsubscribeSecret()),
+    );
+    const blocks = legalBlocks(biz.country_code ?? "US");
+    const body = [
+      input.replyText,
+      "",
+      blocks["ai_disclosure"] ?? "",
+      (blocks["unsubscribe"] ?? "").replace("{unsub_url}", unsubUrl),
+    ].join("\n");
+
+    const message: OutboundMessage = {
+      contactId: contact.id,
+      emailHash: emailHash(contact.email),
+      countryCode: biz.country_code ?? "US",
+      subscriberType: (contact.subscriber_type ?? "unknown") as OutboundMessage["subscriberType"],
+      channel: "email",
+      // ⛔ Still `cold`. A reply does not convert the relationship into an
+      // existing-customer one, and classifying it otherwise would route it past
+      // the rules that apply to cold mail.
+      messageClass: "cold",
+      domainClass: "burner",
+      campaignId: lead.campaign_id,
+      sendingAssetId: asset.id,
+      // One reply per inbound message, derived from its text so a redelivered
+      // notification cannot produce a second answer.
+      idempotencyKey: `lead:${input.leadId}:reply:${emailHash(input.replyText).toString("hex").slice(0, 24)}`,
+      ...recipientClock(biz, now()),
+      body,
+      headers: { From: asset.identifier, ...unsubscribeHeaders(unsubUrl) },
+    };
+
+    const transport = await resolveEmailTransport(asset.provider, vendorDeps);
+    const result = await gatedSend(
+      {
+        message,
+        to: contact.email,
+        from: asset.identifier,
+        subject: "Re: your reply",
+        transport,
+        ...(conversation ? { conversationId: conversation.id } : {}),
+        roleId: "email_responder",
+      },
+      { db },
+    );
+    if (result.sent) {
+      await db.query("UPDATE sending_assets SET sends_today = sends_today + 1 WHERE id = $1", [asset.id]);
+    }
+    return { sent: result.sent, decisionId: result.decisionId };
+  });
+
   on("mark_engaged", async (input: LeadRef & { intent: number }) => {
     await db.query("UPDATE leads SET state = 'ENGAGED' WHERE id = $1", [input.leadId]);
     await emit({ eventType: "lead.engaged", subject: { kind: "lead", id: input.leadId }, payload: { intent: input.intent } });
