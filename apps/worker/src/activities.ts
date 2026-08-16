@@ -34,6 +34,7 @@ import {
 } from "@adw/agents";
 import { gatedSend, type OutboundMessage } from "@adw/gate";
 import { mintUnsubscribeToken, unsubscribeHeaders, unsubscribeSecret, unsubscribeUrl } from "@adw/compliance";
+import { mintReplyToken, replyAddress } from "@adw/inbound";
 import { renderSite, buildArtifactFromHtml, familyForCategory } from "@adw/site-templates";
 import { reviewBuild } from "@adw/reviewer-gates";
 import { pickAsset } from "@adw/fleet";
@@ -60,6 +61,22 @@ import {
   verifyCutover,
 } from "@adw/dns";
 import type { Engine } from "@adw/workflows";
+
+/**
+ * The address replies come back to, and the secret that signs its token.
+ *
+ * ⛔ No inbound address configured means NO Reply-To header. That is deliberate:
+ * a Reply-To pointing at a mailbox nobody reads is worse than none at all,
+ * because the recipient's client will happily send there and the reply
+ * disappears — which is precisely the state this system shipped in.
+ */
+function inboundAddress(): string | null {
+  const addr = process.env["ADW_INBOUND_ADDRESS"];
+  return addr !== undefined && addr.includes("@") ? addr : null;
+}
+function replyTokenSecret(): string {
+  return process.env["ADW_REPLY_TOKEN_SECRET"] ?? "demo-reply-token-secret";
+}
 
 export interface ActivityDeps {
   db: Db;
@@ -218,10 +235,31 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
       return { sent: false, reason: "no_sendable_asset" };
     }
 
-    const conversation = await db.maybeOne<{ id: string }>(
+    // ⛔ The conversation is CREATED here if it does not exist, not merely looked
+    // up. Without one there is nothing for a reply to attach to, and the reply
+    // path silently degrades to "unmatched" for every lead — which is how a
+    // cold programme ends up with an inbound rail that technically works and
+    // never fires.
+    let conversation = await db.maybeOne<{ id: string }>(
       "SELECT id FROM conversations WHERE lead_id = $1 AND channel = 'email' LIMIT 1",
       [input.leadId],
     );
+    if (conversation === null) {
+      conversation = await db.one<{ id: string }>(
+        "INSERT INTO conversations (lead_id, channel) VALUES ($1,'email') RETURNING id",
+        [input.leadId],
+      );
+    }
+
+    // A signed, plus-addressed Reply-To. This is what lets a reply find its
+    // thread without depending on the recipient's client preserving
+    // In-Reply-To — which many mobile clients do not.
+    const replyTo = inboundAddress()
+      ? replyAddress(
+          inboundAddress()!,
+          mintReplyToken({ conversationId: conversation.id, leadId: input.leadId }, replyTokenSecret()),
+        )
+      : null;
     const message: OutboundMessage = {
       contactId: contact.id,
       emailHash: emailHash(contact.email),
@@ -240,7 +278,11 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
       // Australia — the gate is only as correct as the clock it is handed.
       ...recipientClock(biz, now()),
       body,
-      headers: { From: asset.identifier, ...unsubscribeHeaders(unsubUrl) },
+      headers: {
+        From: asset.identifier,
+        ...(replyTo === null ? {} : { "Reply-To": replyTo }),
+        ...unsubscribeHeaders(unsubUrl),
+      },
     };
 
     const transport = await resolveEmailTransport(asset.provider, vendorDeps);
@@ -251,7 +293,7 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
         from: asset.identifier,
         subject: draft.result.subject,
         transport,
-        ...(conversation ? { conversationId: conversation.id } : {}),
+        conversationId: conversation.id,
         roleId: "outreach_draft",
       },
       { db },

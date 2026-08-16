@@ -16,6 +16,7 @@
 // Everything here is deterministic. No model is consulted about a bounce.
 import { createHash } from "node:crypto";
 import type { Db } from "@adw/db";
+import { extractSesInbound } from "@adw/inbound";
 import { advanceDunning, resolveDunning } from "@adw/billing";
 import { emit } from "@adw/telemetry";
 
@@ -33,13 +34,28 @@ const NOT_HANDLED: WebhookOutcome = { handled: false, effects: [] };
  * shape: a provider that adds a field must not be able to 500 our endpoint into
  * a retry storm.
  */
+export interface WebhookEffectDeps {
+  /** Present once the inbound rail is configured. Absent means a Received
+   *  notification is refused loudly rather than acknowledged and dropped. */
+  routeInbound?: (raw: string) => Promise<{ kind: string; suppressed: boolean; signalled: boolean }>;
+  /** Fetch a message SES wrote to S3 instead of inlining. */
+  fetchS3?: (bucket: string, key: string) => Promise<string>;
+}
+
 export async function applyWebhookEffects(
   db: Db,
   provider: string,
   payload: unknown,
+  deps: WebhookEffectDeps = {},
 ): Promise<WebhookOutcome> {
   if (typeof payload !== "object" || payload === null) return NOT_HANDLED;
   const body = unwrapSns(payload as Record<string, unknown>);
+
+  // ⛔ Received comes FIRST. It is also a `notificationType`, so leaving it to
+  // `isEmailFeedback` would route every inbound reply into the bounce handler,
+  // which would find no bounce object and return NOT_HANDLED — the message
+  // acknowledged, the reply lost, and a 200 in the log saying it went fine.
+  if (body["notificationType"] === "Received") return applyInboundMail(db, body, deps);
 
   if (isEmailFeedback(body)) return applyEmailFeedback(db, provider, body);
   if (typeof body["type"] === "string" && body["type"].includes(".")) {
@@ -67,6 +83,61 @@ function unwrapSns(payload: Record<string, unknown>): Record<string, unknown> {
 
 function isEmailFeedback(body: Record<string, unknown>): boolean {
   return typeof body["notificationType"] === "string" || typeof body["eventType"] === "string";
+}
+
+/**
+ * A received email, arriving through the same SNS topic as the feedback events.
+ *
+ * ⛔ An unconfigured inbound rail returns `handled: false` with a reason rather
+ * than a silent acknowledgement. A 200 on a reply nobody read is exactly the
+ * shape of the bug this whole path exists to remove.
+ */
+async function applyInboundMail(
+  db: Db,
+  body: Record<string, unknown>,
+  deps: WebhookEffectDeps,
+): Promise<WebhookOutcome> {
+  const extracted = extractSesInbound(body as Parameters<typeof extractSesInbound>[0]);
+  if (extracted.kind === "not_inbound") return NOT_HANDLED;
+  if (extracted.kind === "rejected") {
+    await db.query(
+      `INSERT INTO exceptions (trigger, severity, context, system_action, recommendation)
+       VALUES ('inbound_rejected', 2, $1, 'message not processed', 'Inspect the receipt rule and the notification shape')`,
+      [JSON.stringify({ reason: extracted.reason })],
+    );
+    return { handled: true, effects: [`inbound_rejected:${extracted.reason}`] };
+  }
+  if (deps.routeInbound === undefined) {
+    await db.query(
+      `INSERT INTO exceptions (trigger, severity, context, system_action, recommendation)
+       VALUES ('inbound_rail_unconfigured', 1, $1, 'received mail was NOT processed',
+               'Wire routeInbound into the webhook handler; replies are being dropped')`,
+      [JSON.stringify({ kind: extracted.kind })],
+    );
+    return { handled: false, effects: ["inbound_rail_unconfigured"] };
+  }
+
+  let raw: string;
+  if (extracted.kind === "mime") {
+    raw = extracted.raw;
+  } else {
+    if (deps.fetchS3 === undefined) {
+      await db.query(
+        `INSERT INTO exceptions (trigger, severity, context, system_action, recommendation)
+         VALUES ('inbound_s3_unreadable', 1, $1, 'received mail was NOT processed',
+                 'The receipt rule writes to S3 but no fetcher is configured')`,
+        [JSON.stringify({ bucket: extracted.bucket, key: extracted.key })],
+      );
+      return { handled: false, effects: ["inbound_s3_unreadable"] };
+    }
+    raw = await deps.fetchS3(extracted.bucket, extracted.key);
+  }
+
+  const outcome = await deps.routeInbound(raw);
+  const effects = [`inbound:${outcome.kind}`];
+  if (outcome.suppressed) effects.push("suppressed");
+  if (outcome.signalled) effects.push("lead_signalled");
+  return { handled: true, effects };
 }
 
 interface Recipient {

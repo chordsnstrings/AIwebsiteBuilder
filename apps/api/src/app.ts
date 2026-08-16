@@ -41,6 +41,7 @@ import {
 } from "./middleware.ts";
 import { applyWebhookEffects } from "./webhooks.ts";
 import { authenticateWebhook } from "./webhook-auth.ts";
+import { routeInbound } from "@adw/inbound";
 import { agentRoutes } from "./agent-routes.ts";
 import { enqueueIntent, executionId } from "@adw/workflows";
 import {
@@ -710,7 +711,28 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
     // be swallowed as a duplicate, losing it permanently.
     let outcome: Awaited<ReturnType<typeof applyWebhookEffects>> = { handled: false, effects: [] };
     try {
-      outcome = await applyWebhookEffects(db, provider, JSON.parse(raw));
+      outcome = await applyWebhookEffects(db, provider, JSON.parse(raw), {
+        // ⛔ Wired here, not defaulted inside the handler. An inbound rail that
+        // silently no-ops is the state this system was already in — replies
+        // acknowledged with 200 and read by nobody.
+        routeInbound: async (mime) =>
+          routeInbound(mime, {
+            db,
+            replyTokenSecret: replyTokenSecret(),
+            // Through the outbox, not straight at the engine: the API and the
+            // worker are different processes, and only one of them replays
+            // journals.
+            signalWorkflow: async (workflowId, name, payload) => {
+              await enqueueIntent(db, {
+                kind: "signal",
+                workflowType: "lead",
+                executionId: workflowId,
+                signalName: name,
+                payload: payload as Record<string, unknown>,
+              });
+            },
+          }),
+      });
     } catch (err) {
       await db.query(
         `INSERT INTO exceptions (trigger, severity, context, system_action, recommendation)
@@ -759,6 +781,19 @@ function escapeHtml(value: string): string {
     /[&<>"']/g,
     (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!,
   );
+}
+
+/**
+ * The secret that signs plus-addressed Reply-To tokens.
+ *
+ * ⛔ Rotating it orphans every in-flight thread — a reply minted under the old
+ * secret fails verification and lands in the exception queue rather than on its
+ * conversation. That is the correct failure (a forged token must not attach a
+ * message to someone else's thread) but it is not a free operation, so the
+ * default is only acceptable in demo mode.
+ */
+export function replyTokenSecret(env: NodeJS.ProcessEnv = process.env): string {
+  return env["ADW_REPLY_TOKEN_SECRET"] ?? "demo-reply-token-secret";
 }
 
 /**

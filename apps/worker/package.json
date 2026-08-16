@@ -33,6 +33,7 @@
     "@adw/mcp": "workspace:*",
     "@adw/agenteval": "workspace:*",
     "@adw/concierge": "workspace:*",
-    "@adw/architect": "workspace:*"
+    "@adw/architect": "workspace:*",
+    "@adw/inbound": "workspace:*"
   }
 }

@@ -105,6 +105,9 @@ importers:
       '@adw/gateway':
         specifier: workspace:*
         version: link:../../packages/gateway
+      '@adw/inbound':
+        specifier: workspace:*
+        version: link:../../packages/inbound
       '@adw/kb':
         specifier: workspace:*
         version: link:../../packages/kb
@@ -274,6 +277,9 @@ importers:
       '@adw/gate':
         specifier: workspace:*
         version: link:../../packages/gate
+      '@adw/inbound':
+        specifier: workspace:*
+        version: link:../../packages/inbound
       '@adw/kb':
         specifier: workspace:*
         version: link:../../packages/kb
@@ -535,6 +541,12 @@ importers:
       zod:
         specifier: ^3.24.1
         version: 3.25.76
+
+  packages/inbound:
+    dependencies:
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
 
   packages/kb:
     dependencies:
