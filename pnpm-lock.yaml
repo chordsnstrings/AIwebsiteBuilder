@@ -123,6 +123,9 @@ importers:
       '@adw/registry':
         specifier: workspace:*
         version: link:../../packages/registry
+      '@adw/scheduling':
+        specifier: workspace:*
+        version: link:../../packages/scheduling
       '@adw/sentinel':
         specifier: workspace:*
         version: link:../../packages/sentinel
@@ -687,6 +690,18 @@ importers:
       '@adw/config':
         specifier: workspace:*
         version: link:../config
+
+  packages/scheduling:
+    dependencies:
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+      '@adw/taxonomy':
+        specifier: workspace:*
+        version: link:../taxonomy
+      '@adw/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
 
   packages/sentinel:
     dependencies:

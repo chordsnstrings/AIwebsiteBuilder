@@ -43,7 +43,8 @@ import { applyWebhookEffects } from "./webhooks.ts";
 import { authenticateWebhook } from "./webhook-auth.ts";
 import { routeInbound } from "@adw/inbound";
 import { emailResponderAgent } from "@adw/agents";
-import { agentRoutes } from "./agent-routes.ts";
+import { availableSlots } from "@adw/scheduling";
+import { agentRoutes, type AgentRouteDeps } from "./agent-routes.ts";
 import { enqueueIntent, executionId } from "@adw/workflows";
 import {
   unsubscribeSecret,
@@ -68,6 +69,9 @@ export interface AppDeps {
   authOverride?: SessionUser | null;
   /** Test hook: share or disable the rate-limit store. */
   rateLimitStore?: RateLimitStore;
+  /** Absent means the upload routes refuse with 503 rather than accepting
+   *  files nothing stores. */
+  uploads?: AgentRouteDeps["uploads"];
 }
 
 type Vars = { user: SessionUser | null };
@@ -110,7 +114,28 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
   // and at the root so /.well-known/mcp lands where an assistant looks for it.
   app.route(
     "/",
-    agentRoutes({ db, ...(deps.authOverride === undefined ? {} : { authOverride: deps.authOverride }) }),
+    agentRoutes({
+      db,
+      ...(deps.authOverride === undefined ? {} : { authOverride: deps.authOverride }),
+      // ⛔ The supplier the booking machine never had. `bookingNext` was written
+      // and tested and reachable, and `availableSlots` was optional and never
+      // passed — so every booking conversation asked for a contact and promised
+      // a call back that nobody scheduled.
+      concierge: {
+        availableSlots: async (ctx) =>
+          ctx.session.customerId === undefined
+            ? []
+            : (
+                await availableSlots(
+                  db,
+                  ctx.session.customerId,
+                  { from: new Date(), to: new Date(Date.now() + 14 * 86_400_000) },
+                  { limit: 3 },
+                )
+              ).map((s) => ({ start: s.start, end: s.end })),
+      },
+      ...(deps.uploads === undefined ? {} : { uploads: deps.uploads }),
+    }),
   );
 
   // --- Authentication -------------------------------------------------------
