@@ -33,6 +33,7 @@
     "@adw/qapack": "workspace:*",
     "@adw/mcp": "workspace:*",
     "@adw/kb": "workspace:*",
-    "@adw/architect": "workspace:*"
+    "@adw/architect": "workspace:*",
+    "@adw/vendors": "workspace:*"
   }
 }

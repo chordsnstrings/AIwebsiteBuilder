@@ -40,6 +40,7 @@ import {
   type RateLimitStore,
 } from "./middleware.ts";
 import { applyWebhookEffects } from "./webhooks.ts";
+import { authenticateWebhook } from "./webhook-auth.ts";
 import { agentRoutes } from "./agent-routes.ts";
 import { enqueueIntent, executionId } from "@adw/workflows";
 import {
@@ -640,10 +641,44 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
   app.post("/webhooks/:provider", async (c) => {
     const provider = c.req.param("provider");
     const raw = await c.req.text();
-    const signature = c.req.header("x-adw-signature") ?? "";
-    const secret = process.env.ADW_WEBHOOK_SECRET ?? "demo-webhook-secret";
-    if (!verifySignature(raw, signature, secret)) {
-      return c.json({ error: "invalid signature" }, 401);
+    const verdict = await authenticateWebhook(
+      { provider, raw, header: (name) => c.req.header(name) },
+      // ⛔ The shared-secret path is for our simulators only. A live deployment
+      // accepting it would give anyone holding ADW_WEBHOOK_SECRET the ability to
+      // forge a hard bounce and suppress any address.
+      { simulated: deps.forceMock ?? true },
+    );
+    if (!verdict.ok) {
+      // ⛔ Record the refusal. A misconfigured topic ARN and an actual forgery
+      // are both 401s from outside, and the difference only exists in here —
+      // the previous scheme rejected every genuine notification silently for
+      // months because nothing counted the rejections.
+      await db.query(
+        "INSERT INTO events (event_type, actor_kind, actor_id, payload) VALUES ('webhook.rejected','system',$1,$2)",
+        [provider, JSON.stringify({ reason: verdict.reason, bytes: raw.length })],
+      );
+      return c.json({ error: "invalid signature", reason: verdict.reason }, 401);
+    }
+    // An SNS subscription that is never confirmed delivers nothing, forever,
+    // and reports no error at either end. Confirming is the handshake that
+    // turns a configured topic into a live one.
+    if (verdict.kind === "subscription_confirmation") {
+      const confirmed = await fetch(verdict.subscribeUrl, { method: "GET" })
+        .then((r) => r.ok)
+        .catch(() => false);
+      await db.query(
+        "INSERT INTO events (event_type, actor_kind, actor_id, payload) VALUES ('webhook.subscription_confirmed','system',$1,$2)",
+        [provider, JSON.stringify({ confirmed })],
+      );
+      if (!confirmed) {
+        await db.query(
+          `INSERT INTO exceptions (trigger, severity, context, system_action, recommendation)
+           VALUES ('webhook_subscription_unconfirmed', 2, $1, 'confirmation fetch failed',
+                   'Confirm the SNS subscription by hand; until it is confirmed no bounce or complaint reaches suppression')`,
+          [JSON.stringify({ provider })],
+        );
+      }
+      return c.json({ received: true, subscriptionConfirmed: confirmed });
     }
     let payload: { id?: string; type?: string };
     try {
@@ -726,15 +761,15 @@ function escapeHtml(value: string): string {
   );
 }
 
+/**
+ * Sign a payload the way OUR simulators sign.
+ *
+ * ⛔ This is not how Amazon or Stripe sign, and it never was. Verification now
+ * lives in `./webhook-auth.ts`, which picks the scheme by provider; this stays
+ * only so the mock rail and its tests have something to produce.
+ */
 export function signPayload(raw: string, secret: string): string {
   return "sha256=" + createHmac("sha256", secret).update(raw).digest("hex");
-}
-
-function verifySignature(raw: string, signature: string, secret: string): boolean {
-  const expected = signPayload(raw, secret);
-  const a = Buffer.from(expected);
-  const b = Buffer.from(signature);
-  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 /**

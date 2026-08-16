@@ -129,6 +129,9 @@ importers:
       '@adw/vault':
         specifier: workspace:*
         version: link:../../packages/vault
+      '@adw/vendors':
+        specifier: workspace:*
+        version: link:../../packages/vendors
       '@adw/workflows':
         specifier: workspace:*
         version: link:../../packages/workflows

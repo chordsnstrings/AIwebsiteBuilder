@@ -330,6 +330,52 @@ describe("webhooks", () => {
     });
     expect((await replay.json()).duplicate).toBe(true);
   });
+
+  // ⛔ The three below are the route-level assertions this endpoint never had.
+  //
+  // The webhook effects — hard bounce to suppression, complaint to suppression,
+  // dunning advance — were fully implemented and fully tested by calling
+  // `applyWebhookEffects()` directly. Nothing tested that a real notification
+  // could REACH it, and it could not: the route verified an `x-adw-signature`
+  // HMAC that neither Amazon nor Stripe sends, so every genuine event was
+  // answered 401 and the bounce detector was unreachable in production while
+  // its own suite was green.
+  it("⛔ refuses a shared-secret signature in live mode", async () => {
+    // The simulator path must not be a second door into a live deployment.
+    // Anyone holding ADW_WEBHOOK_SECRET could otherwise forge a hard bounce and
+    // suppress an arbitrary address.
+    const raw = JSON.stringify({ id: `evt_live_${Date.now()}`, type: "payment.succeeded" });
+    const live = createApp({ db, vault, forceMock: false, authOverride: null });
+    const res = await live.request("/webhooks/stripe", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-adw-signature": signPayload(raw, secret) },
+      body: raw,
+    });
+    expect(res.status).toBe(401);
+    expect((await res.json()).reason).toMatch(/only accepted against simulators/);
+  });
+
+  it("⛔ refuses a provider whose scheme is not implemented, rather than defaulting", async () => {
+    const raw = JSON.stringify({ id: `evt_x_${Date.now()}` });
+    const res = await appAs(null).request("/webhooks/postmark", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-adw-signature": signPayload(raw, secret) },
+      body: raw,
+    });
+    expect(res.status).toBe(401);
+    expect((await res.json()).reason).toMatch(/no signature scheme is implemented/);
+  });
+
+  it("records every refusal, because a misconfiguration and a forgery look identical from outside", async () => {
+    const before = await db.one<{ n: string }>("SELECT count(*) AS n FROM events WHERE event_type = 'webhook.rejected'");
+    await appAs(null).request("/webhooks/stripe", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "evt_unsigned" }),
+    });
+    const after = await db.one<{ n: string }>("SELECT count(*) AS n FROM events WHERE event_type = 'webhook.rejected'");
+    expect(Number(after.n)).toBeGreaterThan(Number(before.n));
+  });
 });
 
 // ---------------------------------------------------------------------------

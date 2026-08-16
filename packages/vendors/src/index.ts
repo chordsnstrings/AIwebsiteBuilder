@@ -173,3 +173,19 @@ export {
   VENDOR_IDS,
   type ResolveVendorDeps,
 } from "./resolve-vendors.ts";
+
+// --- Webhook authentication -------------------------------------------------
+// ⛔ Per-provider, because a scheme you invented only authenticates you.
+export {
+  assertSigningUrl,
+  clearCertCache,
+  fetchSigningCert,
+  snsStringToSign,
+  verifySharedSecret,
+  verifySns,
+  verifyStripe,
+  STRIPE_TOLERANCE_SECONDS,
+  type SnsEnvelope,
+  type SnsVerifyOptions,
+  type WebhookVerdict,
+} from "./webhook-auth.ts";
