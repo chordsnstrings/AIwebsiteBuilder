@@ -5,7 +5,7 @@
 // owner behind it.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
-import { createDb, migrate, type Db } from "@adw/db";
+import { createDb, emailHash, migrate, type Db } from "@adw/db";
 import { LocalKeyWrapper, LocalPgBackend, type SecretsBackend } from "@adw/vault";
 import { embedText, persistQAPack, type QAPack, type QAPair } from "@adw/qapack";
 import type { SessionUser } from "@adw/auth";
@@ -51,6 +51,7 @@ interface Fixture {
   customerId: string;
   businessId: string;
   kbId: string;
+  leadId: string;
   pack: QAPack;
 }
 
@@ -67,6 +68,26 @@ async function seed(opts: { approved?: boolean } = {}): Promise<Fixture> {
     `INSERT INTO customers (business_id, region_code, legal_name, contact_email, locale, timezone, status)
      VALUES ($1,'R3','Route Plumbing',$2,'en-GB','Asia/Dubai','active') RETURNING id`,
     [biz.id, `routes_${randomUUID()}@example.com`],
+  );
+  // ⛔ A contact and a lead, because a real customer always has both and the
+  // approval route reaches the onboarding workflow through them. Seeding a
+  // customer with no lead was why the first version of the release assertion
+  // failed against a route that was working correctly — the fixture, not the
+  // code, was the thing missing a link.
+  const contactEmail = `contact_${randomUUID()}@example.com`;
+  const contact = await db.one<{ id: string }>(
+    `INSERT INTO contacts (business_id, email, email_hash, verification)
+     VALUES ($1,$2,$3,'valid') RETURNING id`,
+    [biz.id, contactEmail, emailHash(contactEmail)],
+  );
+  const campaign = await db.one<{ id: string }>(
+    `INSERT INTO campaigns (name, region_code) VALUES ($1,'R3') RETURNING id`,
+    [`route-${randomUUID()}`],
+  );
+  const lead = await db.one<{ id: string }>(
+    `INSERT INTO leads (contact_id, campaign_id, state, workflow_id)
+     VALUES ($1,$2,'WON',$3) RETURNING id`,
+    [contact.id, campaign.id, `lead:${contact.id}`],
   );
   const kb = await db.one<{ id: string }>(
     `INSERT INTO knowledge_bases (business_id, customer_id) VALUES ($1,$2) RETURNING id`,
@@ -109,7 +130,7 @@ async function seed(opts: { approved?: boolean } = {}): Promise<Fixture> {
     await db.query(`UPDATE qa_packs SET approved_at = now(), approved_by = 'owner@example.com' WHERE id = $1`, [pack.id]);
   }
   forgetPack(pack.id);
-  return { customerId: cust.id, businessId: biz.id, kbId: kb.id, pack };
+  return { customerId: cust.id, businessId: biz.id, kbId: kb.id, leadId: lead.id, pack };
 }
 
 const json = (body: unknown): RequestInit => ({
@@ -341,3 +362,84 @@ describe("the gap list", () => {
     expect(res.status).toBe(422);
   });
 });
+
+// ---------------------------------------------------------------------------
+describe("⛔ pack approval — the step that unblocks going live", () => {
+  // This route did not exist, and its absence stopped the entire product.
+  //
+  // `agent_eval_gate` fails `pack_not_approved` unless `qa_packs.approved_at` is
+  // set; `onboarding.ts:127` gives it no partial credit; so deploy, cutover and
+  // the delivery email were unreachable and every onboarding ended at
+  // `raise_onboarding_exception`. `approvePack()` was written, tested and
+  // exported with ZERO production callers.
+  //
+  // The nightly checks had the evidence all along: eval-nightly asserts "No Q&A
+  // pack went live without the owner approving it" and passed — vacuously,
+  // because no pack ever reached the gate. An invariant that holds because the
+  // thing it guards never happens is not a check, it is a decoration.
+
+  const owner: SessionUser = { id: "u-owner", email: "owner@acme.example", role: "superadmin" };
+
+  it("approves a pack, and the agent becomes servable as a direct result", async () => {
+    const { customerId, pack } = await seed({ approved: false });
+
+    // Before: every public surface 404s, because loadLiveAgent refuses a draft.
+    const before = await appAs(null).request("/agent/session", json({ customerId }));
+    expect(before.status).toBe(404);
+
+    const res = await appAs(owner).request(`/agent/packs/${pack.id}/approve`, json({}));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { approvedBy: string; pairsApproved: number };
+    expect(body.approvedBy).toBe(owner.email);
+    expect(body.pairsApproved).toBeGreaterThan(0);
+
+    // After: the same call succeeds. This is the whole product turning on.
+    forgetPack(pack.id);
+    const after = await appAs(null).request("/agent/session", json({ customerId }));
+    expect(after.status).toBe(200);
+  });
+
+  it("releases the onboarding workflow rather than only stamping a column", async () => {
+    // Approving without signalling would leave the workflow parked forever and
+    // look identical to success from the API's side.
+    const { pack } = await seed({ approved: false });
+    await appAs(owner).request(`/agent/packs/${pack.id}/approve`, json({}));
+    const intent = await db.maybeOne<{ signal_name: string; workflow_type: string }>(
+      "SELECT signal_name, workflow_type FROM workflow_intents WHERE signal_name = 'approved' ORDER BY created_at DESC LIMIT 1",
+    );
+    expect(intent?.workflow_type).toBe("onboarding");
+  });
+
+  it("⛔ is not public — an unauthenticated caller cannot sign off a pack", async () => {
+    const { pack } = await seed({ approved: false });
+    const res = await appAs(null).request(`/agent/packs/${pack.id}/approve`, json({}));
+    expect(res.status).toBe(401);
+  });
+
+  it("first approval wins, so a second click cannot rewrite the evidence", async () => {
+    const { pack } = await seed({ approved: false });
+    const first = (await (await appAs(owner).request(`/agent/packs/${pack.id}/approve`, json({}))).json()) as {
+      approvedAt: string;
+      approvedBy: string;
+    };
+    const other: SessionUser = { id: "u2", email: "someone-else@acme.example", role: "superadmin" };
+    const second = (await (await appAs(other).request(`/agent/packs/${pack.id}/approve`, json({}))).json()) as {
+      approvedAt: string;
+      approvedBy: string;
+    };
+    expect(second.approvedBy).toBe(first.approvedBy);
+    expect(second.approvedAt).toBe(first.approvedAt);
+  });
+
+  it("shows the owner every pair, not a sample, before they sign", async () => {
+    // An owner who signed off a summary has not signed off the pack, and the
+    // pack is what the agent may say on their behalf.
+    const { pack } = await seed({ approved: false });
+    const res = await appAs(owner).request(`/agent/packs/${pack.id}`);
+    const body = (await res.json()) as { pairs: unknown[]; pairCount: number; approvedAt: string | null };
+    expect(body.approvedAt).toBeNull();
+    expect(body.pairs.length).toBe(body.pairCount);
+    expect(body.pairs.length).toBe(pack.pairs.length);
+  });
+});
+

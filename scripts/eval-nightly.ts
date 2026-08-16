@@ -74,6 +74,36 @@ const checks: Check[] = [
     },
   },
   {
+    // ⛔ The check above passed for months while the product was completely
+    // broken. It counts VIOLATIONS, so zero packs → zero violations → green,
+    // and nothing distinguished "the rule holds" from "the rule has never had
+    // anything to hold over". `approvePack()` had no production caller at all,
+    // so no pack ever cleared the eval gate, so no customer agent ever went
+    // live — and the nightly board said everything was fine.
+    //
+    // An invariant with an empty population is not evidence. This asserts the
+    // population exists, so the guard above can only stay green by being true.
+    name: "The approval invariant above has a population to be true over",
+    run: async () => {
+      const row = await db.one<{ approved: string; live: string }>(
+        `SELECT
+           (SELECT count(*) FROM qa_packs WHERE customer_id IS NOT NULL AND approved_at IS NOT NULL) AS approved,
+           (SELECT count(*) FROM agent_eval_runs WHERE verdict = 'pass') AS live`,
+      );
+      const approved = Number(row.approved);
+      const live = Number(row.live);
+      return {
+        ok: approved > 0 && live > 0,
+        detail:
+          approved === 0
+            ? "ZERO approved packs exist — the approval guard is vacuous and no customer agent can be live"
+            : live === 0
+              ? `${approved} approved packs but zero passing eval runs — nothing reached the gate`
+              : `${approved} approved packs, ${live} passing eval runs`,
+      };
+    },
+  },
+  {
     name: "No customer mail record was altered during a cutover",
     run: async () => {
       // 86% of targets have live MX. This is the number that would end the

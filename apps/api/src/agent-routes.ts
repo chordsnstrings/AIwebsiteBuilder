@@ -29,9 +29,10 @@ import {
   type ConciergeContext,
   type ConciergeDeps,
 } from "@adw/concierge";
-import { loadQAPack, type QAPack } from "@adw/qapack";
+import { approvePack, loadQAPack, type QAPack } from "@adw/qapack";
 import { handleMcpCall, mcpManifest, MCP_TOOLS, type McpContext, type RefusalChecker } from "@adw/mcp";
 import type { SessionUser } from "@adw/auth";
+import { enqueueIntent, executionId } from "@adw/workflows";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Longer than any real question and short enough that a body is not a payload. */
@@ -367,6 +368,109 @@ export function agentRoutes(deps: AgentRouteDeps): Hono<{ Variables: { user: Ses
     // a pack is immutable once approved, and editing one in place would change
     // what a stored answer was signed off against.
     return c.json({ ok: true, gapId, question: gap.question, queuedForNextPack: true });
+  });
+
+  // -------------------------------------------------------------------------
+  // Pack review and sign-off — the step without which nothing ships
+  // -------------------------------------------------------------------------
+  //
+  // ⛔ These two routes are the reason no customer agent could ever go live.
+  //
+  // `agent_eval_gate` refuses a pack whose `approved_at` is null, and it gives
+  // no partial credit — so `deploy_customer_site`, `cutover_dns` and
+  // `send_delivery_email` were all unreachable and every onboarding terminated
+  // at `raise_onboarding_exception`. `approvePack()` was written, tested and
+  // exported, and nothing in production called it.
+  //
+  // The tell was in the nightly checks the whole time: eval-nightly asserts
+  // "No Q&A pack went live without the owner approving it" and PASSED, because
+  // no pack ever reached the gate. An invariant that holds because the thing it
+  // guards never happens.
+
+  /** What the owner reads before signing. Their words, back to them. */
+  app.get("/agent/packs/:packId", async (c) => {
+    const operator = user(c);
+    if (operator === null) return c.json({ error: "unauthorised" }, 401);
+    const packId = c.req.param("packId");
+    if (!UUID_RE.test(packId)) return c.json({ error: "bad packId" }, 400);
+    const pack = await loadQAPack(db, packId);
+    if (pack === null) return c.json({ error: "unknown pack" }, 404);
+    return c.json({
+      packId: pack.id,
+      version: pack.version,
+      pairCount: pack.pairs.length,
+      thin: pack.thin,
+      approvedAt: pack.approvedAt ?? null,
+      approvedBy: pack.approvedBy ?? null,
+      // ⛔ Every pair, never a sample. This is the artefact that decides what
+      // the agent may say on their behalf, and an owner who signed off a
+      // summary has not signed off the pack.
+      pairs: pack.pairs.map((p) => ({
+        id: p.id,
+        question: p.question,
+        answer: p.answer,
+        source: p.source,
+        grounded: (p.sourceFactIds ?? []).length > 0,
+      })),
+    });
+  });
+
+  app.post("/agent/packs/:packId/approve", async (c) => {
+    const operator = user(c);
+    if (operator === null) return c.json({ error: "unauthorised" }, 401);
+    const packId = c.req.param("packId");
+    if (!UUID_RE.test(packId)) return c.json({ error: "bad packId" }, 400);
+
+    const pack = await loadQAPack(db, packId);
+    if (pack === null) return c.json({ error: "unknown pack" }, 404);
+
+    // ⛔ An empty pack cannot be approved. The eval gate would fail it anyway,
+    // but failing here says why in words the owner can act on rather than
+    // leaving them an exception row they never see.
+    if (pack.pairs.length === 0) {
+      return c.json({ error: "This pack has no answers in it yet — nothing to approve." }, 422);
+    }
+
+    const approval = await approvePack(db, packId, operator.email);
+
+    // Release the onboarding workflow, which has been parked on this signal.
+    // Through the outbox, not the engine: the API and the worker are separate
+    // processes and only one of them replays journals.
+    const lead = await db.maybeOne<{ id: string }>(
+      `SELECT l.id
+         FROM qa_packs p
+         JOIN contacts ct ON ct.business_id = p.business_id
+         JOIN leads l ON l.contact_id = ct.id
+        WHERE p.id = $1
+        ORDER BY l.entered_state_at DESC LIMIT 1`,
+      [packId],
+    );
+    if (lead !== null) {
+      await enqueueIntent(db, {
+        kind: "signal",
+        workflowType: "onboarding",
+        executionId: executionId.onboarding(lead.id),
+        signalName: "approved",
+        payload: { approvedBy: operator.email, packId },
+      });
+    }
+
+    await db.query(
+      `INSERT INTO events (event_type, actor_kind, actor_id, payload)
+       VALUES ('qa_pack.approved', 'customer', $1, $2)`,
+      [operator.email, JSON.stringify({ packId, pairsApproved: approval.pairsApproved })],
+    );
+
+    return c.json({
+      ok: true,
+      packId,
+      approvedAt: approval.approvedAt,
+      approvedBy: approval.approvedBy,
+      pairsApproved: approval.pairsApproved,
+      // False here is worth surfacing: the pack is signed but the workflow was
+      // not found, so a human has to start onboarding by hand.
+      onboardingReleased: lead !== null,
+    });
   });
 
   return app;
