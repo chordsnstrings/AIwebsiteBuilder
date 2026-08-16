@@ -1,0 +1,109 @@
+# Case types (catalogue MF2 — 80 units).
+#
+# A case is a long-running object with stages, a clock per stage, and a status
+# the customer can see. The catalogue calls them matters, claims, tickets, NCRs,
+# permits and applications; they are the same shape with different nouns, which
+# is why this is config and not eighty classes.
+#
+# ⛔ `customer_visible` is per STAGE and defaults false. A case note saying
+# "client is being difficult" is internal, and a status page that leaks one
+# costs the business the client. Visibility is granted, never assumed.
+#
+# ⛔ `due_hours` is a stage clock, not a case clock. "Open for 40 days" is normal
+# for a conveyance and a scandal for a complaint; what matters is how long it has
+# sat in the stage it is in.
+
+version: 1
+
+archetype_cases:
+  A:
+    - id: emergency_job
+      label: "Emergency job"
+      stages:
+        - { key: reported, label: "Reported", due_hours: 1, customer_visible: true }
+        - { key: dispatched, label: "Engineer on the way", due_hours: 4, customer_visible: true }
+        - { key: on_site, label: "On site", due_hours: 8, customer_visible: true }
+        - { key: complete, label: "Complete", terminal: true, customer_visible: true }
+  B:
+    - id: appointment
+      label: "Appointment"
+      stages:
+        - { key: requested, label: "Requested", due_hours: 24, customer_visible: true }
+        - { key: confirmed, label: "Confirmed", customer_visible: true }
+        - { key: attended, label: "Attended", customer_visible: true }
+        - { key: aftercare, label: "Aftercare", due_hours: 168, customer_visible: true }
+        - { key: closed, label: "Closed", terminal: true, customer_visible: true }
+  C:
+    - id: matter
+      label: "Matter"
+      stages:
+        - { key: enquiry, label: "Enquiry received", due_hours: 24, customer_visible: true }
+        - { key: conflict_check, label: "Conflict check", due_hours: 48, customer_visible: false }
+        - { key: engaged, label: "Engaged", customer_visible: true }
+        - { key: in_progress, label: "In progress", due_hours: 720, customer_visible: true }
+        - { key: awaiting_client, label: "Awaiting information from you", due_hours: 168, customer_visible: true }
+        - { key: concluded, label: "Concluded", terminal: true, customer_visible: true }
+  D:
+    - id: project
+      label: "Project"
+      stages:
+        - { key: enquiry, label: "Enquiry", due_hours: 24, customer_visible: true }
+        - { key: site_visit, label: "Site visit booked", due_hours: 168, customer_visible: true }
+        - { key: quoted, label: "Quoted", due_hours: 336, customer_visible: true }
+        - { key: scheduled, label: "Scheduled", customer_visible: true }
+        - { key: in_progress, label: "Work in progress", customer_visible: true }
+        - { key: snagging, label: "Snagging", due_hours: 336, customer_visible: true }
+        - { key: complete, label: "Complete", terminal: true, customer_visible: true }
+  E:
+    - id: service_ticket
+      label: "Service ticket"
+      stages:
+        - { key: raised, label: "Raised", due_hours: 4, customer_visible: true }
+        - { key: triaged, label: "Triaged", due_hours: 8, customer_visible: true }
+        - { key: in_progress, label: "In progress", due_hours: 72, customer_visible: true }
+        - { key: awaiting_customer, label: "Awaiting your response", due_hours: 120, customer_visible: true }
+        - { key: resolved, label: "Resolved", terminal: true, customer_visible: true }
+  F:
+    - id: event_booking
+      label: "Event booking"
+      stages:
+        - { key: enquiry, label: "Enquiry", due_hours: 4, customer_visible: true }
+        - { key: held, label: "Date held", due_hours: 336, customer_visible: true }
+        - { key: deposit_paid, label: "Deposit received", customer_visible: true }
+        - { key: planning, label: "Planning", customer_visible: true }
+        - { key: delivered, label: "Delivered", terminal: true, customer_visible: true }
+  G:
+    - id: episode_of_care
+      label: "Episode of care"
+      stages:
+        - { key: referral, label: "Referral received", due_hours: 48, customer_visible: true }
+        - { key: triage, label: "Triage", due_hours: 72, customer_visible: false }
+        - { key: booked, label: "Booked", customer_visible: true }
+        - { key: in_treatment, label: "In treatment", customer_visible: true }
+        - { key: recall_due, label: "Recall due", customer_visible: true }
+        - { key: discharged, label: "Discharged", terminal: true, customer_visible: true }
+  H:
+    - id: application
+      label: "Application"
+      stages:
+        - { key: started, label: "Started", due_hours: 168, customer_visible: true }
+        - { key: documents_outstanding, label: "Documents outstanding", due_hours: 168, customer_visible: true }
+        - { key: under_review, label: "Under review", due_hours: 336, customer_visible: true }
+        - { key: offer_made, label: "Offer made", due_hours: 336, customer_visible: true }
+        - { key: enrolled, label: "Enrolled", terminal: true, customer_visible: true }
+  I:
+    - id: tenancy
+      label: "Tenancy"
+      stages:
+        - { key: viewing, label: "Viewing", due_hours: 72, customer_visible: true }
+        - { key: offer, label: "Offer", due_hours: 72, customer_visible: true }
+        - { key: referencing, label: "Referencing", due_hours: 168, customer_visible: true }
+        - { key: signed, label: "Signed", customer_visible: true }
+        - { key: occupied, label: "Occupied", terminal: true, customer_visible: true }
+  J:
+    - id: order
+      label: "Order"
+      stages:
+        - { key: placed, label: "Placed", customer_visible: true }
+        - { key: ready, label: "Ready for collection", due_hours: 168, customer_visible: true }
+        - { key: collected, label: "Collected", terminal: true, customer_visible: true }

@@ -194,6 +194,11 @@ export const config = {
     const raw = readFileSync(join(CONFIG_DIR, "document-packs.yaml"), "utf8");
     return { data: parse(raw), version: "document-packs@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
   },
+  /** Case types (MF2). Stage clocks and per-stage customer visibility. */
+  caseTypes: () => {
+    const raw = readFileSync(join(CONFIG_DIR, "case-types.yaml"), "utf8");
+    return { data: parse(raw), version: "case-types@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
+  },
   protocols: () => {
     const raw = readFileSync(join(CONFIG_DIR, "protocols.yaml"), "utf8");
     return { data: parse(raw), version: "protocols@" + createHash("sha256").update(raw).digest("hex").slice(0, 7) };
