@@ -6,7 +6,7 @@
 // exact thing the product is sold as fixing — while a knowledge base of the
 // business's own published services sat in the database unused.
 import { describe, expect, it } from "vitest";
-import { machineSurfaceFromFacts, serviceNamesFromFacts, type PublishedFact } from "./src/from-facts.ts";
+import { machineSurfaceFromFacts, mayPublish, serviceNamesFromFacts, type PublishedFact } from "./src/from-facts.ts";
 
 const base = { name: "Halloran Roofing", category: "roofer", city: "Leeds", phone: "+441130000000" };
 const fact = (type: string, value: string, status = "verified"): PublishedFact => ({ type, value, status });
@@ -111,5 +111,37 @@ describe("an empty knowledge base", () => {
     expect(out.verifiedCredentials).toBeUndefined();
     // …but still identifies the business, which is not a claim about it.
     expect(out.name).toBe("Halloran Roofing");
+  });
+});
+
+describe("⛔ mayPublish — the one rule both surfaces consult", () => {
+  it("refuses a credential we could not check, and allows one we did", () => {
+    expect(mayPublish({ type: "credential", status: "verified" })).toBe(true);
+    for (const status of ["claimed_unverified", "stale", "inferred"]) {
+      expect(mayPublish({ type: "credential", status })).toBe(false);
+    }
+  });
+
+  it("⛔ refuses a price from a page that looks abandoned", () => {
+    // Publishing it as a current Offer is a figure the business would be held
+    // to, quoted from a page they stopped maintaining.
+    expect(mayPublish({ type: "price", status: "stale" })).toBe(false);
+    expect(mayPublish({ type: "price", status: "verified" })).toBe(true);
+    expect(mayPublish({ type: "price", status: "claimed_unverified" })).toBe(true);
+  });
+
+  it("⛔ refuses anything inferred from reviews", () => {
+    // `inferred` never comes from the business. Publishing it as their offering
+    // invents an offering, on a surface an assistant relays as fact.
+    for (const type of ["service", "area", "hours", "price", "credential"]) {
+      expect(mayPublish({ type, status: "inferred" })).toBe(false);
+    }
+  });
+
+  it("allows the business's own words about itself", () => {
+    // This is the product: repeating what a business published. Refusing
+    // `claimed_unverified` everywhere would leave nothing to publish.
+    expect(mayPublish({ type: "service", status: "claimed_unverified" })).toBe(true);
+    expect(mayPublish({ type: "area", status: "stale" })).toBe(true);
   });
 });

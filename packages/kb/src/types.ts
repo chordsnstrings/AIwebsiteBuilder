@@ -174,3 +174,33 @@ export interface ExtractInput {
   marketLang?: string;
   version?: number;
 }
+
+/**
+ * May this fact be published on the business's behalf?
+ *
+ * ⛔ ONE RULE, CONSULTED BY EVERY SURFACE. It lives here because this file is
+ * where the statuses are defined and what they mean is the whole rule. The
+ * rendered page had a rule for credentials and none for anything else; the MCP
+ * manifest had a rule for credentials that matched no row ever and none for
+ * anything else. Two surfaces publishing the same facts under different rules
+ * is how a fact refused on one appears on the other — and the MCP one reaches
+ * further, because an assistant relays what it is given as fact.
+ *
+ * The statuses mean different things, so they gate differently:
+ *
+ *   * `credential` requires `verified`. A certification printed on their own
+ *     site that we could not check against a register is the most damaging
+ *     false claim in this market, and repeating it is us asserting it.
+ *   * `price` refuses `stale` and `inferred`. A price from a page that looks
+ *     abandoned is not a current price, and one lifted from a review was never
+ *     quoted by the business — either becomes a figure they would be held to.
+ *   * Everything else refuses `inferred` only. `inferred` comes from reviews,
+ *     never from the business, so publishing it as their offering invents one.
+ *     `claimed_unverified` and `stale` are the business's own published words,
+ *     and repeating what a business says about itself is the whole product.
+ */
+export function mayPublish(fact: { type: string; status: string }): boolean {
+  if (fact.type === "credential") return fact.status === "verified";
+  if (fact.type === "price") return fact.status !== "stale" && fact.status !== "inferred";
+  return fact.status !== "inferred";
+}

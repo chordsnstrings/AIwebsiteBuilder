@@ -49,8 +49,8 @@ async function makeSentMessage(): Promise<{ messageId: string; providerId: strin
   // rather than side-stepping the invariant it is standing next to.
   const decision = await db.one<{ id: string }>(
     `INSERT INTO gate_decisions (allow, channel, message_class, jurisdiction, legal_basis,
-                                 config_version, contact_hash)
-     VALUES (true,'email','cold_outreach','US','legitimate_interest','test',$1) RETURNING id`,
+                                 config_version, contact_hash, obligations)
+     VALUES (true,'email','cold_outreach','US','legitimate_interest','test',$1,'[]'::jsonb) RETURNING id`,
     [emailHash(email)],
   );
   const providerId = `prov_${randomUUID()}`;

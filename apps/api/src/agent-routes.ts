@@ -29,6 +29,7 @@ import {
   type ConciergeContext,
   type ConciergeDeps,
 } from "@adw/concierge";
+import { mayPublish } from "@adw/kb";
 import { approvePack, loadQAPack, type QAPack } from "@adw/qapack";
 import {
   UnsupportedUploadError,
@@ -511,8 +512,13 @@ export function agentRoutes(deps: AgentRouteDeps): Hono<{ Variables: { user: Ses
     // ⛔ The identical object the chat widget consults. Not a copy of its rules.
     const refusals: RefusalChecker = { check: (q, ctx) => policy.check(q, ctx) };
 
-    const facts = await db.query<{ fact_key: string; value: string; status: string }>(
-      `SELECT fact_key, value, status FROM kb_facts WHERE kb_id = $1 ORDER BY fact_key`,
+    // ⛔ `type` is selected, not inferred from the key. Every projection below
+    // used to prefix-match `fact_key`, which happens to work for `service` and
+    // `area` and silently fails for anything an exact comparison is written
+    // against — the manifest's credential filter compared the whole key to
+    // "credential" and matched no row in the system's history.
+    const facts = await db.query<{ fact_key: string; type: string; value: string; status: string }>(
+      `SELECT fact_key, type, value, status FROM kb_facts WHERE kb_id = $1 ORDER BY fact_key`,
       [agent.pack.kbId],
     );
     const business = await db.one<{ name: string; phone_e164: string | null; city: string | null }>(
@@ -530,17 +536,24 @@ export function agentRoutes(deps: AgentRouteDeps): Hono<{ Variables: { user: Ses
       // Services and prices come from facts, and a fact with no price stays
       // priceless — `publishedServices` marks that explicitly rather than
       // letting an assistant read a missing field as free.
+      //
+      // ⛔ `mayPublish` gates both lists — the SAME function the rendered page
+      // consults. There was no status filter here at all, so a service or a
+      // coverage area inferred from a review, which the business never claimed,
+      // was published to an assistant as an offering they make. This surface
+      // reaches further than the page: an assistant relays it as fact.
       services: facts.rows
-        .filter((f) => f.fact_key.startsWith("service"))
+        .filter((f) => f.type === "service" && mayPublish(f))
         .map((f) => ({ name: f.value, description: f.value })),
       facts: facts.rows.map((f) => ({
         factKey: f.fact_key,
+        type: f.type,
         value: f.value,
         status: (f.status === "verified" || f.status === "stale" || f.status === "inferred"
           ? f.status
           : "claimed_unverified") as "verified" | "claimed_unverified" | "stale" | "inferred",
       })),
-      areaServed: facts.rows.filter((f) => f.fact_key.startsWith("area")).map((f) => f.value),
+      areaServed: facts.rows.filter((f) => f.type === "area" && mayPublish(f)).map((f) => f.value),
       calendarConnected: agent.calendarConnected,
       refusals,
     };

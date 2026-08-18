@@ -13,7 +13,12 @@
 // package keeps its three dependencies and the mapping stays testable with
 // literals instead of a database.
 
+import { mayPublish } from "@adw/kb";
 import type { MachineSurfaceInput, ServiceOffering } from "./machine-surface.ts";
+
+// Re-exported so a caller building a page does not need a second import for the
+// one rule that decides what goes on it.
+export { mayPublish };
 
 /** A knowledge-base fact, narrowed to what the page needs. */
 export interface PublishedFact {
@@ -98,7 +103,7 @@ export function machineSurfaceFromFacts(base: FactSurfaceBase, facts: PublishedF
 
   for (const fact of facts) {
     const value = fact.value.trim();
-    if (value === "") continue;
+    if (value === "" || !mayPublish(fact)) continue;
     switch (fact.type) {
       case "service":
         services.push({ name: value.slice(0, 80), description: value });
@@ -115,7 +120,8 @@ export function machineSurfaceFromFacts(base: FactSurfaceBase, facts: PublishedF
         areaServed.push(value);
         break;
       case "credential":
-        if (fact.status === "verified") verifiedCredentials.push(value);
+        // `mayPublish` already required `verified` above.
+        verifiedCredentials.push(value);
         break;
       default:
         break;
@@ -158,7 +164,7 @@ export function serviceNamesFromFacts(facts: PublishedFact[], limit = 3): string
   const seen = new Set<string>();
   const names: string[] = [];
   for (const fact of facts) {
-    if (fact.type !== "service") continue;
+    if (fact.type !== "service" || !mayPublish(fact)) continue;
     const name = fact.value.trim().slice(0, 60);
     const key = name.toLowerCase();
     if (name === "" || seen.has(key)) continue;

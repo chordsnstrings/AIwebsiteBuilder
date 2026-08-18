@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@adw/config": "workspace:*",
-    "@adw/db": "workspace:*"
+    "@adw/db": "workspace:*",
+    "@adw/kb": "workspace:*"
   }
 }

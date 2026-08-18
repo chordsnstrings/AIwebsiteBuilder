@@ -27,7 +27,7 @@ export type {
   RawFact,
   ReviewSample,
 } from "./types.ts";
-export { FACT_TYPES } from "./types.ts";
+export { FACT_TYPES, mayPublish } from "./types.ts";
 
 export {
   extractKnowledgeBase,

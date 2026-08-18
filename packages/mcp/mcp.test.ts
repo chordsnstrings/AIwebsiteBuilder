@@ -31,9 +31,9 @@ const ctx = (over: Partial<McpContext> = {}): McpContext => ({
     { name: "Roof replacement", description: "Full tear-off and replacement." },
   ],
   facts: [
-    { factKey: "credential", value: "NRCA member", status: "verified" },
-    { factKey: "credential", value: "Fully insured", status: "claimed_unverified" },
-    { factKey: "hours", value: "Mon-Fri 8-5", status: "verified" },
+    { factKey: "credential:en:nrca-member", type: "credential", value: "NRCA member", status: "verified" },
+    { factKey: "credential:en:fully-insured", type: "credential", value: "Fully insured", status: "claimed_unverified" },
+    { factKey: "hours:en:mon", type: "hours", value: "Mon-Fri 8-5", status: "verified" },
   ],
   areaServed: ["Boise", "Meridian"],
   calendarConnected: false,
@@ -138,7 +138,7 @@ describe("what a machine is allowed to see", () => {
   });
 
   it("returns no credentials at all when none are verified", () => {
-    const info = businessInfo(ctx({ facts: [{ factKey: "credential", value: "Gas Safe", status: "claimed_unverified" }] }));
+    const info = businessInfo(ctx({ facts: [{ factKey: "credential:en:gas-safe", type: "credential", value: "Gas Safe", status: "claimed_unverified" }] }));
     expect(info["credentials"]).toEqual([]);
   });
 
@@ -214,5 +214,45 @@ describe("side effects", () => {
     const res = await handleMcpCall("book_appointment", {}, ctx({ vertical: "roofing", calendarConnected: true }));
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.reason).toBe("not_available");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ⛔ The credential filter enforced nothing for the system's whole history.
+//
+// It read `f.factKey === "credential"`, and a real key is
+// `credential:en:nrca-member` — so it matched no row, ever. The manifest
+// carried no credentials at all, and a customer whose accreditation we HAD
+// confirmed never had it relayed to an assistant. A filter that removes
+// everything is indistinguishable from a filter that works, and the fixtures in
+// this file used a key shape production never produces, which is how it
+// survived.
+// ---------------------------------------------------------------------------
+describe("⛔ what reaches an assistant", () => {
+  const fact = (type: string, value: string, status: string) => ({
+    // The shape the extractor actually writes: `${type}:${lang}:${slug}`.
+    factKey: `${type}:en:${value.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+    type,
+    value,
+    status: status as "verified" | "claimed_unverified" | "stale" | "inferred",
+  });
+
+  it("⛔ relays a credential we actually verified", async () => {
+    // The vacuity check. Asserting only that unverified ones are absent passes
+    // just as well when NOTHING is present, which is the state this shipped in.
+    const info = businessInfo(ctx({ facts: [fact("credential", "NRCA member", "verified")] }));
+    expect(info["credentials"]).toEqual(["NRCA member"]);
+  });
+
+  it("⛔ still refuses one we could not check", async () => {
+    const info = businessInfo(ctx({ facts: [fact("credential", "Gas Safe registered", "claimed_unverified")] }));
+    expect(info["credentials"]).toEqual([]);
+  });
+
+  it("does not mistake a service for a credential, or the reverse", async () => {
+    const info = businessInfo(
+      ctx({ facts: [fact("service", "Credential checks", "verified"), fact("credential", "NRCA member", "verified")] }),
+    );
+    expect(info["credentials"]).toEqual(["NRCA member"]);
   });
 });

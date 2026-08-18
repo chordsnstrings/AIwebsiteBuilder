@@ -34,8 +34,9 @@ describe("append-only ledgers", () => {
 
   it("rejects UPDATE on gate_decisions", async () => {
     const row = await admin.one<{ id: string }>(
-      `INSERT INTO gate_decisions (allow, channel, message_class, config_version)
-       VALUES (true, 'email', 'cold', 'test@0') RETURNING id`,
+      `INSERT INTO gate_decisions (allow, channel, message_class, config_version,
+                                   jurisdiction, legal_basis, obligations)
+       VALUES (true, 'email', 'cold', 'test@0', 'US', 'can_spam_optout', '[]'::jsonb) RETURNING id`,
     );
     await expect(
       admin.query("UPDATE gate_decisions SET allow = false WHERE id = $1", [row.id]),

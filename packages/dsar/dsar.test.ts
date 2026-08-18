@@ -39,7 +39,8 @@ beforeAll(async () => {
   );
   const conv = await db.one<{ id: string }>("INSERT INTO conversations (lead_id, channel) VALUES ($1,'email') RETURNING id", [lead.id]);
   const gd = await db.one<{ id: string }>(
-    "INSERT INTO gate_decisions (allow, channel, message_class, config_version, contact_hash) VALUES (true,'email','cold','v1',$1) RETURNING id",
+    "INSERT INTO gate_decisions (allow, channel, message_class, config_version, contact_hash, jurisdiction, legal_basis, obligations)" +
+      " VALUES (true,'email','cold','v1',$1,'US','can_spam_optout','[]'::jsonb) RETURNING id",
     [hash],
   );
   await db.query(

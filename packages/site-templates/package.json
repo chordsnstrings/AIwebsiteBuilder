@@ -14,6 +14,7 @@
   "dependencies": {
     "@adw/config": "workspace:*",
     "@adw/designer": "workspace:*",
+    "@adw/kb": "workspace:*",
     "@adw/taxonomy": "workspace:*"
   },
   "devDependencies": {

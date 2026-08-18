@@ -12,6 +12,7 @@
 // would become the way around the guardrails — so the refusal decision is made
 // once, by an injected checker, and both surfaces call it.
 import { config } from "@adw/config";
+import { mayPublish } from "@adw/kb";
 
 /** The six tools. Fixed names — an assistant must not have to guess. */
 export const MCP_TOOLS = [
@@ -43,6 +44,17 @@ export interface McpManifest {
 /** A fact as the knowledge base stores it. Status is what gates disclosure. */
 export interface KbFactLike {
   factKey: string;
+  /**
+   * The fact's category — `credential`, `service`, `price`, `area`, …
+   *
+   * ⛔ Carried explicitly because the projections below used to derive it by
+   * string-matching `factKey`, and got it wrong. Real keys are
+   * `${type}:${lang}:${slug}` — `credential:en:nfrc-member` — so a filter
+   * written as `factKey === "credential"` matched nothing at all, and the
+   * manifest's credentials list was permanently empty. The column holding the
+   * answer was there the whole time.
+   */
+  type: string;
   value: string;
   status: "verified" | "claimed_unverified" | "stale" | "inferred";
 }
@@ -289,10 +301,19 @@ export async function handleMcpCall(tool: string, args: unknown, ctx: McpContext
  * site but never checked is `claimed_unverified`, and repeating it to an AI
  * assistant is the same regulatory problem as saying it to a person — with
  * wider reach, because the assistant will relay it as fact.
+ *
+ * ⛔ THAT RULE USED TO ENFORCE NOTHING. It read `f.factKey === "credential"`,
+ * and a real key is `credential:en:nfrc-member`, so it matched no row ever: the
+ * manifest carried no credentials at all, verified or otherwise, and a customer
+ * whose accreditation we HAD confirmed never had it relayed. A filter that
+ * removes everything looks exactly like a filter that works. It now keys off
+ * `type` and defers the status question to `mayPublish`, which is the same
+ * function the rendered page consults — two surfaces publishing the same facts
+ * under two rules is how a fact refused on one appears on the other.
  */
 export function businessInfo(ctx: McpContext): Record<string, unknown> {
   const credentials = ctx.facts
-    .filter((f) => f.factKey === "credential" && f.status === "verified")
+    .filter((f) => f.type === "credential" && mayPublish(f))
     .map((f) => f.value);
   return {
     name: ctx.business.name,

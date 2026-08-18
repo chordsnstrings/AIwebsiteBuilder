@@ -106,7 +106,8 @@ describe("§10.6 Compliance Gate suite (Phase 0 exit criterion)", () => {
     // Insert 4 prior outbound messages within window.
     for (let i = 0; i < 4; i++) {
       const gd = await db.one<{ id: string }>(
-        `INSERT INTO gate_decisions (allow, channel, message_class, config_version) VALUES (true,'email','cold','v') RETURNING id`,
+        `INSERT INTO gate_decisions (allow, channel, message_class, config_version, jurisdiction, legal_basis, obligations)
+         VALUES (true,'email','cold','v','US','can_spam_optout','[]'::jsonb) RETURNING id`,
       );
       await db.query(
         `INSERT INTO messages (conversation_id, direction, channel, body_r2_key, body_hash, gate_decision_id, idempotency_key, sent_at)
@@ -167,7 +168,8 @@ describe("§10.6 Compliance Gate suite (Phase 0 exit criterion)", () => {
     const c = await seedContact(db, { country: "US" });
     const key = `dup-${c.contactId}`;
     const gd = await db.one<{ id: string }>(
-      `INSERT INTO gate_decisions (allow, channel, message_class, config_version) VALUES (true,'email','cold','v') RETURNING id`,
+      `INSERT INTO gate_decisions (allow, channel, message_class, config_version, jurisdiction, legal_basis, obligations)
+         VALUES (true,'email','cold','v','US','can_spam_optout','[]'::jsonb) RETURNING id`,
     );
     await db.query(
       `INSERT INTO messages (conversation_id, direction, channel, body_r2_key, body_hash, gate_decision_id, idempotency_key)

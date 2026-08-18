@@ -731,6 +731,9 @@ importers:
       '@adw/db':
         specifier: workspace:*
         version: link:../db
+      '@adw/kb':
+        specifier: workspace:*
+        version: link:../kb
 
   packages/opsview:
     dependencies:
@@ -931,6 +934,9 @@ importers:
       '@adw/designer':
         specifier: workspace:*
         version: link:../designer
+      '@adw/kb':
+        specifier: workspace:*
+        version: link:../kb
       '@adw/taxonomy':
         specifier: workspace:*
         version: link:../taxonomy
