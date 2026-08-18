@@ -13,7 +13,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@adw/vault": "workspace:*",
-    "@adw/db": "workspace:*"
+    "@adw/compliance": "workspace:*",
+    "@adw/db": "workspace:*",
+    "@adw/vault": "workspace:*"
   }
 }

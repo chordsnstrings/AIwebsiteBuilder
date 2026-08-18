@@ -175,6 +175,7 @@ export {
   resolveDns,
   resolveEmailTransport,
   resolveEmailVerifier,
+  resolveCompanyRegistry,
   resolveLeadSource,
   resolveMediaGenerator,
   resolveObjectStore,
@@ -216,3 +217,6 @@ export {
 } from "./media/types.ts";
 export { ModelArkMediaGenerator, type ModelArkMediaConfig } from "./media/real.ts";
 export { MockMediaGenerator, getMediaGenerator, resetMediaGenerator } from "./media/mock.ts";
+
+export { SuffixCompanyRegistry, suffixEvidence } from "./registry-lookup/suffix.ts";
+export type { CompanyRegistry } from "./registry-lookup/types.ts";

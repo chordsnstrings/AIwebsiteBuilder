@@ -986,6 +986,9 @@ importers:
 
   packages/vendors:
     dependencies:
+      '@adw/compliance':
+        specifier: workspace:*
+        version: link:../compliance
       '@adw/db':
         specifier: workspace:*
         version: link:../db

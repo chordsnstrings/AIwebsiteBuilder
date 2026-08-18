@@ -19,9 +19,15 @@ export interface ObjectStore {
   put(key: string, data: Buffer): Promise<void>;
 }
 
+export interface RegistryClassification {
+  readonly subscriberType: SubscriberType;
+  /** Evidence for the answer — `suffix:ltd`, `companies_house:12345678`, … */
+  readonly ref: string | null;
+}
+
 export interface RegistryLookup {
   // Classify subscriber type for UK/IE (corporate vs sole trader).
-  classify(businessName: string, countryCode: string): Promise<SubscriberType>;
+  classify(businessName: string, countryCode: string): Promise<RegistryClassification>;
 }
 
 export interface ProvenanceDeps {
@@ -90,16 +96,16 @@ export async function ingestRecord(rec: IngestRecord, deps: ProvenanceDeps): Pro
 
   // Subscriber-type classification (UK/IE need it for the legal basis).
   const needsRegistry = rec.countryCode === "GB" || rec.countryCode === "IE";
-  const subscriberType: SubscriberType = needsRegistry
+  const classification: RegistryClassification = needsRegistry
     ? await deps.registry.classify(rec.businessName, rec.countryCode)
-    : "unknown";
+    : { subscriberType: "unknown", ref: null };
 
   const contact = await db.one<{ id: string }>(
-    `INSERT INTO contacts (business_id, email, email_hash, verification, verified_at, subscriber_type)
-     VALUES ($1,$2,$3,$4,$5,$6)
+    `INSERT INTO contacts (business_id, email, email_hash, verification, verified_at, subscriber_type, registry_ref)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
      ON CONFLICT (business_id, email) DO UPDATE SET verification = EXCLUDED.verification
      RETURNING id`,
-    [rec.businessId, rec.email, hash, verification, now, subscriberType],
+    [rec.businessId, rec.email, hash, verification, now, classification.subscriberType, classification.ref],
   );
 
   // Fetch + screenshot the published source page.
@@ -204,3 +210,9 @@ export {
   type SourceOptions,
   type SourceOutcome,
 } from "./source.ts";
+
+export {
+  reclassifySubscribers,
+  type ReclassifyOptions,
+  type ReclassifyOutcome,
+} from "./reclassify.ts";

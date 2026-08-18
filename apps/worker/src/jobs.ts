@@ -283,6 +283,27 @@ export function sourcingJob(run: (db: Db, now: Date) => Promise<unknown>): Job {
 }
 
 /**
+ * Re-run subscriber-type classification over GB/IE contacts still unresolved.
+ *
+ * ⛔ Classification ran exactly once per contact, at ingest. A contact ingested
+ * while the classifier could not answer stayed "unknown" forever, and "unknown"
+ * denies under PECR — so improving the classifier improved nothing that was
+ * already in the database, and depositing a real Companies House credential
+ * would only ever help contacts ingested after the deposit. This job is what
+ * makes the improvement retroactive.
+ *
+ * Six-hourly: the population changes slowly and each pass is bounded, so a
+ * backlog drains over a day rather than in one large burst against a vendor.
+ */
+export function subscriberReclassificationJob(run: (db: Db, now: Date) => Promise<unknown>): Job {
+  return {
+    name: "subscriber_reclassification",
+    intervalMs: 6 * 60 * 60_000,
+    run: async ({ db, now }) => void (await run(db, now)),
+  };
+}
+
+/**
  * Drain the workflow outbox. This is the job that turns "a customer claimed
  * their preview" into a running onboarding — without it the API records
  * intentions nobody acts on, and the pipeline has no ignition.

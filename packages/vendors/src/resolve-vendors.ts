@@ -36,6 +36,8 @@
 import type { SecretsBackend } from "@adw/vault";
 import { getDnsProvider, getEmailTransport, getEmailVerifier, getObjectStore, getRegistrar, getSiteHost } from "./registry.ts";
 import { MockLeadSource } from "./leaddata/mock.ts";
+import { SuffixCompanyRegistry } from "./registry-lookup/suffix.ts";
+import type { CompanyRegistry } from "./registry-lookup/types.ts";
 import type { LeadSource } from "./leaddata/types.ts";
 import { CloudflarePagesHost } from "./hosting/real.ts";
 import { CloudflareDns } from "./dns/real.ts";
@@ -90,6 +92,10 @@ export const VENDOR_CREDENTIAL_KEYS = {
    *  has nothing to work on at all — without it there is no sourcing, and the
    *  entire downstream machine idles correctly over an empty queue. */
   leadData: { vendorId: "lead_data_primary", required: ["api_key"], optional: ["endpoint", "dataset"] },
+  /** ⛔ UK/IE company registry. Without it, classification falls back to the
+   *  suffix evidence in the trading name — which resolves the names that carry
+   *  their own proof and leaves the rest unmailable, correctly. */
+  registryLookup: { vendorId: "companies_house", required: ["api_key"], optional: ["endpoint"] },
   verification: {
     vendorId: "email_verification",
     required: ["api_key"],
@@ -283,5 +289,29 @@ export async function resolveLeadSource(deps: ResolveVendorDeps): Promise<LeadSo
   throw new Error(
     "a lead_data_primary credential is deposited but no real LeadSource adapter is implemented — " +
       "remove the credential to run against the simulator, or implement the adapter before going live",
+  );
+}
+
+/**
+ * UK/IE subscriber-type classification.
+ *
+ * ⛔ There was NO implementation of this capability. Every path passed a stub
+ * returning "unknown", and since PECR admits only "corporate", every GB and IE
+ * contact was classified unmailable at ingest and denied by the gate forever.
+ * A third of the database was permanently undeliverable and nothing said so.
+ *
+ * With no credential this returns the suffix classifier rather than null: it is
+ * strictly better than the stub, it errs towards "unknown" (which denies), and
+ * it never invents corporate status.
+ */
+export async function resolveCompanyRegistry(deps: ResolveVendorDeps): Promise<CompanyRegistry> {
+  const cfg = await readAll(deps, VENDOR_CREDENTIAL_KEYS.registryLookup);
+  if (!cfg) return new SuffixCompanyRegistry();
+  // No real Companies House adapter is written yet. Saying so is better than
+  // accepting a credential and silently continuing to classify from suffixes,
+  // which would make the deposited key look like it did something.
+  throw new Error(
+    "a companies_house credential is deposited but no real CompanyRegistry adapter is implemented — " +
+      "remove it to use the suffix classifier, or implement the adapter",
   );
 }

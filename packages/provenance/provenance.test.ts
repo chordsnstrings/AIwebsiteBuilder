@@ -20,7 +20,7 @@ function mockDeps(over: Partial<ProvenanceDeps> = {}): ProvenanceDeps {
     verifier: { async verify() { return "valid"; } },
     fetcher: { async fetch() { return { text: "We fix taps. Call us.", screenshot: Buffer.from("png") }; } },
     store: { async put() {} },
-    registry: { async classify() { return "corporate"; } },
+    registry: { async classify() { return { subscriberType: "corporate" as const, ref: "suffix:ltd" }; } },
     ...over,
   };
 }

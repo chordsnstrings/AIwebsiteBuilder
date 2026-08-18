@@ -20,7 +20,7 @@ const deps = {
   verifier: { async verify() { return "valid" as const; } },
   fetcher: { async fetch() { return { text: "We fix taps. Call us.", screenshot: Buffer.from("png") }; } },
   store: { async put() {} },
-  registry: { async classify() { return "corporate" as const; } },
+  registry: { async classify() { return { subscriberType: "corporate" as const, ref: "suffix:ltd" }; } },
 };
 
 let seq = 0;

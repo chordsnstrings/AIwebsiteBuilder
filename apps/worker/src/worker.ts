@@ -9,14 +9,14 @@ import { evaluateAssetHealth } from "@adw/fleet";
 import { EMAIL_VENDOR_IDS, getEmailTransport } from "@adw/vendors";
 import { applyEmailFeedback } from "@adw/inbound";
 import { runEscalations } from "@adw/protocol";
-import { sourceLeads } from "@adw/provenance";
+import { reclassifySubscribers, sourceLeads } from "@adw/provenance";
 import { readEngagedSwitches, sendingHalted } from "@adw/gate";
 import { resolveEmailVerifier } from "@adw/vendors";
 import { runJourneys, runReminders } from "@adw/journeys";
 import { httpCollectors, pruneObservations, runDueWatches, simulatedCollectors, type FetchLike } from "@adw/watch";
 import { publishApproved, simulatedConnectors } from "@adw/publish";
 import { generateApproved } from "@adw/assets";
-import { resolveLeadSource, resolveMediaGenerator } from "@adw/vendors";
+import { resolveCompanyRegistry, resolveLeadSource, resolveMediaGenerator } from "@adw/vendors";
 import { dueChases, purgeExpired } from "@adw/uploads";
 import { resolveObjectStore } from "@adw/vendors";
 import { advanceDunning } from "@adw/billing";
@@ -50,6 +50,7 @@ import {
   probeJobs,
   vendorWatchJob,
   sourcingJob,
+  subscriberReclassificationJob,
   workflowTimerJob,
 } from "./jobs.ts";
 
@@ -66,6 +67,9 @@ const db = await createDb({});
  */
 const SOURCING_QUERY = process.env.ADW_SOURCING_QUERY ?? "independent trades with no website";
 const SOURCING_MAX_PER_RUN = Number(process.env.ADW_SOURCING_MAX_PER_RUN ?? 50);
+// Bounded per pass: against a real registry every row is a metered API call, and
+// an unbounded backlog drain would spend a day's quota in one tick.
+const RECLASSIFY_MAX_PER_RUN = Number(process.env.ADW_RECLASSIFY_MAX_PER_RUN ?? 500);
 
 // Every production workflow must be registered here, or its durable timers will
 // never fire (the engine deliberately ignores types it does not own).
@@ -416,9 +420,14 @@ const scheduler = new Scheduler({
             },
           },
           store: { put: async (key: string, data: Buffer) => void (await store.put(key, data)) },
-          // UK/IE need corporate-vs-sole-trader. Unknown is NOT permission — the
-          // gate denies on it, which is the correct default with no registry.
-          registry: { classify: async () => "unknown" as const },
+          // ⛔ WAS `async () => "unknown"`. PECR admits only "corporate", so
+          // that stub classified every GB and IE contact as unmailable at
+          // ingest and the gate denied them forever — a third of the database,
+          // permanently undeliverable, with nothing reporting why. The real
+          // classifier resolves the names that carry their own legal-suffix
+          // evidence and still says "unknown" about the rest, which still
+          // denies. Unknown is not permission; it just is not the only answer.
+          registry: await resolveCompanyRegistry({ vault, forceMock }),
         },
         { query: SOURCING_QUERY, maxRecords: SOURCING_MAX_PER_RUN, now: at },
       );
@@ -431,6 +440,23 @@ const scheduler = new Scheduler({
         `[worker] sourced ${out.fetched} record(s) from ${out.licenceRef ?? "?"}: ` +
           `${out.ingested} ingested, ${out.businessesCreated} new business(es), ` +
           `${out.costCents}c, capacity ${out.capacity}${skips === "" ? "" : ` · skipped ${skips}`}`,
+      );
+    }),
+    // ⛔ Makes the classifier retroactive. Ingest classifies once, at creation,
+    // so every contact ingested against the old stub is stuck at "unknown" —
+    // which denies under PECR — no matter how good the classifier later gets.
+    subscriberReclassificationJob(async (database) => {
+      const out = await reclassifySubscribers(
+        database,
+        await resolveCompanyRegistry({ vault, forceMock }),
+        { limit: RECLASSIFY_MAX_PER_RUN },
+      );
+      if (out.considered === 0) return;
+      const types = Object.entries(out.byType).map(([k, n]) => `${k}=${n}`).join(" ");
+      console.log(
+        `[worker] reclassified ${out.resolved}/${out.considered} GB/IE contact(s)` +
+          `${types === "" ? "" : ` · ${types}`} · ${out.backlog} still unresolved` +
+          `${out.errors === 0 ? "" : ` · ${out.errors} registry error(s)`}`,
       );
     }),
   ],
