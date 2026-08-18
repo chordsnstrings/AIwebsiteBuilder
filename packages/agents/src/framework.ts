@@ -190,7 +190,10 @@ async function record<S extends z.ZodTypeAny, O extends z.ZodTypeAny>(
         def.dataClass,
         ctx?.subjectId ?? null,
         ctx?.traceId ?? null,
-        Math.max(0, Math.round(envelope.costCents)),
+        // ⛔ NOT rounded. A model call costs a fraction of a cent, so
+        // Math.round() wrote 0 for every one of the first 1,587 rows and
+        // the ledger reported that the fleet had cost nothing.
+        Math.max(0, envelope.costCents),
         envelope.firstPass,
         envelope.confidence,
         envelope.injectionSuspected,

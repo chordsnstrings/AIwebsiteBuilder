@@ -33,7 +33,9 @@ CREATE TABLE IF NOT EXISTS agent_invocations (
   -- businesses, customers, leads, sessions and builds.
   subject_id         text,
   trace_id           text,
-  cost_cents         integer NOT NULL DEFAULT 0,
+  -- Fractional cents. A model call here costs well under one cent, so an
+  -- integer column rounds every row to zero (see migration 0025).
+  cost_cents         numeric(12,6) NOT NULL DEFAULT 0,
   -- ⛔ The success monitor. False means the escalation ladder was used, which
   -- costs more and means the champion did not produce a valid output first try.
   first_pass         boolean NOT NULL,

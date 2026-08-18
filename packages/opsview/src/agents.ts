@@ -191,7 +191,7 @@ export async function invocations(db: Db, filter: InvocationFilter = {}): Promis
 
   const rows = await db.query<{
     id: string; agent_id: string; role: string; model: string; data_class: string;
-    subject_id: string | null; trace_id: string | null; cost_cents: number;
+    subject_id: string | null; trace_id: string | null; cost_cents: string | number;
     first_pass: boolean; confidence: string | null; injection_suspected: boolean;
     escalated: boolean; escalate_reason: string | null; duration_ms: number | null; created_at: Date;
   }>(
@@ -212,7 +212,7 @@ export async function invocations(db: Db, filter: InvocationFilter = {}): Promis
     dataClass: r.data_class,
     subjectId: r.subject_id,
     traceId: r.trace_id,
-    costCents: r.cost_cents,
+    costCents: Number(r.cost_cents),
     firstPass: r.first_pass,
     confidence: r.confidence === null ? null : Number(r.confidence),
     injectionSuspected: r.injection_suspected,

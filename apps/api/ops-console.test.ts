@@ -364,3 +364,36 @@ describe("⛔ summary tiles are computed over the population, not the page", () 
     }
   });
 });
+
+describe("⛔ agent cost is recorded at the precision it is incurred", () => {
+  it("does not round a fraction of a cent to zero", async () => {
+    // It did, for all 1,587 rows. `cost_cents` was declared integer and the
+    // writer did Math.round(). A model call in this system costs a FRACTION of
+    // a cent — the measured average is 0.045 — so every value became 0 and the
+    // ledger reported, with total confidence, that the fleet had cost nothing.
+    // That is the exact failure this console was built to stop, committed in
+    // the ledger written to prevent it.
+    const { enrichmentAgent } = await import("@adw/agents");
+    await enrichmentAgent.run(
+      { name: "Cost Probe Ltd", category: "plumber", segment: "no_site", reviewCount: 1, listingText: "" },
+      { db, vault, forceMock: true },
+      { traceId: "cost-precision-probe" },
+    );
+    const row = await db.one<{ cost_cents: string }>(
+      "SELECT cost_cents FROM agent_invocations WHERE trace_id = 'cost-precision-probe' ORDER BY created_at DESC LIMIT 1",
+    );
+    const cost = Number(row.cost_cents);
+    expect(cost, "cost rounded away to zero again").toBeGreaterThan(0);
+    // And it is genuinely sub-cent, which is why an integer column could not
+    // hold it.
+    expect(cost).toBeLessThan(1);
+
+    // The column must keep more than integer precision.
+    const col = await db.one<{ data_type: string; numeric_scale: number | null }>(
+      `SELECT data_type, numeric_scale FROM information_schema.columns
+        WHERE table_name = 'agent_invocations' AND column_name = 'cost_cents'`,
+    );
+    expect(col.data_type).toBe("numeric");
+    expect(col.numeric_scale ?? 0).toBeGreaterThanOrEqual(6);
+  });
+});
