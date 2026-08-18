@@ -180,6 +180,13 @@ importers:
       zod:
         specifier: ^3.24.1
         version: 3.25.76
+    devDependencies:
+      '@adw/site-templates':
+        specifier: workspace:*
+        version: link:../../packages/site-templates
+      puppeteer-core:
+        specifier: ^23.0.0
+        version: 23.11.1
 
   apps/dashboard:
     dependencies:
