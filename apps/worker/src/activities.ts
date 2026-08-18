@@ -37,7 +37,13 @@ import { mayBuildSpeculativePreview, openOpportunity, trackFor } from "@adw/acqu
 import { resolveVertical } from "@adw/taxonomy";
 import { composeColdEmailBody, mintUnsubscribeToken, unsubscribeHeaders, unsubscribeSecret, unsubscribeUrl } from "@adw/compliance";
 import { mintReplyToken, replyAddress } from "@adw/inbound";
-import { renderSite, buildArtifactFromHtml, familyForCategory } from "@adw/site-templates";
+import {
+  buildArtifactFromHtml,
+  familyForCategory,
+  machineSurfaceFromFacts,
+  renderSite,
+  serviceNamesFromFacts,
+} from "@adw/site-templates";
 import { reviewBuild } from "@adw/reviewer-gates";
 import { pickAsset } from "@adw/fleet";
 import { loadKnowledgeBase } from "@adw/kb";
@@ -50,7 +56,8 @@ import {
   resolveSiteHost,
 } from "@adw/vendors";
 import { deterministicExtract, extractKnowledgeBase, persistKnowledgeBase } from "@adw/kb";
-import { generateQAPack, loadQAPack, loadVerticalTemplate, persistQAPack } from "@adw/qapack";
+import { generateQAPack, loadQAPack, loadVerticalTemplate, persistQAPack, type QAPack } from "@adw/qapack";
+import { buildPackIndex, retrieve } from "@adw/concierge";
 import { runAgentEval, type CaseResult } from "@adw/agenteval";
 import {
   anycastApexIp,
@@ -217,7 +224,7 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
     return { opened: true, opportunityId: out.opportunityId, created: out.created };
   });
 
-  on("generate_preview", async (input: LeadRef) => {
+  on("generate_preview", async (input: LeadRef & { packId?: string; manifestId?: string }) => {
     const biz = await business(db, input.businessId);
     // ⛔ THE REFUSAL. Building an unofficial copy of a hospital group's or a
     // bank's website, hosting it on our domain under their name and emailing
@@ -242,18 +249,57 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
       return { generated: false, agentBound: false, refused: "enterprise_segment" };
     };
     const family = familyForCategory(biz.category ?? "general");
+
+    // ⛔ THE PACK AND THE KNOWLEDGE BASE REACH THE PAGE. Both are built before
+    // this step, per lead, at real token cost — A4 extracts what the business
+    // published and A5 turns it into a Q&A pack — and this activity used to
+    // discard both. `renderSite` has accepted `machine` and `agent` since the
+    // machine surface was written; passing neither meant every preview shipped
+    // the bare LocalBusiness fallback that render.ts itself calls "what the
+    // market already has", with no agent on it at all. The pitch is "ask it
+    // what you charge"; there was nothing to ask.
+    const pack = input.packId === undefined ? null : await loadQAPack(db, input.packId);
+    const facts = pack === null
+      ? []
+      : (await db.query<{ type: string; value: string; status: string }>(
+          `SELECT type, value, status FROM kb_facts WHERE kb_id = $1 ORDER BY fact_key`,
+          [pack.kbId],
+        )).rows;
+
+    // ⛔ Their services, not a lookup table. `defaultServices` gave every roofer
+    // "Roof repair, Roof replacement, Inspections" and everything outside three
+    // known categories "Consultations, Installation, Maintenance" — a page
+    // describing services a business does not offer is a page they cannot
+    // approve. The table survives only as the thin-KB fallback, which is the
+    // one case where nothing was published to use instead.
+    const published = serviceNamesFromFacts(facts);
     const copy = await previewAgent.run(
       {
         name: biz.name,
         category: biz.category ?? "general",
         city: biz.city ?? "",
-        services: defaultServices(biz.category ?? "general"),
+        services: published.length > 0 ? published : defaultServices(biz.category ?? "general"),
       },
       agentDeps,
       { subjectId: input.leadId },
     );
 
     const claimToken = `claim_${input.leadId}`;
+
+    // The agent is bound only when there is a pack that can actually answer.
+    // See the smoke test below — `agentBound` is a claim about behaviour.
+    const suggested = pack === null ? [] : pack.pairs.slice(0, 3).map((p) => p.question);
+    // ⛔ Approval is required here too. §21.3 — "an unapproved pack must never
+    // reach a visitor" — is enforced in `assertPackApproved`, and a speculative
+    // pack has no owner to sign it, because the whole point of the preview is
+    // to reach an owner who has not been contacted yet. That tension is real
+    // and unresolved in this repository, so the safe reading applies: no
+    // approval, no widget. The page still ships the machine surface and the
+    // business's own services; it just does not carry a chat box that would be
+    // answering on their behalf without anyone having agreed to it.
+    const agentBound =
+      pack !== null && pack.approvedAt instanceof Date && pack.pairs.length > 0 && smokeTestPack(pack);
+
     const html = renderSite({
       family: family.id,
       business: previewBusiness(biz),
@@ -265,6 +311,34 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
       labelVersion: "label-v1",
       claimToken,
       formAction: `${publicBase}/claim`,
+      ...(facts.length === 0
+        ? {}
+        : {
+            machine: machineSurfaceFromFacts(
+              {
+                name: biz.name,
+                category: biz.category ?? "general",
+                city: biz.city ?? "",
+                phone: biz.phone_e164 ?? "",
+                ...(biz.rating === null || biz.rating === undefined ? {} : { rating: Number(biz.rating) }),
+                ...(biz.review_count === null || biz.review_count === undefined
+                  ? {}
+                  : { reviewCount: biz.review_count }),
+              },
+              facts,
+            ),
+          }),
+      ...(agentBound
+        ? {
+            agent: {
+              endpoint: `${publicBase}/agent/ask`,
+              sessionRef: claimToken,
+              gaps: pack!.gaps.slice(0, 5),
+              suggestedQuestions: suggested,
+              businessName: biz.name,
+            },
+          }
+        : {}),
     });
 
     // A preview that cannot pass the reviewer is not shown to anyone. Sending a
@@ -282,18 +356,31 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
     const deployed = await host.deploy(key, { "index.html": html });
 
     // ON CONFLICT: the engine may replay this step after a crash.
+    // ⛔ pack_id and manifest_id have existed on this table since the first
+    // migration and were NULL on every row. Without them nothing can answer
+    // "which pack is this page's agent speaking from", which is the first
+    // question anyone asks when an answer turns out to be wrong.
     await db.query(
-      `INSERT INTO previews (business_id, r2_key, deploy_url, claim_token, label_version, expires_at, cost_cents)
-       VALUES ($1,$2,$3,$4,'label-v1', now() + interval '30 days', $5)
-       ON CONFLICT (claim_token) DO UPDATE SET deploy_url = EXCLUDED.deploy_url, r2_key = EXCLUDED.r2_key`,
-      [input.businessId, key, deployed.url, claimToken, copy.costCents],
+      `INSERT INTO previews (business_id, r2_key, deploy_url, claim_token, label_version, expires_at, cost_cents, pack_id, manifest_id)
+       VALUES ($1,$2,$3,$4,'label-v1', now() + interval '30 days', $5,$6,$7)
+       ON CONFLICT (claim_token) DO UPDATE SET deploy_url = EXCLUDED.deploy_url, r2_key = EXCLUDED.r2_key,
+                                               pack_id = EXCLUDED.pack_id, manifest_id = EXCLUDED.manifest_id`,
+      [
+        input.businessId,
+        key,
+        deployed.url,
+        claimToken,
+        copy.costCents,
+        agentBound ? (input.packId ?? null) : null,
+        input.manifestId ?? null,
+      ],
     );
     const row = await db.one<{ id: string }>("SELECT id FROM previews WHERE claim_token = $1", [claimToken]);
     await db.query("UPDATE leads SET preview_id = $2, state = 'PREVIEW_BUILT' WHERE id = $1", [
       input.leadId,
       row.id,
     ]);
-    return { generated: true, previewId: row.id, url: deployed.url };
+    return { generated: true, agentBound, previewId: row.id, url: deployed.url };
   });
 
   on("send_outreach", async (input: LeadRef & { step: number; topDefects?: string[] }) => {
@@ -1343,6 +1430,32 @@ function previewBusiness(biz: BusinessRow): {
 
 function legal(): { entity: string; postal_address: string; privacy_url: string } {
   return config.legalText().data.default as { entity: string; postal_address: string; privacy_url: string };
+}
+
+/**
+ * Can this pack actually answer one of its own questions?
+ *
+ * ⛔ The lead workflow says "A6 — the preview, with the agent bound to that
+ * pack. A preview whose agent cannot answer is worse than no preview, so the
+ * activity smoke-tests it." The activity did no such thing, and `agentBound`
+ * was never returned at all — the workflow read `undefined` and reported it as
+ * a boolean for every lead ever processed.
+ *
+ * This is the cheapest honest version: put a pair's own question through the
+ * real retrieval path and require it to come back. It catches the failures that
+ * actually happen — an empty pack, embeddings written by a different provider,
+ * a pack whose pairs no longer clear the similarity gates — and it costs no
+ * model call, because retrieval composes nothing.
+ */
+function smokeTestPack(pack: QAPack): boolean {
+  const first = pack.pairs[0];
+  if (first === undefined) return false;
+  try {
+    return retrieve(buildPackIndex(pack), first.question).hit;
+  } catch {
+    // A pack that throws on its own question is emphatically not bound.
+    return false;
+  }
 }
 
 function legalBlocks(countryCode: string): Record<string, string> {

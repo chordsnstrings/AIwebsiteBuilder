@@ -217,6 +217,73 @@ export async function loadLiveAgent(db: Db, customerId: string): Promise<LiveAge
   };
 }
 
+/**
+ * The agent behind a speculative preview.
+ *
+ * ⛔ `/agent/session` has accepted a `previewId` since it was written, and
+ * `/agent/turn` then refused every session without a customer with a 409. So a
+ * preview session could be opened and could never take a turn: the acquisition
+ * hook the whole v3 pitch rests on — "here is a receptionist that already knows
+ * your business, ask it what you charge" — was unreachable by construction.
+ *
+ * Two things differ from a live agent, and both are deliberate:
+ *
+ *   * Capabilities are `answer` only. A live agent may capture an enquiry or
+ *     escalate to its owner; doing either on a speculative preview would mean
+ *     taking a customer's details, or contacting a business, on behalf of
+ *     someone who has not agreed to any of it.
+ *   * ⛔ APPROVAL IS STILL REQUIRED. §21.3 — enforced in `assertPackApproved` —
+ *     says an unapproved pack must never reach a visitor, and this path does
+ *     not weaken it. That leaves a genuine open question the repository does
+ *     not answer: a speculative pack has no owner to sign it, because the point
+ *     of the preview is to reach an owner who has not been contacted. Until
+ *     that is settled, a preview whose pack is unapproved simply has no agent —
+ *     `generate_preview` renders no widget and this returns null — rather than
+ *     the invariant being quietly relaxed to make the feature work.
+ */
+export async function loadPreviewAgent(db: Db, previewId: string): Promise<LiveAgent | null> {
+  const row = await db.maybeOne<{
+    pack_id: string;
+    business_id: string;
+    business_name: string;
+    vertical: string | null;
+  }>(
+    `SELECT p.id AS pack_id, b.id AS business_id, b.name AS business_name, b.vertical
+       FROM previews pv
+       JOIN businesses b ON b.id = pv.business_id
+       JOIN qa_packs p ON p.business_id = b.id AND p.customer_id IS NULL
+      WHERE pv.id = $1 AND pv.takedown_at IS NULL
+      ORDER BY p.version DESC
+      LIMIT 1`,
+    [previewId],
+  );
+  if (row === null) return null;
+  // ⛔ Not cached. `cachedPack` only holds approved packs, and a speculative
+  // pack is rebuilt whenever the business's published content changes — caching
+  // it would serve answers from content that has since moved on.
+  const pack = await loadQAPack(db, row.pack_id).catch(() => null);
+  // Unapproved is not an error here, it is the ordinary state of a speculative
+  // pack. It means there is no agent, and the caller says so plainly.
+  if (pack === null || !(pack.approvedAt instanceof Date)) return null;
+
+  const facts = await db.query<{ value: string }>(
+    `SELECT f.value FROM kb_facts f
+      WHERE f.kb_id = $1 AND f.status = 'verified'
+      ORDER BY f.fact_key`,
+    [pack.kbId],
+  );
+
+  return {
+    pack,
+    vertical: row.vertical ?? pack.vertical,
+    capabilities: ["answer"],
+    calendarConnected: false,
+    kbSlice: facts.rows.map((f) => f.value),
+    businessId: row.business_id,
+    businessName: row.business_name,
+  };
+}
+
 function contextFor(agent: LiveAgent, session: Awaited<ReturnType<typeof openSession>>): ConciergeContext {
   return contextFromPack(agent.pack, session, {
     vertical: agent.vertical,
@@ -261,6 +328,66 @@ export function agentRoutes(deps: AgentRouteDeps): Hono<{ Variables: { user: Ses
     return c.json({ sessionId: session.id, turnIndex: 0 });
   });
 
+  /**
+   * The endpoint the site widget posts to.
+   *
+   * ⛔ The widget and the API were built to different shapes and neither side
+   * noticed. `agentWidget` posts `{ sessionRef, question }` to a single URL and
+   * reads `{ answer, source }`; the API offered `POST /agent/session` followed
+   * by `POST /agent/turn` keyed on a session id. There was no endpoint the
+   * widget could talk to, which is the real reason no rendered page has ever
+   * carried an agent: wiring it in would have produced a chat box that always
+   * said "Could not reach the agent just now."
+   *
+   * `sessionRef` is the preview's claim token — already unguessable, already
+   * embedded in the page for the claim form, and granting strictly less here
+   * than it does there.
+   */
+  app.post("/agent/ask", async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as {
+      sessionRef?: string;
+      question?: string;
+      sessionId?: string;
+    };
+    const ref = (b.sessionRef ?? "").trim();
+    const question = (b.question ?? "").trim();
+    if (ref === "") return c.json({ error: "sessionRef required" }, 400);
+    if (question === "") return c.json({ error: "question required" }, 400);
+    if (question.length > MAX_QUESTION) return c.json({ error: "question too long" }, 413);
+
+    const preview = await db.maybeOne<{ id: string; takedown_at: Date | null }>(
+      "SELECT id, takedown_at FROM previews WHERE claim_token = $1",
+      [ref],
+    );
+    if (preview === null) return c.json({ error: "unknown sessionRef" }, 404);
+    // ⛔ A withdrawn preview answers nothing. Takedown means the business asked
+    // us to stop, and an agent still speaking for them afterwards is the same
+    // violation the takedown existed to end.
+    if (preview.takedown_at !== null) return c.json({ error: "preview withdrawn" }, 410);
+
+    const agent = await loadPreviewAgent(db, preview.id);
+    if (agent === null) return c.json({ error: "no agent for this preview" }, 404);
+
+    // One session per visitor thread. The widget sends back the id it was given
+    // so a follow-up question lands in the same transcript.
+    const session = b.sessionId !== undefined && UUID_RE.test(b.sessionId)
+      ? await loadSession(db, b.sessionId)
+      : await openSession(db, { previewId: preview.id, businessId: agent.businessId, channel: "web" });
+    if (session === null) return c.json({ error: "unknown session" }, 404);
+
+    const turn = await handleTurn(conciergeDeps, contextFor(agent, session), question, {
+      turnIndex: session.turnIndex,
+    });
+    return c.json({
+      sessionId: session.id,
+      answer: turn.answer,
+      // The widget styles a gap differently — that framing is the most
+      // persuasive thing on the page, so it must survive the response shape.
+      source: turn.answeredFrom === "pack" ? "pack" : "gap",
+      refused: turn.refused,
+    });
+  });
+
   // --- One turn -------------------------------------------------------------
   app.post("/agent/turn", async (c) => {
     const b = (await c.req.json().catch(() => ({}))) as {
@@ -278,10 +405,26 @@ export function agentRoutes(deps: AgentRouteDeps): Hono<{ Variables: { user: Ses
 
     const session = await loadSession(db, b.sessionId);
     if (session === null) return c.json({ error: "unknown session" }, 404);
-    if (session.customerId === undefined) return c.json({ error: "session has no customer" }, 409);
 
-    const agent = await loadLiveAgent(db, session.customerId);
-    if (agent === null) return c.json({ error: "no approved agent for this customer" }, 404);
+    // ⛔ A preview session is a first-class case, not an error. This used to
+    // 409 anything without a customer, which made every preview agent
+    // unanswerable — `/agent/session` accepted a previewId and the turn that
+    // followed it could never succeed.
+    const agent = session.customerId !== undefined
+      ? await loadLiveAgent(db, session.customerId)
+      : session.previewId !== undefined
+        ? await loadPreviewAgent(db, session.previewId)
+        : null;
+    if (agent === null) {
+      return c.json(
+        {
+          error: session.customerId !== undefined
+            ? "no approved agent for this customer"
+            : "no agent for this preview",
+        },
+        session.customerId === undefined && session.previewId === undefined ? 409 : 404,
+      );
+    }
 
     const turn = await handleTurn(conciergeDeps, contextFor(agent, session), question, {
       ...(b.hasAttachment === undefined ? {} : { hasAttachment: b.hasAttachment }),

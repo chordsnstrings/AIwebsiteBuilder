@@ -222,6 +222,99 @@ describe("POST /agent/turn", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// ⛔ The speculative preview's agent — the acquisition hook the whole pitch
+// rests on: "here is a receptionist that already knows your business, ask it
+// what you charge." Three separate pieces of it were built and none of them met.
+//
+//   * `/agent/session` accepted a previewId and `/agent/turn` then 409'd every
+//     session without a customer, so a preview session could be opened and
+//     could never take a turn.
+//   * The widget posts `{ sessionRef, question }` to one URL and reads
+//     `{ answer, source }`. No endpoint had that shape, so wiring the widget in
+//     would have produced a chat box that always said "Could not reach the
+//     agent just now."
+//   * `generate_preview` passed neither `machine` nor `agent` to `renderSite`,
+//     so no rendered page carried a widget to post from in the first place.
+// ---------------------------------------------------------------------------
+describe("⛔ POST /agent/ask — the preview agent", () => {
+  /** A speculative preview: a pack with NO customer, and no approval. */
+  async function speculativePreview(
+    opts: { approved?: boolean } = {},
+  ): Promise<{ claimToken: string; previewId: string; packId: string }> {
+    const fx = await seed();
+    // Re-home the pack as speculative: no customer. Approval is varied by the
+    // caller because that is the whole question these tests are about.
+    await db.query(
+      opts.approved === false
+        ? `UPDATE qa_packs SET customer_id = NULL, approved_at = NULL, approved_by = NULL WHERE id = $1`
+        : `UPDATE qa_packs SET customer_id = NULL WHERE id = $1`,
+      [fx.pack.id],
+    );
+    forgetPack(fx.pack.id);
+    const claimToken = `claim_${randomUUID()}`;
+    const preview = await db.one<{ id: string }>(
+      `INSERT INTO previews (business_id, r2_key, deploy_url, claim_token, label_version, expires_at)
+       VALUES ($1,'k','https://p.example',$2,'label-v1', now() + interval '30 days') RETURNING id`,
+      [fx.businessId, claimToken],
+    );
+    return { claimToken, previewId: preview.id, packId: fx.pack.id };
+  }
+
+  it("answers a visitor from the business's own published content", async () => {
+    const fx = await speculativePreview();
+    const res = await appAs(null).request("/agent/ask", json({ sessionRef: fx.claimToken, question: PAIRS[0]![0] }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { answer: string; source: string; sessionId: string };
+    expect(body.answer).toBeTruthy();
+    expect(body.source).toBe("pack");
+    // ⛔ The widget sends this back so a follow-up lands in the same transcript.
+    expect(body.sessionId).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it("⛔ says nothing at all from an unapproved pack", async () => {
+    // §21.3, enforced in `assertPackApproved`: an unapproved pack must never
+    // reach a visitor. A speculative pack has no owner to sign it — the point
+    // of the preview is to reach an owner who has not been contacted — and
+    // that tension is unresolved in this repository. The safe reading applies:
+    // no approval, no agent, rather than the invariant being relaxed to make
+    // the feature work.
+    const fx = await speculativePreview({ approved: false });
+    const res = await appAs(null).request("/agent/ask", json({ sessionRef: fx.claimToken, question: PAIRS[0]![0] }));
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { error: string }).error).toContain("no agent");
+  });
+
+  it("keeps a follow-up in the same session", async () => {
+    const fx = await speculativePreview();
+    const first = await appAs(null).request("/agent/ask", json({ sessionRef: fx.claimToken, question: PAIRS[0]![0] }));
+    const { sessionId } = (await first.json()) as { sessionId: string };
+    const second = await appAs(null).request(
+      "/agent/ask", json({ sessionRef: fx.claimToken, question: PAIRS[0]![0], sessionId }),
+    );
+    expect(((await second.json()) as { sessionId: string }).sessionId).toBe(sessionId);
+  });
+
+  it("⛔ goes silent the moment the preview is taken down", async () => {
+    // Takedown means the business asked us to stop. An agent still speaking for
+    // them afterwards is the same violation the takedown existed to end.
+    const fx = await speculativePreview();
+    await db.query("UPDATE previews SET takedown_at = now(), takedown_reason = 'not_for_me' WHERE id = $1", [fx.previewId]);
+    const res = await appAs(null).request("/agent/ask", json({ sessionRef: fx.claimToken, question: PAIRS[0]![0] }));
+    expect(res.status).toBe(410);
+  });
+
+  it("refuses an unknown ref, an empty question and an oversized one", async () => {
+    const fx = await speculativePreview();
+    expect((await appAs(null).request("/agent/ask", json({ sessionRef: `claim_${randomUUID()}`, question: "hi" }))).status).toBe(404);
+    expect((await appAs(null).request("/agent/ask", json({ sessionRef: fx.claimToken, question: "  " }))).status).toBe(400);
+    expect((await appAs(null).request("/agent/ask", json({ question: "hi" }))).status).toBe(400);
+    expect(
+      (await appAs(null).request("/agent/ask", json({ sessionRef: fx.claimToken, question: "x".repeat(5000) }))).status,
+    ).toBe(413);
+  });
+});
+
 describe("POST /api/enquiry — the no-JS path", () => {
   it("answers a plain form post with a page a browser can render", async () => {
     const { customerId } = await seed();

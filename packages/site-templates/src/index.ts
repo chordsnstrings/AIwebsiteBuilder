@@ -106,3 +106,4 @@ export {
   type SiteQAPair,
   type SiteVertical,
 } from "./site-prompt.ts";
+export * from "./from-facts.ts";
