@@ -10,23 +10,31 @@
 import { AsOf, Board, Empty, Eyebrow, State, ViewHead, money, shortAge, usePoll } from "../primitives.tsx";
 import { api, type ModelsBoard, type RoleCost } from "../api.ts";
 
+/** Mirrors RegistryStatus from @adw/registry. */
 interface RegistryRow {
   role: string;
   champion: string | null;
-  since?: string | null;
-  metric?: number | null;
-  champion_eval_run_id?: string | null;
-  eval_age_days?: number | null;
-  [k: string]: unknown;
+  championSince: string | null;
+  championMetric: number | null;
+  hasEvalRun: boolean;
+  championEvalRunId: string | null;
+  status: string;
+  fallbackLastOk: string | null;
+  escalation: string[];
 }
 
-/** An eval older than a quarter is stale; a champion with no eval at all is worse. */
+/**
+ * ⛔ A champion with no eval behind it is `unknown`, not `ok`. The registry's
+ * whole promise is that a champion was chosen by a stored eval run, and a role
+ * where that is not true is a role nobody has checked — which reads as a
+ * question mark, never as a tick.
+ */
 function evalState(row: RegistryRow): string {
-  if (row.champion === null || row.champion === undefined) return "unknown";
-  if (row.champion_eval_run_id === null || row.champion_eval_run_id === undefined) return "unknown";
-  const age = row.eval_age_days;
-  if (age === null || age === undefined) return "ok";
-  return age > 90 ? "stale" : "ok";
+  if (row.champion === null) return "unknown";
+  if (!row.hasEvalRun) return "unknown";
+  if (row.championSince === null) return "ok";
+  const days = (Date.now() - new Date(row.championSince).getTime()) / 86_400_000;
+  return days > 90 ? "stale" : "ok";
 }
 
 export function Models() {
@@ -88,15 +96,17 @@ export function Models() {
                                 <State
                                   state={evalState(r)}
                                   label={
-                                    r.champion_eval_run_id === null || r.champion_eval_run_id === undefined
-                                      ? "no eval run"
-                                      : r.eval_age_days === null || r.eval_age_days === undefined
-                                        ? "recorded"
-                                        : `${Math.round(r.eval_age_days)}d old`
+                                    r.champion === null
+                                      ? "no champion"
+                                      : !r.hasEvalRun
+                                        ? "no eval run"
+                                        : r.championSince === null
+                                          ? "recorded"
+                                          : `${Math.round((Date.now() - new Date(r.championSince).getTime()) / 86_400_000)}d old`
                                   }
                                 />
                               </td>
-                              <td className="num muted">{r.since === null || r.since === undefined ? "—" : shortAge(r.since)}</td>
+                              <td className="num muted">{shortAge(r.championSince)}</td>
                               {/* ⛔ Zero calls is a real reading, not a blank: a
                                   role nothing invokes is either dead code or a
                                   workflow that has stopped reaching it. */}

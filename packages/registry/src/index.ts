@@ -137,7 +137,20 @@ export interface RegistryStatus {
   champion: string | null;
   championSince: string | null;
   championMetric: number | null;
+  /**
+   * ⛔ Whether a stored eval run stands behind this champion — and NOTHING
+   * else.
+   *
+   * This was `champion_eval_run_id !== null || champion !== null`, which made
+   * it true for every role that had a champion at all. The one condition the
+   * flag exists to detect — a champion promoted without an eval — was the one
+   * condition it could not report. `POST /registry/champion` refuses a champion
+   * with no evalRunId precisely so this can be trusted, and a flag that is
+   * always true quietly cancels that guarantee on the only screen that reads it.
+   */
   hasEvalRun: boolean;
+  /** The run itself, so the console can link to it rather than assert it exists. */
+  championEvalRunId: string | null;
   status: string;
   fallbackLastOk: string | null;
   escalation: string[];
@@ -163,7 +176,8 @@ export async function registryStatus(db: Db): Promise<RegistryStatus[]> {
     champion: r.champion,
     championSince: r.champion_since,
     championMetric: r.champion_metric,
-    hasEvalRun: r.champion_eval_run_id !== null || r.champion !== null,
+    hasEvalRun: r.champion_eval_run_id !== null,
+    championEvalRunId: r.champion_eval_run_id,
     status: r.status,
     fallbackLastOk: r.fallback_last_ok,
     escalation: (r.escalation as string[]) ?? [],

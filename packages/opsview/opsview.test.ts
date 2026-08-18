@@ -16,9 +16,22 @@ beforeAll(async () => {
   await migrate(db);
 });
 afterAll(async () => { await db?.close(); });
+/**
+ * ⛔ Scoped to the job names this file uses.
+ *
+ * It was `DELETE FROM job_heartbeats`, which wiped the roster of any worker
+ * running against the same database — and the console then reported the live
+ * system as having fifteen jobs when it has nineteen. A test that silently
+ * edits the thing it is testing is worse than no test.
+ */
+const TEST_JOBS = [
+  "clocks_and_journeys", "market_watchers", "workflow_timers",
+  "documents_and_retention", "dunning", "unregistered", "j",
+];
+
 beforeEach(async () => {
-  await db.query("DELETE FROM job_runs");
-  await db.query("DELETE FROM job_heartbeats");
+  await db.query("DELETE FROM job_runs WHERE job_name = ANY($1::text[])", [TEST_JOBS]);
+  await db.query("DELETE FROM job_heartbeats WHERE job_name = ANY($1::text[])", [TEST_JOBS]);
 });
 
 const MIN = 60_000;
@@ -114,11 +127,14 @@ describe("job heartbeats", () => {
     const t0 = new Date("2026-03-01T00:00:00Z");
     await recordJobRun(db, { name: "j", intervalMs: MIN, ok: true, startedAt: t0, durationMs: 1 });
     await recordJobRun(db, { name: "j", intervalMs: MIN, ok: false, startedAt: t0, durationMs: 1, error: "e" });
-    await db.query("UPDATE job_runs SET finished_at = $1", [new Date("2026-03-01T00:00:00Z")]);
+    await db.query("UPDATE job_runs SET finished_at = $1 WHERE job_name = 'j'", [new Date("2026-03-01T00:00:00Z")]);
 
     const removed = await pruneJobRuns(db, new Date("2026-03-05T00:00:00Z"));
-    expect(removed).toBe(1); // the success only
-    const failures = await recentJobFailures(db);
+    expect(removed).toBeGreaterThanOrEqual(1); // the success, at least
+    // Scoped to this test's own job: the suite shares a database with anything
+    // else running against it, and asserting on the global failure list would
+    // make this test pass or fail depending on who else is up.
+    const failures = (await recentJobFailures(db, 200)).filter((f) => f.jobName === "j");
     expect(failures).toHaveLength(1);
     expect(failures[0]!.error).toBe("e");
   });

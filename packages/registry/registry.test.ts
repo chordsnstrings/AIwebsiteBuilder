@@ -45,4 +45,30 @@ describe("registry", () => {
     const dev = await resolveRole(db, "developer");
     expect(dev.champion).toBe("modelark/glm-5-2");
   });
+
+  it("⛔ hasEvalRun can actually be false", async () => {
+    // It could not. The flag was `champion_eval_run_id !== null || champion
+    // !== null`, so it was true for every role that had a champion at all —
+    // meaning the one condition it exists to detect, a champion promoted with
+    // no eval behind it, was the one condition it could never report. The
+    // console read this flag and painted a tick for all 28 roles.
+    await db.query(
+      "UPDATE registry_roles SET champion = 'modelark/seed-2-0-pro', champion_eval_run_id = NULL WHERE role = 'customer_care'",
+    );
+    const rows = await registryStatus(db);
+    const care = rows.find((r) => r.role === "customer_care")!;
+    expect(care.champion).not.toBeNull();
+    expect(care.hasEvalRun, "a champion with no eval run reported as evaluated").toBe(false);
+    expect(care.championEvalRunId).toBeNull();
+
+    // And true when there genuinely is one.
+    const run = await db.one<{ id: string }>(
+      `INSERT INTO eval_runs (role, suite, candidate, metric, metric_value)
+       VALUES ('customer_care','care','modelark/seed-2-0-pro','cost_per_pass',0.05) RETURNING id`,
+    );
+    await setChampion(db, "customer_care", "modelark/seed-2-0-pro", run.id, 0.05);
+    const after = (await registryStatus(db)).find((r) => r.role === "customer_care")!;
+    expect(after.hasEvalRun).toBe(true);
+    expect(after.championEvalRunId).toBe(run.id);
+  });
 });
