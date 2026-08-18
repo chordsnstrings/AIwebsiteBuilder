@@ -344,9 +344,12 @@ export function agentRoutes(deps: AgentRouteDeps): Hono<{ Variables: { user: Ses
    * carried an agent: wiring it in would have produced a chat box that always
    * said "Could not reach the agent just now."
    *
-   * `sessionRef` is the preview's claim token — already unguessable, already
-   * embedded in the page for the claim form, and granting strictly less here
-   * than it does there.
+   * `sessionRef` identifies which agent is speaking. On a speculative preview
+   * it is the claim token — already unguessable, already embedded in the page
+   * for the claim form, and granting strictly less here than it does there. On
+   * a paying customer's live site it is their customer id: that site is public
+   * and the agent exists to answer the public, so this grants nothing
+   * `/agent/session` did not already accept unauthenticated.
    */
   app.post("/agent/ask", async (c) => {
     const b = (await c.req.json().catch(() => ({}))) as {
@@ -360,24 +363,38 @@ export function agentRoutes(deps: AgentRouteDeps): Hono<{ Variables: { user: Ses
     if (question === "") return c.json({ error: "question required" }, 400);
     if (question.length > MAX_QUESTION) return c.json({ error: "question too long" }, 413);
 
-    const preview = await db.maybeOne<{ id: string; takedown_at: Date | null }>(
-      "SELECT id, takedown_at FROM previews WHERE claim_token = $1",
-      [ref],
-    );
-    if (preview === null) return c.json({ error: "unknown sessionRef" }, 404);
-    // ⛔ A withdrawn preview answers nothing. Takedown means the business asked
-    // us to stop, and an agent still speaking for them afterwards is the same
-    // violation the takedown existed to end.
-    if (preview.takedown_at !== null) return c.json({ error: "preview withdrawn" }, 410);
+    // A uuid is a customer's live site; anything else is a preview claim token.
+    const live = UUID_RE.test(ref);
+    let agent: LiveAgent | null = null;
+    let previewId: string | undefined;
 
-    const agent = await loadPreviewAgent(db, preview.id);
-    if (agent === null) return c.json({ error: "no agent for this preview" }, 404);
+    if (live) {
+      agent = await loadLiveAgent(db, ref);
+      if (agent === null) return c.json({ error: "no approved agent for this customer" }, 404);
+    } else {
+      const preview = await db.maybeOne<{ id: string; takedown_at: Date | null }>(
+        "SELECT id, takedown_at FROM previews WHERE claim_token = $1",
+        [ref],
+      );
+      if (preview === null) return c.json({ error: "unknown sessionRef" }, 404);
+      // ⛔ A withdrawn preview answers nothing. Takedown means the business
+      // asked us to stop, and an agent still speaking for them afterwards is
+      // the same violation the takedown existed to end.
+      if (preview.takedown_at !== null) return c.json({ error: "preview withdrawn" }, 410);
+      agent = await loadPreviewAgent(db, preview.id);
+      if (agent === null) return c.json({ error: "no agent for this preview" }, 404);
+      previewId = preview.id;
+    }
 
     // One session per visitor thread. The widget sends back the id it was given
     // so a follow-up question lands in the same transcript.
     const session = b.sessionId !== undefined && UUID_RE.test(b.sessionId)
       ? await loadSession(db, b.sessionId)
-      : await openSession(db, { previewId: preview.id, businessId: agent.businessId, channel: "web" });
+      : await openSession(db, {
+          ...(previewId === undefined ? { customerId: ref } : { previewId }),
+          businessId: agent.businessId,
+          channel: "web",
+        });
     if (session === null) return c.json({ error: "unknown session" }, 404);
 
     const turn = await handleTurn(conciergeDeps, contextFor(agent, session), question, {

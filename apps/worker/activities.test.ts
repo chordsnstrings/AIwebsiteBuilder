@@ -16,6 +16,8 @@ import { LocalKeyWrapper, LocalPgBackend, type SecretsBackend } from "@adw/vault
 import { seedRegistry, setChampion, type RoleId } from "@adw/registry";
 import { config } from "@adw/config";
 import { Engine } from "@adw/workflows";
+import { embedText, persistQAPack, type QAPack } from "@adw/qapack";
+import { resolveObjectStore } from "@adw/vendors";
 import { recipientClock, registerActivities } from "./src/activities.ts";
 
 const URL = process.env.DATABASE_ADMIN_URL ?? "postgres://adw_admin@127.0.0.1:5433/adw_test";
@@ -321,5 +323,171 @@ describe("recipientClock", () => {
     const clock = recipientClock({ timezone: "Not/AZone", region_code: "R1" }, TUESDAY_1500Z);
     expect(clock.localHour).toBeGreaterThanOrEqual(0);
     expect(clock.localHour).toBeLessThan(24);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ⛔ What the paying customer actually receives.
+//
+// `renderSite` has accepted `machine` and `agent` since they were built, and
+// `renderAndStore` — the ONLY path to a customer's site, reached by
+// run_full_build, deploy_customer_site, assemble_and_render and apply_revision
+// — passed neither. So somebody who paid for a site whose machine surface is
+// the product and whose agent is the pitch received a static page carrying the
+// bare LocalBusiness node that render.ts itself calls "what the market already
+// has". They were sold a fix for the thing they got.
+// ---------------------------------------------------------------------------
+describe("⛔ the paid build ships the product", () => {
+  const engine = new Engine({ db, owner: "test:worker:paid-build" });
+
+  async function seedCustomer(opts: { approved?: boolean; withPack?: boolean } = {}): Promise<{
+    businessId: string;
+    customerId: string;
+  }> {
+    registerActivities(engine, { db, vault, forceMock: true });
+    const batch = await db.one<{ id: string }>(
+      "INSERT INTO ingest_batches (vendor, licence_ref, record_count, cost_cents, checksum) VALUES ('d','LIC',1,0,'x') RETURNING id",
+    );
+    const biz = await db.one<{ id: string }>(
+      `INSERT INTO businesses (source_vendor, source_batch_id, name, category, city, country_code, region_code,
+                               segment, review_count, rating, phone_e164)
+       VALUES ('d',$1,'Ridgeline Roofing','roofer','Boise','US','R1','stale_site',64,4.6,'+12085550143') RETURNING id`,
+      [batch.id],
+    );
+    const customer = await db.one<{ id: string }>(
+      `INSERT INTO customers (business_id, region_code, legal_name, contact_email, locale, timezone, status)
+       VALUES ($1,'R1','Ridgeline Roofing',$2,'en-US','UTC','active') RETURNING id`,
+      [biz.id, `cust_${randomUUID()}@example.com`],
+    );
+    const kb = await db.one<{ id: string }>(
+      `INSERT INTO knowledge_bases (business_id, customer_id) VALUES ($1,$2) RETURNING id`,
+      [biz.id, customer.id],
+    );
+    for (const [key, type, value, status] of [
+      ["service_1", "service", "Flat roof repair", "verified"],
+      ["service_2", "service", "Gutter replacement", "verified"],
+      ["price_1", "price", "$185", "verified"],
+      ["area_1", "area", "Boise", "verified"],
+      // ⛔ On purpose: a certification found on their own site that we could
+      // not confirm against a register. It must not reach the page.
+      ["credential_1", "credential", "State licensed", "claimed_unverified"],
+      ["credential_2", "credential", "NRCA member", "verified"],
+    ] as [string, string, string, string][]) {
+      await db.query(
+        `INSERT INTO kb_facts (kb_id, fact_key, type, value, status, source_url, retrieved_at)
+         VALUES ($1,$2,$3,$4,$5,'https://example.test', now())`,
+        [kb.id, key, type, value, status],
+      );
+    }
+    if (opts.withPack !== false) {
+      const pack: QAPack = {
+        id: randomUUID(),
+        kbId: kb.id,
+        businessId: biz.id,
+        customerId: customer.id,
+        version: 1,
+        vertical: "roofing",
+        playbookVersion: "test",
+        embeddingProvider: "adw-hashed-ngram-v1",
+        pairs: [
+          {
+            id: randomUUID(),
+            question: "What areas do you cover?",
+            answer: "We cover Boise.",
+            sourceFactIds: [randomUUID()],
+            embedding: embedText("What areas do you cover?"),
+            confidence: 0.9,
+            source: "generated",
+          },
+        ],
+        coverage: { byTopic: {}, byVerticalTemplate: { answered: 1, total: 1, ratio: 1 }, factsUsed: 4, factsAvailable: 6 },
+        templateFallbacks: [],
+        gaps: ["Do you offer emergency callouts?"],
+        excluded: [],
+        thin: false,
+        extendedOnboarding: false,
+        createdAt: new Date(),
+      };
+      await persistQAPack(db, pack);
+      if (opts.approved !== false) {
+        await db.query(
+          `UPDATE qa_packs SET approved_at = now(), approved_by = 'owner@example.com', approval_kind = 'owner'
+            WHERE id = $1`,
+          [pack.id],
+        );
+      }
+    }
+    return { businessId: biz.id, customerId: customer.id };
+  }
+
+  /** The HTML the customer's site is actually made of. */
+  async function renderedSite(fx: { businessId: string; customerId: string }): Promise<string> {
+    const out = (await engine.runActivity("assemble_and_render", {
+      businessId: fx.businessId,
+      mode: "full",
+      customerId: fx.customerId,
+    })) as { artefactKey: string };
+    const store = await resolveObjectStore({ vault, forceMock: true });
+    const buf = await store.get(out.artefactKey);
+    expect(buf, "the render wrote nothing").not.toBeNull();
+    return buf!.toString("utf8");
+  }
+
+  function graphOf(html: string): string {
+    return /<script type="application\/ld\+json">([\s\S]*?)<\/script>/.exec(html)?.[1] ?? "";
+  }
+
+  it("⛔ publishes their services, not a bare LocalBusiness node", async () => {
+    const html = await renderedSite(await seedCustomer());
+    const graph = graphOf(html);
+    expect(graph, "no structured data at all").not.toBe("");
+    expect(graph).toContain('"Service"');
+    expect(graph).toContain("Flat roof repair");
+    expect(graph).toContain("Gutter replacement");
+  });
+
+  it("publishes a price they published, as an Offer", async () => {
+    const graph = graphOf(await renderedSite(await seedCustomer()));
+    expect(graph).toContain('"Offer"');
+    // schema.org quotes `price` as a decimal string, not minor units.
+    expect(graph).toContain('"price":"185.00"');
+    expect(graph).toContain('"priceCurrency":"USD"');
+    // ⛔ Only the service the price was published against. Spreading one price
+    // across every offering would invent two of them.
+    expect(graph.match(/"Offer"/g)).toHaveLength(1);
+  });
+
+  it("⛔ never repeats a credential we could not verify", async () => {
+    // Their own assertion. Repeating it in structured data is US asserting it,
+    // and it is a regulatory problem for the customer we are meant to help.
+    const graph = graphOf(await renderedSite(await seedCustomer()));
+    expect(graph).not.toContain("State licensed");
+    expect(graph).toContain("NRCA member");
+  });
+
+  it("⛔ carries the agent the customer is paying for", async () => {
+    const html = await renderedSite(await seedCustomer());
+    expect(html, "the receptionist they bought is not on their site").toContain("adw-agent-form");
+    expect(html).toContain("/agent/ask");
+  });
+
+  it("⛔ withholds the agent until the owner has approved the pack", async () => {
+    // The paying customer's visitors DO believe they are talking to the
+    // business. The signature is what makes a stored answer defensible to them.
+    const html = await renderedSite(await seedCustomer({ approved: false }));
+    expect(html).not.toContain("adw-agent-form");
+    // …but the structured data still ships, because it is their own published
+    // content and withholding it protects nobody.
+    expect(graphOf(html)).toContain('"Service"');
+  });
+
+  it("renders a business with no knowledge base without inventing one", async () => {
+    const fx = await seedCustomer({ withPack: false });
+    await db.query("DELETE FROM kb_facts WHERE kb_id IN (SELECT id FROM knowledge_bases WHERE business_id = $1)", [
+      fx.businessId,
+    ]);
+    const html = await renderedSite(fx);
+    expect(html).toContain("Ridgeline Roofing");
+    expect(html).not.toContain("adw-agent-form");
   });
 });

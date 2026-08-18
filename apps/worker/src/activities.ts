@@ -655,7 +655,7 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
   // =========================================================================
 
   on("assemble_and_render", async (input: { businessId: string; mode: string; customerId?: string }) => {
-    const artefactKey = await renderAndStore(input.businessId, [], `builds/${input.businessId}`);
+    const artefactKey = await renderAndStore(input.businessId, [], `builds/${input.businessId}`, input.customerId);
     return { artefactKey };
   });
 
@@ -717,14 +717,21 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
     };
   });
 
-  on("apply_revision", async (input: { businessId: string; requestedChanges: string[]; buildId: string }) => {
-    const artefactKey = await renderAndStore(
-      input.businessId,
-      input.requestedChanges,
-      `revisions/${input.buildId || input.businessId}`,
-    );
-    return { artefactKey };
-  });
+  on(
+    "apply_revision",
+    async (input: { businessId: string; requestedChanges: string[]; buildId: string; customerId?: string }) => {
+      // ⛔ `customerId` was always in the payload — `runRevision` spreads its
+      // whole input into this step — and the signature simply never named it,
+      // so a revised site silently lost the agent the original had.
+      const artefactKey = await renderAndStore(
+        input.businessId,
+        input.requestedChanges,
+        `revisions/${input.buildId || input.businessId}`,
+        input.customerId,
+      );
+      return { artefactKey };
+    },
+  );
 
   on(
     "deploy_revision",
@@ -767,7 +774,10 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
   });
 
   on("run_full_build", async (input: { businessId: string; customerId: string }) => {
-    const artefactKey = await renderAndStore(input.businessId, [], `builds/${input.businessId}`);
+    // The pack is not owner-approved yet at this point in onboarding — the eval
+    // gate runs later — so this render carries the machine surface and no
+    // agent. `deploy_customer_site` re-renders after the gate, with it.
+    const artefactKey = await renderAndStore(input.businessId, [], `builds/${input.businessId}`, input.customerId);
     const html = await readArtefact(artefactKey);
     const review = reviewBuild(buildArtifactFromHtml(html ?? ""));
     if (!review.pass) {
@@ -1208,7 +1218,10 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
   });
 
   on("deploy_customer_site", async (input: { customerId: string; businessId: string; buildId?: string }) => {
-    const artefactKey = await renderAndStore(input.businessId, [], `builds/${input.businessId}`);
+    // ⛔ Reached only past `agent_eval_gate`, which fails on `pack_not_approved`.
+    // So by here the owner has signed and this is the render that carries the
+    // agent onto the live site.
+    const artefactKey = await renderAndStore(input.businessId, [], `builds/${input.businessId}`, input.customerId);
     return deployArtefact(artefactKey, input.customerId, null);
   });
 
@@ -1305,14 +1318,65 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
   }
 
   /** Render a business into a full-mode site and store it. Returns the key. */
+  /**
+   * Everything the page publishes about a business, resolved once.
+   *
+   * ⛔ The machine surface does NOT depend on approval — it is structured data
+   * about content the business already published, and withholding it would only
+   * make the page worse without protecting anybody. The AGENT does: it answers
+   * on the business's behalf to visitors who believe they are talking to them,
+   * so only an owner-approved pack is ever bound. That is the same line
+   * `loadLiveAgent` draws, drawn again here rather than assumed.
+   */
+  async function customerSurface(
+    businessId: string,
+    customerId: string | undefined,
+  ): Promise<{ facts: { type: string; value: string; status: string }[]; pack: QAPack | null }> {
+    const approved = customerId === undefined
+      ? null
+      : await db.maybeOne<{ id: string }>(
+          `SELECT id FROM qa_packs
+            WHERE customer_id = $1 AND approved_at IS NOT NULL AND approval_kind = 'owner'
+            ORDER BY version DESC LIMIT 1`,
+          [customerId],
+        );
+    const pack = approved === null ? null : await loadQAPack(db, approved.id).catch(() => null);
+
+    // Facts come from the approved pack's own knowledge base where there is one,
+    // and otherwise from the latest KB for this business — so a page rendered
+    // before approval still carries the structured data.
+    const kb = pack !== null
+      ? { id: pack.kbId }
+      : await db.maybeOne<{ id: string }>(
+          `SELECT id FROM knowledge_bases WHERE business_id = $1 ORDER BY created_at DESC LIMIT 1`,
+          [businessId],
+        );
+    const facts = kb === null
+      ? []
+      : (await db.query<{ type: string; value: string; status: string }>(
+          `SELECT type, value, status FROM kb_facts WHERE kb_id = $1 ORDER BY fact_key`,
+          [kb.id],
+        )).rows;
+    return { facts, pack };
+  }
+
   async function renderAndStore(
     businessId: string,
     requestedChanges: string[],
     keyPrefix: string,
+    customerId?: string,
   ): Promise<string> {
     await assertBuildsAllowed();
     const biz = await business(db, businessId);
     const family = familyForCategory(biz.category ?? "general");
+    // ⛔ The paid build shipped the same empty page the preview did. A customer
+    // pays for a site whose machine surface is the product and whose agent is
+    // the pitch, and `renderSite` was handed neither — so what arrived was a
+    // static page with the bare LocalBusiness node, which render.ts itself calls
+    // "what the market already has". They were sold a fix for the thing they
+    // received.
+    const { facts, pack } = await customerSurface(businessId, customerId);
+    const agentBound = pack !== null && pack.pairs.length > 0 && smokeTestPack(pack);
     const copy = await developerAgent.run(
       {
         name: biz.name,
@@ -1338,6 +1402,37 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
       legalAddress: legal().postal_address,
       labelVersion: "label-v1",
       formAction: "https://app.adwsites.com/f",
+      ...(facts.length === 0
+        ? {}
+        : {
+            machine: machineSurfaceFromFacts(
+              {
+                name: biz.name,
+                category: biz.category ?? "general",
+                city: biz.city ?? "",
+                phone: biz.phone_e164 ?? "",
+                ...(biz.rating === null || biz.rating === undefined ? {} : { rating: Number(biz.rating) }),
+                ...(biz.review_count === null || biz.review_count === undefined
+                  ? {}
+                  : { reviewCount: biz.review_count }),
+              },
+              facts,
+            ),
+          }),
+      ...(agentBound && customerId !== undefined
+        ? {
+            agent: {
+              endpoint: `${publicBase}/agent/ask`,
+              // ⛔ The customer's own id. Their site is public and the agent is
+              // meant to answer the public, so this grants nothing that
+              // `/agent/session` did not already accept unauthenticated.
+              sessionRef: customerId,
+              gaps: pack!.gaps.slice(0, 5),
+              suggestedQuestions: pack!.pairs.slice(0, 3).map((qa) => qa.question),
+              businessName: biz.name,
+            },
+          }
+        : {}),
     });
     const store = await resolveObjectStore(vendorDeps);
     // Content-addressed within the prefix, so a replay overwrites rather than

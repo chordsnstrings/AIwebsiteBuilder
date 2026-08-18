@@ -340,6 +340,28 @@ describe("⛔ POST /agent/ask — the preview agent", () => {
     expect(res.status).toBe(410);
   });
 
+  it("⛔ answers on a paying customer's live site too", async () => {
+    // The same widget ships on the customer's site after the eval gate, and its
+    // sessionRef there is the customer id. Without this branch the agent the
+    // customer is paying for could not answer a single visitor.
+    const fx = await seed();
+    const res = await appAs(null).request("/agent/ask", json({ sessionRef: fx.customerId, question: PAIRS[0]![0] }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { answer: string; source: string };
+    expect(body.answer).toBeTruthy();
+    expect(body.source).toBe("pack");
+  });
+
+  it("⛔ a live site refuses to answer from an unapproved pack", async () => {
+    // The paying customer's visitors DO believe they are talking to the
+    // business. This is the audience §21.3 protects, and the owner's signature
+    // is what makes a stored answer defensible to them.
+    const fx = await seed({ approved: false });
+    const res = await appAs(null).request("/agent/ask", json({ sessionRef: fx.customerId, question: PAIRS[0]![0] }));
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { error: string }).error).toContain("no approved agent");
+  });
+
   it("refuses an unknown ref, an empty question and an oversized one", async () => {
     const fx = await speculativePreview();
     expect((await appAs(null).request("/agent/ask", json({ sessionRef: `claim_${randomUUID()}`, question: "hi" }))).status).toBe(404);
