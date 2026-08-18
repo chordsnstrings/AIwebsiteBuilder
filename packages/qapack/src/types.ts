@@ -75,6 +75,18 @@ export interface QAPack {
   extendedOnboarding: boolean;
   approvedAt?: Date | undefined;
   approvedBy?: string | undefined;
+  /**
+   * On what authority the pack was approved.
+   *
+   * ⛔ `owner` is a person's signature and is the evidence that makes a stored
+   * answer defensible on a paying customer's live site. `speculative` is a
+   * policy decision this system made so a preview can answer the business
+   * owner it was built for — narrower audience, unofficial-preview banner,
+   * answers only from what that business itself published. Collapsing the two
+   * into a bare timestamp is how a policy approval ends up serving a customer's
+   * visitors, which is the failure §21.3 exists to prevent.
+   */
+  approvalKind?: "owner" | "speculative" | undefined;
   createdAt: Date;
 }
 

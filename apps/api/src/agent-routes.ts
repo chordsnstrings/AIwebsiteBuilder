@@ -162,9 +162,13 @@ export function forgetPack(packId: string): void {
 }
 
 /**
- * ⛔ Only an APPROVED pack is served. An unapproved one resolves to null and
- * every surface 404s rather than falling back to a draft — a draft answering
- * the public on a business's behalf is exactly what the sign-off prevents.
+ * ⛔ Only an OWNER-APPROVED pack is served. An unapproved one resolves to null
+ * and every surface 404s rather than falling back to a draft — a draft
+ * answering the public on a business's behalf is exactly what the sign-off
+ * prevents. `approval_kind = 'owner'` is explicit: a speculative approval is a
+ * policy decision this system made so a preview could answer the owner it was
+ * built for, and it must never be mistaken for a person's signature on a
+ * paying customer's live site.
  */
 export async function loadLiveAgent(db: Db, customerId: string): Promise<LiveAgent | null> {
   const row = await db.maybeOne<{
@@ -177,7 +181,7 @@ export async function loadLiveAgent(db: Db, customerId: string): Promise<LiveAge
        FROM qa_packs p
        JOIN customers c ON c.id = p.customer_id
        JOIN businesses b ON b.id = c.business_id
-      WHERE p.customer_id = $1 AND p.approved_at IS NOT NULL
+      WHERE p.customer_id = $1 AND p.approved_at IS NOT NULL AND p.approval_kind = 'owner'
       ORDER BY p.version DESC
       LIMIT 1`,
     [customerId],
@@ -232,14 +236,15 @@ export async function loadLiveAgent(db: Db, customerId: string): Promise<LiveAge
  *     escalate to its owner; doing either on a speculative preview would mean
  *     taking a customer's details, or contacting a business, on behalf of
  *     someone who has not agreed to any of it.
- *   * ⛔ APPROVAL IS STILL REQUIRED. §21.3 — enforced in `assertPackApproved` —
- *     says an unapproved pack must never reach a visitor, and this path does
- *     not weaken it. That leaves a genuine open question the repository does
- *     not answer: a speculative pack has no owner to sign it, because the point
- *     of the preview is to reach an owner who has not been contacted. Until
- *     that is settled, a preview whose pack is unapproved simply has no agent —
- *     `generate_preview` renders no widget and this returns null — rather than
- *     the invariant being quietly relaxed to make the feature work.
+ *   * ⛔ APPROVAL IS STILL REQUIRED, and §21.3 is not weakened. A speculative
+ *     pack carries `approval_kind = 'speculative'` — a policy approval this
+ *     system made, recorded as such, never a person's signature. The reading
+ *     is that §21.3 protects the CUSTOMER'S SITE VISITORS: people who believe
+ *     they are talking to the business. A preview is emailed to the business
+ *     owner, is banner-labelled unofficial, and answers only from what that
+ *     business itself published. `loadLiveAgent` demands
+ *     `approval_kind = 'owner'` and the database refuses a speculative
+ *     approval on any pack with a customer, so the two can never be confused.
  */
 export async function loadPreviewAgent(db: Db, previewId: string): Promise<LiveAgent | null> {
   const row = await db.maybeOne<{

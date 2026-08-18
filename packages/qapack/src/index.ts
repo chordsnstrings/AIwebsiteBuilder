@@ -38,4 +38,10 @@ export {
 
 export { DEDUPE_SIMILARITY, generateQAPack, type GenerateDeps } from "./generate.ts";
 
-export { approvePack, loadQAPack, persistQAPack, type PackApproval } from "./store.ts";
+export {
+  approvePack,
+  approveSpeculativePack,
+  loadQAPack,
+  persistQAPack,
+  type PackApproval,
+} from "./store.ts";

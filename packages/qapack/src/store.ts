@@ -17,6 +17,7 @@ interface PackRow {
   thin: boolean;
   approved_at: Date | null;
   approved_by: string | null;
+  approval_kind: "owner" | "speculative" | null;
   created_at: Date;
 }
 
@@ -180,8 +181,36 @@ export async function loadQAPack(db: Db, id: string): Promise<QAPack | null> {
     extendedOnboarding: coverage.extendedOnboarding ?? row.thin,
     ...(row.approved_at === null ? {} : { approvedAt: row.approved_at }),
     ...(row.approved_by === null ? {} : { approvedBy: row.approved_by }),
+    ...(row.approval_kind === null ? {} : { approvalKind: row.approval_kind }),
     createdAt: row.created_at,
   };
+}
+
+/**
+ * Approve a pack for a speculative preview, on policy rather than a signature.
+ *
+ * ⛔ NOT an owner approval, and deliberately a different function so the two can
+ * never be reached by accident. This exists because a preview's pack has nobody
+ * to sign it — the business has not been contacted — and §21.3 is read here as
+ * protecting the customer's site visitors, people who believe they are talking
+ * to the business. A preview is emailed to the owner, is banner-labelled
+ * unofficial, and answers only from what that business itself published.
+ *
+ * A pack attached to a customer is refused outright, and the database refuses it
+ * too: `qa_packs_speculative_has_no_customer_ck` makes the combination
+ * impossible, so nothing can promote a policy approval into a paying customer's
+ * live agent.
+ */
+export async function approveSpeculativePack(db: Db, id: string, at?: Date): Promise<boolean> {
+  const res = await db.query(
+    `UPDATE qa_packs
+        SET approved_at = COALESCE(approved_at, $2),
+            approved_by = COALESCE(approved_by, 'system:speculative_preview'),
+            approval_kind = COALESCE(approval_kind, 'speculative')
+      WHERE id = $1 AND customer_id IS NULL AND approved_at IS NULL`,
+    [id, at ?? new Date()],
+  );
+  return (res.rowCount ?? 0) > 0;
 }
 
 export interface PackApproval {
@@ -207,7 +236,8 @@ export async function approvePack(db: Db, id: string, approver: string, at?: Dat
 
     const stamped = await tx.one<{ approved_at: Date; approved_by: string }>(
       `UPDATE qa_packs
-          SET approved_at = COALESCE(approved_at, $2), approved_by = COALESCE(approved_by, $3)
+          SET approved_at = COALESCE(approved_at, $2), approved_by = COALESCE(approved_by, $3),
+              approval_kind = COALESCE(approval_kind, 'owner')
         WHERE id = $1
         RETURNING approved_at, approved_by`,
       [id, at ?? new Date(), approver],

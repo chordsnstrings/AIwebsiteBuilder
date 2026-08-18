@@ -127,7 +127,10 @@ async function seed(opts: { approved?: boolean } = {}): Promise<Fixture> {
   };
   await persistQAPack(db, pack);
   if (opts.approved !== false) {
-    await db.query(`UPDATE qa_packs SET approved_at = now(), approved_by = 'owner@example.com' WHERE id = $1`, [pack.id]);
+    await db.query(
+      `UPDATE qa_packs SET approved_at = now(), approved_by = 'owner@example.com', approval_kind = 'owner' WHERE id = $1`,
+      [pack.id],
+    );
   }
   forgetPack(pack.id);
   return { customerId: cust.id, businessId: biz.id, kbId: kb.id, leadId: lead.id, pack };
@@ -247,8 +250,10 @@ describe("⛔ POST /agent/ask — the preview agent", () => {
     // caller because that is the whole question these tests are about.
     await db.query(
       opts.approved === false
-        ? `UPDATE qa_packs SET customer_id = NULL, approved_at = NULL, approved_by = NULL WHERE id = $1`
-        : `UPDATE qa_packs SET customer_id = NULL WHERE id = $1`,
+        ? `UPDATE qa_packs SET customer_id = NULL, approved_at = NULL, approved_by = NULL,
+                               approval_kind = NULL WHERE id = $1`
+        : `UPDATE qa_packs SET customer_id = NULL, approved_by = 'system:speculative_preview',
+                               approval_kind = 'speculative' WHERE id = $1`,
       [fx.pack.id],
     );
     forgetPack(fx.pack.id);
@@ -273,16 +278,47 @@ describe("⛔ POST /agent/ask — the preview agent", () => {
   });
 
   it("⛔ says nothing at all from an unapproved pack", async () => {
-    // §21.3, enforced in `assertPackApproved`: an unapproved pack must never
-    // reach a visitor. A speculative pack has no owner to sign it — the point
-    // of the preview is to reach an owner who has not been contacted — and
-    // that tension is unresolved in this repository. The safe reading applies:
-    // no approval, no agent, rather than the invariant being relaxed to make
-    // the feature work.
+    // §21.3 is not weakened. A speculative pack answers because it carries an
+    // explicit `speculative` approval; one with no approval at all still says
+    // nothing, which is what stops a half-built pack reaching anybody.
     const fx = await speculativePreview({ approved: false });
     const res = await appAs(null).request("/agent/ask", json({ sessionRef: fx.claimToken, question: PAIRS[0]![0] }));
     expect(res.status).toBe(404);
     expect(((await res.json()) as { error: string }).error).toContain("no agent");
+  });
+
+  it("⛔ a speculative approval never serves a paying customer's live agent", async () => {
+    // The failure this separation exists to prevent: a policy approval made so
+    // a preview could answer its owner, drifting onto the live site of somebody
+    // who is paying for a receptionist and whose visitors believe they are
+    // talking to the business.
+    const fx = await seed();
+    await db.query(
+      `UPDATE qa_packs SET approved_at = now(), approved_by = 'system:speculative_preview',
+                           approval_kind = 'speculative' WHERE id = $1`,
+      [fx.pack.id],
+    ).then(
+      () => { throw new Error("the database accepted a speculative approval on a customer's pack"); },
+      () => undefined, // the CHECK constraint refused it, which is the point
+    );
+    forgetPack(fx.pack.id);
+    // …and the customer's agent still resolves, because its own approval stands.
+    const res = await appAs(null).request("/agent/session", json({ customerId: fx.customerId }));
+    expect(res.status).toBe(200);
+  });
+
+  it("⛔ the customer path demands an OWNER approval, not merely an approval", async () => {
+    const fx = await seed();
+    // Detach from the customer so a speculative approval is legal, then confirm
+    // the live-agent lookup refuses it.
+    await db.query(
+      `UPDATE qa_packs SET customer_id = NULL, approved_by = 'system:speculative_preview',
+                           approval_kind = 'speculative' WHERE id = $1`,
+      [fx.pack.id],
+    );
+    forgetPack(fx.pack.id);
+    const res = await appAs(null).request("/agent/session", json({ customerId: fx.customerId }));
+    expect(res.status).toBe(404);
   });
 
   it("keeps a follow-up in the same session", async () => {

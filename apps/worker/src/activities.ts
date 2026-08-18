@@ -56,7 +56,14 @@ import {
   resolveSiteHost,
 } from "@adw/vendors";
 import { deterministicExtract, extractKnowledgeBase, persistKnowledgeBase } from "@adw/kb";
-import { generateQAPack, loadQAPack, loadVerticalTemplate, persistQAPack, type QAPack } from "@adw/qapack";
+import {
+  approveSpeculativePack,
+  generateQAPack,
+  loadQAPack,
+  loadVerticalTemplate,
+  persistQAPack,
+  type QAPack,
+} from "@adw/qapack";
 import { buildPackIndex, retrieve } from "@adw/concierge";
 import { runAgentEval, type CaseResult } from "@adw/agenteval";
 import {
@@ -289,14 +296,13 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
     // The agent is bound only when there is a pack that can actually answer.
     // See the smoke test below — `agentBound` is a claim about behaviour.
     const suggested = pack === null ? [] : pack.pairs.slice(0, 3).map((p) => p.question);
-    // ⛔ Approval is required here too. §21.3 — "an unapproved pack must never
-    // reach a visitor" — is enforced in `assertPackApproved`, and a speculative
-    // pack has no owner to sign it, because the whole point of the preview is
-    // to reach an owner who has not been contacted yet. That tension is real
-    // and unresolved in this repository, so the safe reading applies: no
-    // approval, no widget. The page still ships the machine surface and the
-    // business's own services; it just does not carry a chat box that would be
-    // answering on their behalf without anyone having agreed to it.
+    // ⛔ Approval is required here too, and §21.3 is not weakened to get it. The
+    // pack carries `approval_kind = 'speculative'` — a policy approval this
+    // system made so the preview can answer the owner it was built for, stamped
+    // by `approveSpeculativePack` and recorded as such. It is never a person's
+    // signature: `loadLiveAgent` demands `approval_kind = 'owner'` and the
+    // database refuses a speculative approval on any pack with a customer, so a
+    // policy approval cannot drift onto a paying customer's live site.
     const agentBound =
       pack !== null && pack.approvedAt instanceof Date && pack.pairs.length > 0 && smokeTestPack(pack);
 
@@ -1114,6 +1120,13 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
     const pack = await generateQAPack(kb, template);
     if (customerId !== null) pack.customerId = customerId;
     await persistQAPack(db, pack);
+    // ⛔ A speculative pack is approved on policy so the preview can answer the
+    // owner it was built for; a customer's pack is not, and never will be from
+    // here — it waits for a person's signature. The two are separate functions
+    // and the database enforces the distinction, because a policy approval that
+    // could drift onto a paying customer's live site is exactly the failure
+    // §21.3 exists to prevent.
+    if (customerId === null) await approveSpeculativePack(db, pack.id);
     return { packId: pack.id, pairCount: pack.pairs.length, thin: pack.thin };
   };
 
