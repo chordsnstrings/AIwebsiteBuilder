@@ -195,3 +195,12 @@ export async function enrolLead(
   await emit({ eventType: "lead.enrolled", subject: { kind: "lead", id: lead.id } });
   return { leadId: lead.id, enqueued: true };
 }
+
+export {
+  remainingSendCapacity,
+  standingCampaign,
+  sourceLeads,
+  type LeadSourceLike,
+  type SourceOptions,
+  type SourceOutcome,
+} from "./source.ts";

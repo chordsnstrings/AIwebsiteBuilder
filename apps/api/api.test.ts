@@ -426,7 +426,8 @@ async function makePreview(
   );
   if (opts.withLead) {
     const campaign = await db.one<{ id: string }>(
-      "INSERT INTO campaigns (name, region_code) VALUES ('preview-campaign','R1') RETURNING id",
+      "INSERT INTO campaigns (name, region_code) VALUES ($1,'R1') RETURNING id",
+      [`preview-campaign-${randomUUID()}`],
     );
     const lead = await db.one<{ id: string }>(
       `INSERT INTO leads (contact_id, campaign_id, state, workflow_id, preview_id)

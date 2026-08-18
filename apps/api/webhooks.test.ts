@@ -33,7 +33,8 @@ async function makeSentMessage(): Promise<{ messageId: string; providerId: strin
     [biz.id, email, emailHash(email)],
   );
   const campaign = await db.one<{ id: string }>(
-    "INSERT INTO campaigns (name, region_code) VALUES ('fb-campaign','R1') RETURNING id",
+    "INSERT INTO campaigns (name, region_code) VALUES ($1,'R1') RETURNING id",
+    [`fb-campaign-${randomUUID()}`],
   );
   const lead = await db.one<{ id: string }>(
     `INSERT INTO leads (contact_id, campaign_id, state, workflow_id) VALUES ($1,$2,'EMAIL_SENT','wf-fb') RETURNING id`,

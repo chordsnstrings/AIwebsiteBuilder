@@ -94,6 +94,12 @@ export class MockLeadSource extends BaseMockVendor implements LeadSource {
     const name = `${pick(TRADING_NAMES, at("name"))} ${titleCase(category)} ${pick(SUFFIXES, at("suffix"))}`;
     // 60% of the batch has no website — that is the segment the foundry sells to.
     const hasWebsite = at("website") % 100 >= 60;
+    // ⛔ A quarter of records carry no contact address at all. That is what real
+    // licensed data looks like, and a simulator that always supplies one would
+    // hide the branch that matters: a record with no email cannot be ingested
+    // and must be counted as such rather than quietly dropped.
+    const hasEmail = at("email") % 100 >= 25;
+    const domain = `${slug(name)}.example`;
     return {
       externalRef: `${this.vendorId}:${seedHex(16, this.vendorId, query, String(index))}`,
       name,
@@ -101,9 +107,13 @@ export class MockLeadSource extends BaseMockVendor implements LeadSource {
       countryCode: place.countryCode,
       city: place.city,
       phone: `${place.dialCode}${1000000 + (at("phone") % 8999999)}`,
-      websiteUrl: hasWebsite ? `https://${slug(name)}.example` : null,
+      websiteUrl: hasWebsite ? `https://${domain}` : null,
       reviewCount: at("reviews") % 400,
       rating: Math.round((3 + (at("rating") % 21) / 10) * 10) / 10,
+      email: hasEmail ? `enquiries@${domain}` : null,
+      // The listing page, not the business's own site: the ICP has no site, so
+      // the directory entry is where the address was actually published.
+      sourceUrl: `https://directory.example/${this.vendorId}/${slug(place.city)}/${slug(name)}`,
     };
   }
 

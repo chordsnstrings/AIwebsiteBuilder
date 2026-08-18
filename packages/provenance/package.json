@@ -12,8 +12,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@adw/db": "workspace:*",
     "@adw/compliance": "workspace:*",
+    "@adw/db": "workspace:*",
+    "@adw/taxonomy": "workspace:*",
     "@adw/telemetry": "workspace:*",
     "@adw/workflows": "workspace:*"
   }

@@ -810,6 +810,9 @@ importers:
       '@adw/db':
         specifier: workspace:*
         version: link:../db
+      '@adw/taxonomy':
+        specifier: workspace:*
+        version: link:../taxonomy
       '@adw/telemetry':
         specifier: workspace:*
         version: link:../telemetry

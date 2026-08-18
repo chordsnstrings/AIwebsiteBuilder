@@ -175,6 +175,7 @@ export {
   resolveDns,
   resolveEmailTransport,
   resolveEmailVerifier,
+  resolveLeadSource,
   resolveMediaGenerator,
   resolveObjectStore,
   resolvePaymentRail,

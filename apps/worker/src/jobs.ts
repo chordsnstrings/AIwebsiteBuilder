@@ -258,6 +258,31 @@ export function vendorWatchJob(runWatches: (db: Db) => Promise<{ vendorId: strin
 }
 
 /**
+ * Sourcing — fetching the customers.
+ *
+ * ⛔ THE JOB THAT DID NOT EXIST. `LeadSource.fetchBatch()` was implemented,
+ * registered and probed; `ingestRecord()` was implemented and correctly
+ * enqueued a lead workflow. Nothing called either. The autonomous business
+ * could run its whole pipeline and was never handed a business to run it on —
+ * "fetch customers and email them" had no fetch.
+ *
+ * ⛔ Hourly, and NOT faster. This is the only recurring job that spends money
+ * to create future obligations: every record is licensed data with a per-record
+ * cost, and once ingested its provenance starts ageing towards the staleness
+ * limit the gate enforces. Sourcing faster than the fleet can send builds a
+ * backlog that expires before it is contacted — money spent to manufacture a
+ * compliance problem. The sourcing function sizes each batch to real remaining
+ * send capacity for exactly this reason.
+ */
+export function sourcingJob(run: (db: Db, now: Date) => Promise<unknown>): Job {
+  return {
+    name: "lead_sourcing",
+    intervalMs: 60 * 60_000,
+    run: async ({ db, now }) => void (await run(db, now)),
+  };
+}
+
+/**
  * Drain the workflow outbox. This is the job that turns "a customer claimed
  * their preview" into a running onboarding — without it the API records
  * intentions nobody acts on, and the pipeline has no ignition.

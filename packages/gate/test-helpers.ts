@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 // Seeding helpers for the gate suite. Each test builds an isolated contact +
 // lead + campaign in the test database.
 import { emailHash, type Db } from "@adw/db";
@@ -42,8 +43,8 @@ export async function seedContact(
     [business, email, hash, opts.subscriberType ?? "unknown"],
   );
   const campaign = await db.one<{ id: string }>(
-    `INSERT INTO campaigns (name, region_code, enabled_markets) VALUES ('camp','R1',$1) RETURNING id`,
-    [[country]],
+    `INSERT INTO campaigns (name, region_code, enabled_markets) VALUES ($2,'R1',$1) RETURNING id`,
+    [[country], `camp-${randomUUID()}`],
   );
   const lead = await db.one<{ id: string }>(
     `INSERT INTO leads (contact_id, campaign_id, state, workflow_id)

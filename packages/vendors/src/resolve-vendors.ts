@@ -35,6 +35,8 @@
 // credential set must not produce a half-live vendor.
 import type { SecretsBackend } from "@adw/vault";
 import { getDnsProvider, getEmailTransport, getEmailVerifier, getObjectStore, getRegistrar, getSiteHost } from "./registry.ts";
+import { MockLeadSource } from "./leaddata/mock.ts";
+import type { LeadSource } from "./leaddata/types.ts";
 import { CloudflarePagesHost } from "./hosting/real.ts";
 import { CloudflareDns } from "./dns/real.ts";
 import { R2ObjectStore } from "./storage/real.ts";
@@ -84,6 +86,10 @@ export const VENDOR_CREDENTIAL_KEYS = {
   /** ⛔ Image and video generation. The ONE credential in this table whose
    *  presence turns on per-asset SPENDING rather than per-token. */
   media: { vendorId: "modelark", required: ["api_key"], optional: ["base_url"] },
+  /** ⛔ Licensed lead data. The one credential whose absence means the pipeline
+   *  has nothing to work on at all — without it there is no sourcing, and the
+   *  entire downstream machine idles correctly over an empty queue. */
+  leadData: { vendorId: "lead_data_primary", required: ["api_key"], optional: ["endpoint", "dataset"] },
   verification: {
     vendorId: "email_verification",
     required: ["api_key"],
@@ -250,4 +256,32 @@ async function readSecret(vault: SecretsBackend, vendorId: string, keyName: stri
   const summaries = await vault.list(vendorId);
   const match = summaries.find((c) => c.keyName === keyName);
   return vault.resolve(`cred:${vendorId}:${keyName}@v${match?.version ?? 1}`);
+}
+
+/**
+ * The licensed lead source.
+ *
+ * ⛔ There was no resolver for this capability, which is why nothing could
+ * source: `MockLeadSource` existed and was registered in the vendor suite, and
+ * no production code path could reach one. In demo mode the deterministic
+ * simulator is the honest answer — the same query always returns the same
+ * businesses, so scoring and gate decisions stay reproducible.
+ *
+ * ⛔ With no credential in LIVE mode this returns null rather than silently
+ * falling back to the simulator. Sourcing fabricated businesses and mailing
+ * them would be the worst possible failure in this system, so the caller must
+ * handle the absence explicitly.
+ */
+export async function resolveLeadSource(deps: ResolveVendorDeps): Promise<LeadSource | null> {
+  const cfg = await readAll(deps, VENDOR_CREDENTIAL_KEYS.leadData);
+  if (!cfg) {
+    return deps.forceMock ? new MockLeadSource("lead_data_primary") : null;
+  }
+  // No real lead-data adapter is written yet: depositing a key must not be
+  // mistaken for having an integration. Saying so is better than quietly
+  // serving simulated businesses to a live pipeline.
+  throw new Error(
+    "a lead_data_primary credential is deposited but no real LeadSource adapter is implemented — " +
+      "remove the credential to run against the simulator, or implement the adapter before going live",
+  );
 }

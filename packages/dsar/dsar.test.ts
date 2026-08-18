@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb, emailHash, migrate, type Db } from "@adw/db";
 import { archiveHash, dsarExport, erase, signArchive, verifyArchive } from "./src/index.ts";
@@ -29,8 +30,8 @@ beforeAll(async () => {
     [contact.id],
   );
   const campaign = await db.one<{ id: string }>(
-    "INSERT INTO campaigns (name, region_code, enabled_markets) VALUES ('dsar','R1',$1) RETURNING id",
-    [["US"]],
+    "INSERT INTO campaigns (name, region_code, enabled_markets) VALUES ($2,'R1',$1) RETURNING id",
+    [["US"], `dsar-${randomUUID()}`],
   );
   const lead = await db.one<{ id: string }>(
     "INSERT INTO leads (contact_id, campaign_id, state, workflow_id) VALUES ($1,$2,'CONTACTED',$3) RETURNING id",

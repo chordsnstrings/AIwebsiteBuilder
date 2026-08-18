@@ -9,11 +9,14 @@ import { evaluateAssetHealth } from "@adw/fleet";
 import { EMAIL_VENDOR_IDS, getEmailTransport } from "@adw/vendors";
 import { applyEmailFeedback } from "@adw/inbound";
 import { runEscalations } from "@adw/protocol";
+import { sourceLeads } from "@adw/provenance";
+import { readEngagedSwitches, sendingHalted } from "@adw/gate";
+import { resolveEmailVerifier } from "@adw/vendors";
 import { runJourneys, runReminders } from "@adw/journeys";
 import { httpCollectors, pruneObservations, runDueWatches, simulatedCollectors, type FetchLike } from "@adw/watch";
 import { publishApproved, simulatedConnectors } from "@adw/publish";
 import { generateApproved } from "@adw/assets";
-import { resolveMediaGenerator } from "@adw/vendors";
+import { resolveLeadSource, resolveMediaGenerator } from "@adw/vendors";
 import { dueChases, purgeExpired } from "@adw/uploads";
 import { resolveObjectStore } from "@adw/vendors";
 import { advanceDunning } from "@adw/billing";
@@ -46,10 +49,23 @@ import {
   previewExpiryJob,
   probeJobs,
   vendorWatchJob,
+  sourcingJob,
   workflowTimerJob,
 } from "./jobs.ts";
 
 const db = await createDb({});
+
+/**
+ * What to source, and how much.
+ *
+ * ⛔ Environment, not config/*.yaml: the query is an operational dial (which
+ * trade in which city we are prospecting this week), not a compliance rule, and
+ * config files in this repo are PR-gated precisely because they are the latter.
+ * The ceiling is a ceiling only — the real batch size is whatever the fleet can
+ * still lawfully send today, computed per run.
+ */
+const SOURCING_QUERY = process.env.ADW_SOURCING_QUERY ?? "independent trades with no website";
+const SOURCING_MAX_PER_RUN = Number(process.env.ADW_SOURCING_MAX_PER_RUN ?? 50);
 
 // Every production workflow must be registered here, or its durable timers will
 // never fire (the engine deliberately ignores types it does not own).
@@ -362,6 +378,61 @@ const scheduler = new Scheduler({
     dunningJob(advanceDunning),
     previewExpiryJob(),
     vendorWatchJob(runWatches),
+    // ⛔ THE IGNITION. Without this job the whole machine downstream is correct
+    // and idle: nothing ever hands it a business. See sourcingJob's comment for
+    // why it is hourly and why the batch is sized to send capacity.
+    sourcingJob(async (database, at) => {
+      const engaged = await readEngagedSwitches(database, at.getTime());
+      // ⛔ Do not BUY data we are forbidden to act on. Cold sending halted means
+      // every record sourced now would sit ageing towards the provenance
+      // staleness limit before it could ever be contacted.
+      if (sendingHalted(engaged, "email", "cold")) {
+        console.log("[worker] sourcing skipped — cold sending is halted");
+        return;
+      }
+      const source = await resolveLeadSource({ vault, forceMock });
+      if (source === null) {
+        console.warn("[worker] no lead-data credential and not in demo mode — nothing to source from");
+        return;
+      }
+      const verifier = await resolveEmailVerifier({ vault, forceMock });
+      const store = await resolveObjectStore({ vault, forceMock });
+      const out = await sourceLeads(
+        database,
+        source,
+        {
+          verifier,
+          // The listing page the record came from. In demo the fetch is
+          // simulated; in live mode this is the real page whose text and
+          // screenshot become the provenance evidence.
+          fetcher: {
+            async fetch(url: string) {
+              if (forceMock) {
+                return { text: `Listing for ${url}. Contact us for a quote.`, screenshot: Buffer.from("png") };
+              }
+              const res = await fetch(url).catch(() => null);
+              if (res === null || !res.ok) return null;
+              return { text: await res.text(), screenshot: Buffer.from("") };
+            },
+          },
+          store: { put: async (key: string, data: Buffer) => void (await store.put(key, data)) },
+          // UK/IE need corporate-vs-sole-trader. Unknown is NOT permission — the
+          // gate denies on it, which is the correct default with no registry.
+          registry: { classify: async () => "unknown" as const },
+        },
+        { query: SOURCING_QUERY, maxRecords: SOURCING_MAX_PER_RUN, now: at },
+      );
+      if (out.halted !== undefined) {
+        console.log(`[worker] sourcing halted: ${out.halted}`);
+        return;
+      }
+      const skips = Object.entries(out.skipped).map(([k, n]) => `${k}=${n}`).join(" ");
+      console.log(
+        `[worker] sourced ${out.fetched} record(s) from ${out.licenceRef ?? "?"}: ` +
+          `${out.ingested} ingested, ${out.businessesCreated} new business(es), ` +
+          `${out.costCents}c, capacity ${out.capacity}${skips === "" ? "" : ` · skipped ${skips}`}`,
+      );
+    }),
   ],
 });
 
