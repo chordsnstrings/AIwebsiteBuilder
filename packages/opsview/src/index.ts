@@ -17,6 +17,7 @@ export {
   recentJobFailures,
   recordJobRun,
   registerJob,
+  registerRoster,
   type JobFailure,
   type JobRow,
   type JobRunRecord,

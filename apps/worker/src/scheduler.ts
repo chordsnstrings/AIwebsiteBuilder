@@ -6,7 +6,7 @@
 // Postgres advisory lock so running two worker replicas is safe — the spare sits
 // idle and takes over if the leader dies, rather than duplicating side effects.
 import type { Db } from "@adw/db";
-import { recordJobRun, registerJob } from "@adw/opsview";
+import { recordJobRun, registerRoster } from "@adw/opsview";
 
 export interface Job {
   name: string;
@@ -159,12 +159,12 @@ export class Scheduler {
    * "never run" in words.
    */
   async register(): Promise<void> {
-    for (const job of this.jobs) {
-      try {
-        await registerJob(this.db, job.name, job.intervalMs);
-      } catch (err) {
-        this.log(`[worker] could not register ${job.name}: ${err instanceof Error ? err.message : String(err)}`);
-      }
+    try {
+      // The whole roster at once, so a job removed from this file is retired
+      // rather than left on the board reading stale forever.
+      await registerRoster(this.db, this.jobs.map((j) => ({ name: j.name, intervalMs: j.intervalMs })));
+    } catch (err) {
+      this.log(`[worker] could not register the roster: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

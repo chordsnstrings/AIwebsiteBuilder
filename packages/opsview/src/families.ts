@@ -104,8 +104,11 @@ export interface CustomerBoard {
  * family genuinely does not apply — which is what an unresolvable vertical
  * produces, since `resolveVertical` returns "" rather than guessing.
  */
-export function configuredCounts(vertical: string | null): Record<FamilyId, number | null> {
-  const v = vertical === null ? "" : resolveVertical(vertical, null);
+export function configuredCounts(
+  vertical: string | null,
+  category: string | null = null,
+): Record<FamilyId, number | null> {
+  const v = resolveVertical(vertical, category);
   return {
     knowledge: null,
     cases: caseTypesFor(v).length,
@@ -125,10 +128,10 @@ export function configuredCounts(vertical: string | null): Record<FamilyId, numb
 }
 
 /** Which families this vertical uses at all, from config. */
-export function applicableFamilies(vertical: string | null): Set<FamilyId> {
+export function applicableFamilies(vertical: string | null, category: string | null = null): Set<FamilyId> {
   const applicable = new Set<FamilyId>();
-  if (vertical === null) return applicable;
-  const counts = configuredCounts(vertical);
+  if (vertical === null && category === null) return applicable;
+  const counts = configuredCounts(vertical, category);
   for (const f of FAMILIES) {
     const n = counts[f.id];
     // Not vertical-selected (null) is applicable to everyone; a configured
@@ -303,16 +306,30 @@ function cellFor(
 }
 
 export async function customerBoard(db: Db, now: Date, limit = 200): Promise<CustomerBoard> {
+  // ⛔ Resolved through the BUSINESS, not read off the customer alone.
+  // `customers.vertical` is frequently null — it is written in one place and
+  // skipped whenever the Architect escalates — while `businesses.vertical`
+  // usually has it, and `businesses.category` is the lead vendor's own words as
+  // a last resort. Reading only the customer column made this board report 181
+  // customers as unclassifiable when 130 of them were perfectly well known one
+  // join away. Every other customer-side family already resolves this way; the
+  // board that exists to spot that failure must not commit it.
   const customers = await db.query<{
     id: string; legal_name: string; domain: string | null; status: string;
-    vertical: string | null; region_code: string; won_at: Date | null;
+    vertical: string | null; category: string | null; region_code: string; won_at: Date | null;
   }>(
-    `SELECT id, legal_name, domain, status, vertical, region_code, won_at
-       FROM customers ORDER BY won_at DESC NULLS LAST, legal_name LIMIT $1`,
+    `SELECT c.id, c.legal_name, c.domain, c.status,
+            COALESCE(c.vertical, b.vertical) AS vertical, b.category,
+            c.region_code, c.won_at
+       FROM customers c
+       LEFT JOIN businesses b ON b.id = c.business_id
+      ORDER BY c.won_at DESC NULLS LAST, c.legal_name LIMIT $1`,
     [limit],
   );
   const totals = await db.one<{ n: string; unresolved: string }>(
-    "SELECT count(*) AS n, count(*) FILTER (WHERE vertical IS NULL) AS unresolved FROM customers",
+    `SELECT count(*) AS n,
+            count(*) FILTER (WHERE COALESCE(c.vertical, b.vertical, b.category) IS NULL) AS unresolved
+       FROM customers c LEFT JOIN businesses b ON b.id = c.business_id`,
   );
 
   // Fourteen aggregates, each keyed by customer. A per-row query would be 14×N.
@@ -330,14 +347,19 @@ export async function customerBoard(db: Db, now: Date, limit = 200): Promise<Cus
   }
 
   const rows: CustomerRow[] = customers.rows.map((c) => {
-    const configured = configuredCounts(c.vertical);
+    const configured = configuredCounts(c.vertical, c.category);
+    // ⛔ "Known" means the resolver produced a trade, not that the column was
+    // non-null. A vertical string nobody can classify resolves to "" and must
+    // read as unknown, or the board quietly shows a full row of n/a cells for a
+    // customer receiving nothing.
+    const resolved = resolveVertical(c.vertical, c.category) !== "";
     const cells = {} as Record<FamilyId, FamilyCell>;
     let attention = 0;
     for (const { family, staleDays } of TALLIES) {
       const cell = cellFor(
         family,
         configured[family],
-        c.vertical !== null,
+        resolved,
         byFamily.get(family)?.get(c.id),
         staleDays,
         now,
@@ -389,7 +411,7 @@ export async function customerDetail(db: Db, customerId: string, now: Date): Pro
   const row = board.rows.find((r) => r.id === customerId);
   if (row === undefined) return null;
 
-  const v = row.vertical === null ? "" : resolveVertical(row.vertical, null);
+  const v = resolveVertical(row.vertical, null);
   const defines: { family: FamilyId; items: string[] }[] = [
     { family: "cases", items: caseTypesFor(v).map((t) => t.label) },
     // Statutory clocks are marked, because a missed statutory date is a

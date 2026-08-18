@@ -1,0 +1,13 @@
+-- Retiring a job that no longer exists.
+--
+-- ⛔ Without this column a job deleted from the worker keeps its heartbeat row,
+-- stops being run, and therefore reads stale forever — a red light nobody can
+-- turn off. Within a fortnight that teaches the operator that red lights on
+-- this board can be ignored, which costs more than the board is worth.
+--
+-- Separate from 0022 because 0022 has already been applied where this repo is
+-- checked out, and a migration that has run does not run again.
+--
+-- Retired rows are kept rather than deleted: what a job did before it was
+-- removed is still the answer to "when did this last work?".
+ALTER TABLE job_heartbeats ADD COLUMN IF NOT EXISTS retired_at timestamptz;

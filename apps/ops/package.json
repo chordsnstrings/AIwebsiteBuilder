@@ -10,14 +10,15 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@adw/ui": "workspace:*",
-    "@adw/demo-data": "workspace:*",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.28.0"
+    "react-router-dom": "^6.28.0",
+    "@adw/auth": "workspace:*",
+    "@adw/db": "workspace:*"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "puppeteer-core": "^23.0.0"
   }
 }

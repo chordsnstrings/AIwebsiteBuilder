@@ -32,6 +32,10 @@ CREATE TABLE IF NOT EXISTS job_heartbeats (
   -- Non-leader replicas skip most jobs entirely. Without this the spare replica
   -- would report every leader-gated job as never-run and page somebody.
   last_leader           boolean NOT NULL DEFAULT true,
+  -- Set when the worker's roster no longer claims this job. The row is kept
+  -- rather than deleted: what a job did before it was removed is still the
+  -- answer to "when did this last work?".
+  retired_at            timestamptz,
   updated_at            timestamptz NOT NULL DEFAULT now()
 );
 

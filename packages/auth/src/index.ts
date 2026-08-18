@@ -73,14 +73,19 @@ export async function createUser(
 ): Promise<{ id: string; totpSecret: string | null }> {
   const passwordHash = await hashPassword(input.password);
   const totpSecret = input.role === "superadmin" ? generateSecret() : null;
-  const row = await db.one<{ id: string }>(
+  // ⛔ Returns the STORED secret, not the one just generated. On the conflict
+  // path the existing user keeps their original secret — so returning the fresh
+  // one would hand the caller a QR code that enrols an authenticator against a
+  // secret nothing checks, and the user would be locked out at the next login
+  // with no indication why.
+  const row = await db.one<{ id: string; totp_secret: string | null }>(
     `INSERT INTO users (email, password_hash, role, customer_id, totp_secret, totp_enabled)
      VALUES ($1,$2,$3,$4,$5,$6)
      ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash
-     RETURNING id`,
+     RETURNING id, totp_secret`,
     [input.email, passwordHash, input.role, input.customerId ?? null, totpSecret, totpSecret !== null],
   );
-  return { id: row.id, totpSecret };
+  return { id: row.id, totpSecret: row.totp_secret };
 }
 
 /** Guard used by the API: require an authenticated superadmin. */

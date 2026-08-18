@@ -1,0 +1,474 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   ADW operator console — design system.
+
+   Scandinavian: restraint, whitespace, and a grid you can feel. Grouping is
+   done by alignment and air, not by boxes and shadows. There is exactly one
+   accent colour and it is not decorative. Nothing is rounded because nothing
+   needs to be softened.
+
+   Everything snaps to an 8px baseline. The scale below is the only source of
+   spacing in this file — there are no ad-hoc pixel values further down, which
+   is what makes the grid hold together at every breakpoint.
+
+   Colour carries state and nothing else. The five state colours are muted on
+   purpose: a console that shouts on every row teaches the operator to stop
+   reading it, and this one has to stay legible during the incident it was
+   built for.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Baseline grid ───────────────────────────────────────────────────── */
+  --u: 8px;              /* the unit. Every space below is a multiple. */
+  --s-1: 4px;            /* half unit, for optical tightening only */
+  --s0: 8px;
+  --s1: 16px;
+  --s2: 24px;
+  --s3: 32px;
+  --s4: 48px;
+  --s5: 64px;
+  --s6: 96px;
+
+  /* ── Type scale ──────────────────────────────────────────────────────
+     Seven sizes, and seven is the budget. A console drifts into illegibility
+     one "just slightly bigger" at a time. Line heights are chosen so every
+     block lands back on the 8px baseline. */
+  --t-micro: 10px;   --lh-micro: 16px;   /* table sub-labels */
+  --t-eyebrow: 11px; --lh-eyebrow: 16px; /* uppercase section labels */
+  --t-small: 12px;   --lh-small: 16px;   /* captions, evidence lines */
+  --t-body: 13px;    --lh-body: 20px;    /* THE data size */
+  --t-lead: 15px;    --lh-lead: 24px;    /* intro text, key figures inline */
+  --t-title: 20px;   --lh-title: 28px;   /* view titles */
+  --t-display: 28px; --lh-display: 32px; /* the one big number, sparingly */
+
+  --tracking-eyebrow: 0.09em;
+  --tracking-tight: -0.011em;
+
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+  /* Numbers live here. Tabular figures are non-negotiable in a console: a
+     column of costs that does not align cannot be scanned, only read. */
+  --mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+
+  /* ── Paper and ink (light) ───────────────────────────────────────────
+     Warm off-white rather than pure white: white paper under a white UI chrome
+     reads as a blown-out photograph, and the warmth is what makes the hairlines
+     look drawn rather than aliased. */
+  --paper: #faf9f6;
+  --surface: #ffffff;
+  --surface-sunk: #f3f2ee;
+  --ink: #191813;
+  --ink-2: #57564e;
+  --ink-3: #8b8a80;
+  --rule: #e6e4dd;
+  --rule-strong: #cbc9c0;
+
+  /* One accent. Muted petrol blue — present enough to lead the eye, quiet
+     enough to sit beside five state colours without fighting them. */
+  --accent: #2c5c7c;
+  --accent-wash: #eef2f5;
+
+  /* ── State ───────────────────────────────────────────────────────────
+     Earth tones, not traffic lights. Each is distinguishable from the others
+     at a glance AND in greyscale, because roughly one operator in twelve will
+     not separate the red from the green by hue. */
+  --ok: #3f7355;          /* moss */
+  --warn: #9a7524;        /* ochre */
+  --bad: #a04437;         /* terracotta */
+  --void: #8b8a80;        /* grey — unmeasured, never-run, unknown */
+  --ok-wash: #eef3ef;
+  --warn-wash: #f7f2e6;
+  --bad-wash: #f8eeec;
+  --void-wash: #f2f1ed;
+
+  --focus: #2c5c7c;
+  --dur: 120ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  color-scheme: light;
+}
+
+:root[data-theme="dark"], :root[data-theme="dark"] body {
+  --paper: #141410;
+  --surface: #1b1b17;
+  --surface-sunk: #232320;
+  --ink: #edece5;
+  --ink-2: #a4a399;
+  --ink-3: #76756c;
+  --rule: #2b2b26;
+  --rule-strong: #3d3c36;
+  --accent: #79a8c8;
+  --accent-wash: #1c2a33;
+  --ok: #7fae90;
+  --warn: #cfa856;
+  --bad: #cf8579;
+  --void: #76756c;
+  --ok-wash: #1a251d;
+  --warn-wash: #2a2418;
+  --bad-wash: #2c1e1b;
+  --void-wash: #232320;
+  --focus: #79a8c8;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #141410;
+    --surface: #1b1b17;
+    --surface-sunk: #232320;
+    --ink: #edece5;
+    --ink-2: #a4a399;
+    --ink-3: #76756c;
+    --rule: #2b2b26;
+    --rule-strong: #3d3c36;
+    --accent: #79a8c8;
+    --accent-wash: #1c2a33;
+    --ok: #7fae90;
+    --warn: #cfa856;
+    --bad: #cf8579;
+    --void: #76756c;
+    --ok-wash: #1a251d;
+    --warn-wash: #2a2418;
+    --bad-wash: #2c1e1b;
+    --void-wash: #232320;
+    --focus: #79a8c8;
+    color-scheme: dark;
+  }
+}
+
+/* ── Reset ─────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { margin: 0; padding: 0; min-height: 100%; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  letter-spacing: var(--tracking-tight);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+h1, h2, h3, h4, p, figure, ul, ol { margin: 0; }
+ul, ol { padding: 0; list-style: none; }
+button { font: inherit; color: inherit; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* ═══ Layout ══════════════════════════════════════════════════════════════
+   A 224px rail (28 units) against a fluid column. The rail is the only fixed
+   width in the app; everything else is fluid and snaps its INNER spacing to
+   the grid, which is what keeps the rhythm at any window size. */
+
+.shell { display: grid; grid-template-columns: 224px minmax(0, 1fr); min-height: 100vh; }
+
+.rail {
+  position: sticky; top: 0; height: 100vh;
+  border-right: 1px solid var(--rule);
+  padding: var(--s2) var(--s1);
+  display: flex; flex-direction: column; gap: var(--s2);
+  background: var(--surface);
+}
+.rail-mark {
+  display: flex; align-items: baseline; gap: var(--s0);
+  padding: 0 var(--s0) 0;
+  font-size: var(--t-lead); line-height: var(--lh-lead);
+  font-weight: 600; letter-spacing: -0.02em;
+}
+.rail-mark small {
+  font-size: var(--t-micro); letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase; color: var(--ink-3); font-weight: 500;
+}
+.rail-group { display: flex; flex-direction: column; gap: 1px; }
+.rail-group + .rail-group { margin-top: var(--s1); }
+.rail-label {
+  font-size: var(--t-eyebrow); line-height: var(--lh-eyebrow);
+  letter-spacing: var(--tracking-eyebrow); text-transform: uppercase;
+  color: var(--ink-3); padding: 0 var(--s0) var(--s0); font-weight: 500;
+}
+.rail a {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s0);
+  padding: var(--s0) var(--s0);
+  color: var(--ink-2); font-weight: 450; border-radius: 2px;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.rail a:hover { background: var(--surface-sunk); color: var(--ink); text-decoration: none; }
+/* The active marker is a rule, not a pill. A filled shape here would be the
+   loudest element on a screen whose loudest element must always be a problem. */
+.rail a.active {
+  color: var(--ink); font-weight: 550;
+  box-shadow: inset 2px 0 0 var(--accent);
+  background: var(--surface-sunk);
+}
+.rail-count {
+  font-family: var(--mono); font-size: var(--t-small); font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+.rail a.active .rail-count { color: var(--ink-2); }
+.rail-count[data-tone="bad"] { color: var(--bad); font-weight: 600; }
+.rail-foot { margin-top: auto; display: flex; flex-direction: column; gap: var(--s0); }
+
+.main { padding: var(--s3) var(--s3) var(--s6); max-width: 1440px; }
+
+/* ── View header ─────────────────────────────────────────────────────────
+   Title, one line of plain-English purpose, and the as-of stamp. The as-of is
+   part of the header rather than a footnote because on this console the age of
+   a number is as load-bearing as the number. */
+.view-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: var(--s2); padding-bottom: var(--s1);
+  border-bottom: 1px solid var(--rule); margin-bottom: var(--s3);
+}
+.view-head h1 {
+  font-size: var(--t-title); line-height: var(--lh-title);
+  font-weight: 600; letter-spacing: -0.02em;
+}
+.view-head p { color: var(--ink-2); font-size: var(--t-small); line-height: var(--lh-small); margin-top: var(--s-1); }
+
+/* ═══ Sections ════════════════════════════════════════════════════════════ */
+.section { margin-bottom: var(--s4); }
+.eyebrow {
+  display: flex; align-items: baseline; gap: var(--s0);
+  font-size: var(--t-eyebrow); line-height: var(--lh-eyebrow);
+  letter-spacing: var(--tracking-eyebrow); text-transform: uppercase;
+  color: var(--ink-3); font-weight: 500;
+  padding-bottom: var(--s0); margin-bottom: var(--s1);
+  border-bottom: 1px solid var(--rule);
+}
+.eyebrow .count { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.eyebrow .spacer { margin-left: auto; }
+.eyebrow .note { text-transform: none; letter-spacing: 0; color: var(--ink-3); font-size: var(--t-small); }
+
+/* ═══ Figures ═════════════════════════════════════════════════════════════
+   A number, its unit, and — always — where it came from. `.figure-evidence`
+   is not decoration: this system's characteristic failure is a confident
+   number over an empty population, so the denominator travels WITH the value
+   rather than living in a tooltip nobody opens. */
+.figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(184px, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); }
+.figure { background: var(--surface); padding: var(--s1) var(--s2) var(--s2); display: flex; flex-direction: column; gap: var(--s-1); }
+.figure-label {
+  font-size: var(--t-eyebrow); line-height: var(--lh-eyebrow);
+  letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; color: var(--ink-3); font-weight: 500;
+}
+.figure-value {
+  font-family: var(--mono); font-size: var(--t-display); line-height: var(--lh-display);
+  font-variant-numeric: tabular-nums; font-weight: 500; letter-spacing: -0.02em;
+}
+.figure-value[data-unmeasured="true"] { color: var(--void); }
+.figure-unit { font-size: var(--t-small); color: var(--ink-3); font-family: var(--font); letter-spacing: 0; }
+.figure-evidence { font-size: var(--t-small); line-height: var(--lh-small); color: var(--ink-3); }
+.figure-bar { height: 2px; background: var(--surface-sunk); margin-top: var(--s0); }
+.figure-bar span { display: block; height: 100%; background: var(--accent); }
+.figure-bar span[data-tone="warn"] { background: var(--warn); }
+.figure-bar span[data-tone="bad"] { background: var(--bad); }
+
+/* ═══ State ═══════════════════════════════════════════════════════════════
+   One vocabulary, used by jobs, watches, families and vendors alike. The
+   operator learns five words once. */
+.state { display: inline-flex; align-items: center; gap: var(--s0); white-space: nowrap; }
+.state-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--void); }
+.state-word { font-size: var(--t-small); color: var(--ink-2); }
+.state[data-state="ok"] .state-dot { background: var(--ok); }
+.state[data-state="attention"] .state-dot,
+.state[data-state="failing"] .state-dot { background: var(--bad); }
+.state[data-state="stale"] .state-dot { background: var(--warn); }
+.state[data-state="never_run"] .state-dot,
+.state[data-state="unconfigured"] .state-dot { background: var(--void); border: 1px solid var(--rule-strong); }
+/* Unknown is a RING, not a dot. It has to be distinguishable from "fine" by
+   shape and not only by colour, because it is the state that means the system
+   cannot answer — the one an operator must never skim past. */
+.state[data-state="unknown"] .state-dot {
+  background: transparent; box-shadow: inset 0 0 0 2px var(--bad); width: 8px; height: 8px;
+}
+.state[data-state="not_applicable"] .state-dot { background: transparent; box-shadow: inset 0 0 0 1px var(--rule-strong); }
+.state[data-state="ok"] .state-word { color: var(--ok); }
+.state[data-state="failing"] .state-word, .state[data-state="attention"] .state-word { color: var(--bad); }
+.state[data-state="stale"] .state-word { color: var(--warn); }
+.state[data-state="unknown"] .state-word { color: var(--bad); font-weight: 600; }
+
+/* ═══ Tables ══════════════════════════════════════════════════════════════
+   Dense by design. Hairlines between rows, none between columns — the eye
+   tracks a row without needing a cage drawn round it. */
+.table-wrap { overflow-x: auto; border: 1px solid var(--rule); background: var(--surface); }
+table.data { width: 100%; border-collapse: collapse; font-size: var(--t-body); }
+table.data th {
+  text-align: left; font-size: var(--t-eyebrow); line-height: var(--lh-eyebrow);
+  letter-spacing: var(--tracking-eyebrow); text-transform: uppercase;
+  color: var(--ink-3); font-weight: 500;
+  padding: var(--s0) var(--s1); border-bottom: 1px solid var(--rule-strong);
+  position: sticky; top: 0; background: var(--surface); z-index: 1; white-space: nowrap;
+}
+table.data td { padding: var(--s0) var(--s1); border-bottom: 1px solid var(--rule); vertical-align: top; }
+table.data tbody tr:last-child td { border-bottom: 0; }
+table.data tbody tr:hover td { background: var(--surface-sunk); }
+table.data td.num, table.data th.num {
+  text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums;
+}
+table.data td.muted { color: var(--ink-3); }
+table.data td.wrap { white-space: normal; min-width: 240px; }
+.cell-sub { display: block; font-size: var(--t-small); line-height: var(--lh-small); color: var(--ink-3); }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* ═══ Worklist ════════════════════════════════════════════════════════════
+   Severity is a left rule, not a background fill. A row of coloured blocks
+   reads as a chart; a rule reads as a margin note, which is what a severity
+   actually is. */
+.work-row {
+  display: grid; grid-template-columns: var(--s3) minmax(0,1fr) 152px 64px;
+  gap: var(--s1); align-items: baseline;
+  padding: var(--s0) var(--s1); border-bottom: 1px solid var(--rule);
+  background: var(--surface); border-left: 2px solid transparent;
+}
+.work-row:hover { background: var(--surface-sunk); }
+.work-row[data-sev="1"] { border-left-color: var(--bad); }
+.work-row[data-sev="2"] { border-left-color: var(--warn); }
+.work-row[data-sev="3"] { border-left-color: var(--rule-strong); }
+.work-sev {
+  font-family: var(--mono); font-size: var(--t-small); color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.work-title {
+  font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.work-who { color: var(--ink-3); font-weight: 400; }
+.work-detail {
+  font-size: var(--t-small); line-height: var(--lh-small); color: var(--ink-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.work-blocking { color: var(--bad); }
+.work-age { font-family: var(--mono); font-size: var(--t-small); color: var(--ink-3); font-variant-numeric: tabular-nums; text-align: right; }
+.work-source { font-size: var(--t-small); color: var(--ink-3); }
+
+/* ═══ Coverage strip ══════════════════════════════════════════════════════
+   The line that makes an empty screen trustworthy. Without it, "nothing needs
+   you" and "six queries threw" are the same picture. */
+.coverage {
+  display: flex; flex-wrap: wrap; gap: var(--s1) var(--s2);
+  padding: var(--s0) var(--s1); background: var(--surface-sunk);
+  border: 1px solid var(--rule); border-top: 0;
+  font-size: var(--t-small); color: var(--ink-3);
+}
+.coverage b { font-family: var(--mono); font-weight: 500; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.coverage [data-failed="true"] { color: var(--bad); }
+
+/* ═══ Family strip — the customer board ═══════════════════════════════════
+   Fourteen cells per row. At this density a label per cell is impossible, so
+   the header carries the names and each cell is a mark whose SHAPE, not only
+   colour, gives the state. */
+.family-strip { display: grid; grid-template-columns: repeat(14, 1fr); gap: 2px; min-width: 224px; }
+.family-cell {
+  height: var(--s2); border: 0; padding: 0; cursor: help;
+  background: var(--void-wash); position: relative;
+  transition: transform var(--dur) var(--ease);
+}
+.family-cell:hover { transform: scaleY(1.18); }
+.family-cell[data-state="ok"] { background: var(--ok-wash); box-shadow: inset 0 -2px 0 var(--ok); }
+.family-cell[data-state="attention"] { background: var(--bad-wash); box-shadow: inset 0 -2px 0 var(--bad); }
+.family-cell[data-state="stale"] { background: var(--warn-wash); box-shadow: inset 0 -2px 0 var(--warn); }
+.family-cell[data-state="unconfigured"] { background: var(--surface-sunk); box-shadow: inset 0 -2px 0 var(--rule-strong); }
+/* Diagonal hatching: reads as "no data here" rather than as a quiet pass, and
+   survives being printed or screenshotted in greyscale. */
+.family-cell[data-state="unknown"] {
+  background: repeating-linear-gradient(45deg, var(--bad-wash), var(--bad-wash) 2px, transparent 2px, transparent 5px);
+  box-shadow: inset 0 0 0 1px var(--bad);
+}
+.family-cell[data-state="not_applicable"] { background: transparent; box-shadow: inset 0 -1px 0 var(--rule); }
+.family-head { display: grid; grid-template-columns: repeat(14, 1fr); gap: 2px; min-width: 224px; }
+.family-head span {
+  font-size: var(--t-micro); line-height: var(--lh-micro); color: var(--ink-3);
+  writing-mode: vertical-rl; transform: rotate(180deg);
+  /* 96px, not 64: at 64 the longest labels clipped to "KNOWLEDG" and
+     "ASSESSME", which is worse than no label at all. */
+  height: var(--s6); white-space: nowrap; overflow: hidden;
+}
+
+/* ═══ Controls ════════════════════════════════════════════════════════════ */
+.btn {
+  display: inline-flex; align-items: center; gap: var(--s0);
+  padding: var(--s0) var(--s1); border: 1px solid var(--rule-strong);
+  background: var(--surface); border-radius: 2px; cursor: pointer;
+  font-size: var(--t-small); font-weight: 500; color: var(--ink);
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.btn:hover { background: var(--surface-sunk); border-color: var(--ink-3); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn[data-tone="danger"] { color: var(--bad); border-color: var(--bad); }
+.btn[data-tone="danger"]:hover { background: var(--bad-wash); }
+.btn[data-tone="primary"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn[data-tone="primary"]:hover { filter: brightness(1.08); }
+
+.field { display: flex; flex-direction: column; gap: var(--s-1); }
+.field label {
+  font-size: var(--t-eyebrow); letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase; color: var(--ink-3); font-weight: 500;
+}
+input[type="text"], input[type="email"], input[type="password"], input[type="search"], textarea, select {
+  font: inherit; padding: var(--s0); border: 1px solid var(--rule-strong);
+  background: var(--surface); color: var(--ink); border-radius: 2px; width: 100%;
+}
+input::placeholder { color: var(--ink-3); }
+
+/* Kill switch: a deliberate, two-part control. Pulling one is an incident
+   action, so it does not look like a settings toggle. */
+.switch-row {
+  display: grid; grid-template-columns: minmax(0,1fr) auto; gap: var(--s2);
+  align-items: start; padding: var(--s2) 0; border-bottom: 1px solid var(--rule);
+}
+.switch-name { font-family: var(--mono); font-size: var(--t-body); font-weight: 500; }
+.switch-what { font-size: var(--t-small); line-height: var(--lh-small); color: var(--ink-2); margin-top: var(--s-1); max-width: 62ch; }
+.switch-meta { font-size: var(--t-small); color: var(--ink-3); margin-top: var(--s0); }
+.switch-confirm { font-size: var(--t-small); margin-top: var(--s-1); }
+.switch-confirm[data-ok="true"] { color: var(--ok); }
+.switch-confirm[data-ok="false"] { color: var(--bad); font-weight: 600; }
+
+/* ═══ Empty and error states ══════════════════════════════════════════════
+   An empty state on this console always says what was checked. "Nothing" with
+   no denominator is the one thing it must never render. */
+.empty {
+  padding: var(--s4) var(--s2); text-align: center; color: var(--ink-2);
+  border: 1px solid var(--rule); background: var(--surface);
+}
+.empty strong { display: block; font-weight: 500; font-size: var(--t-lead); line-height: var(--lh-lead); color: var(--ink); }
+.empty span { display: block; margin-top: var(--s0); font-size: var(--t-small); color: var(--ink-3); }
+.failed {
+  padding: var(--s1); border: 1px solid var(--bad); background: var(--bad-wash);
+  color: var(--bad); font-size: var(--t-small);
+}
+.skeleton { height: var(--s2); background: var(--surface-sunk); }
+
+/* ═══ Login ═══════════════════════════════════════════════════════════════ */
+.login { min-height: 100vh; display: grid; place-items: center; padding: var(--s2); }
+.login-inner { width: 100%; max-width: 336px; display: flex; flex-direction: column; gap: var(--s2); }
+.login-inner h1 { font-size: var(--t-title); line-height: var(--lh-title); font-weight: 600; letter-spacing: -0.02em; }
+.login-inner form { display: flex; flex-direction: column; gap: var(--s1); }
+
+/* ═══ Motion ══════════════════════════════════════════════════════════════
+   Transform and opacity only, short, and never on first paint of a figure.
+   An operator scanning for a red row must not be waiting on an animation. */
+@keyframes rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.rise { animation: rise 160ms var(--ease) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
+  .family-cell:hover { transform: none; }
+}
+
+/* ═══ Responsive ══════════════════════════════════════════════════════════ */
+@media (max-width: 1080px) {
+  .work-row { grid-template-columns: var(--s3) minmax(0,1fr) 96px; }
+  .work-source { display: none; }
+}
+@media (max-width: 860px) {
+  .shell { grid-template-columns: 1fr; }
+  .rail {
+    position: static; height: auto; flex-direction: row; align-items: center;
+    gap: var(--s1); overflow-x: auto; padding: var(--s1);
+    border-right: 0; border-bottom: 1px solid var(--rule);
+  }
+  .rail-group { flex-direction: row; gap: var(--s0); }
+  .rail-group + .rail-group { margin-top: 0; }
+  .rail-label, .rail-foot { display: none; }
+  .rail a.active { box-shadow: inset 0 -2px 0 var(--accent); }
+  .main { padding: var(--s2) var(--s1) var(--s5); }
+  .view-head { flex-direction: column; align-items: flex-start; gap: var(--s0); }
+}

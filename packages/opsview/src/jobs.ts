@@ -48,10 +48,32 @@ export interface JobRow {
  */
 export async function registerJob(db: Db, name: string, intervalMs: number): Promise<void> {
   await db.query(
-    `INSERT INTO job_heartbeats (job_name, interval_ms)
-     VALUES ($1, $2)
-     ON CONFLICT (job_name) DO UPDATE SET interval_ms = EXCLUDED.interval_ms`,
+    `INSERT INTO job_heartbeats (job_name, interval_ms, retired_at)
+     VALUES ($1, $2, NULL)
+     ON CONFLICT (job_name) DO UPDATE SET interval_ms = EXCLUDED.interval_ms, retired_at = NULL`,
     [name, Math.max(1, Math.round(intervalMs))],
+  );
+}
+
+/**
+ * Declare the WHOLE roster, and retire anything not in it.
+ *
+ * ⛔ Registering jobs one at a time is not enough. A job deleted from the
+ * worker keeps its row, stops being run, and therefore reads stale forever —
+ * a red light nobody can turn off, which within a fortnight teaches the
+ * operator that red lights on this board can be ignored. The worker is the
+ * authority on which jobs exist, so saying "these and no others" is its job.
+ *
+ * Retired rows are kept rather than deleted: what a job did before it was
+ * removed is still the answer to "when did this last work?".
+ */
+export async function registerRoster(db: Db, jobs: { name: string; intervalMs: number }[]): Promise<void> {
+  for (const job of jobs) await registerJob(db, job.name, job.intervalMs);
+  const names = jobs.map((j) => j.name);
+  await db.query(
+    `UPDATE job_heartbeats SET retired_at = now()
+      WHERE retired_at IS NULL AND NOT (job_name = ANY($1::text[]))`,
+    [names],
   );
 }
 
@@ -151,7 +173,7 @@ export async function jobBoard(db: Db, now: Date): Promise<JobRow[]> {
   const rows = await db.query<HeartbeatDbRow>(
     `SELECT job_name, interval_ms, last_run_at, last_success_at, last_error,
             last_duration_ms, runs_total, failures_total, consecutive_failures
-       FROM job_heartbeats ORDER BY job_name`,
+       FROM job_heartbeats WHERE retired_at IS NULL ORDER BY job_name`,
   );
   return rows.rows.map((r) => {
     const intervalMs = Number(r.interval_ms);
