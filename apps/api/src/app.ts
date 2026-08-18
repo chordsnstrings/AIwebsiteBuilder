@@ -14,11 +14,22 @@ import { z } from "zod";
 import { createDb, emailHash, type Db } from "@adw/db";
 import {
   gate,
+  clearKillSwitchCache,
   engageKillSwitch,
+  readEngagedSwitches,
   releaseKillSwitch,
   KILL_SWITCHES,
   type OutboundMessage,
 } from "@adw/gate";
+import {
+  costByRole,
+  customerBoard,
+  customerDetail,
+  jobBoard,
+  recentJobFailures,
+  spendBoard,
+  worklist,
+} from "@adw/opsview";
 import { complete } from "@adw/gateway";
 import { LocalKeyWrapper, LocalPgBackend, type SecretsBackend } from "@adw/vault";
 import { registryStatus, setChampion, type RoleId } from "@adw/registry";
@@ -54,6 +65,13 @@ import {
   verifyUnsubscribeToken,
 } from "@adw/compliance";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+
+/**
+ * How long another process may keep serving a stale kill-switch reading.
+ * Mirrors the gate's own cache TTL and is reported to the console so an
+ * operator knows when "engaged" becomes "engaged everywhere".
+ */
+const KILL_SWITCH_CACHE_SECONDS = 10;
 
 /** Longest change request we accept in one submission. */
 const MAX_REQUEST_TEXT = 2000;
@@ -609,13 +627,47 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
     const engage = body.engage !== false;
     if (engage) await engageKillSwitch(db, name as never, user.email);
     else await releaseKillSwitch(db, name as never, user.email);
-    return c.json({ ok: true, name, engaged: engage });
+
+    // ⛔ Read back what the GATE reads, not what we just wrote. The console used
+    // to move the toggle on local state alone: an operator pulling
+    // HALT_ALL_SENDING during an incident saw it turn red and go on sending.
+    // A control that reports success without effect is worse than no control,
+    // because it stops the operator looking for the real off switch.
+    clearKillSwitchCache();
+    const engagedNow = await readEngagedSwitches(db, Date.now());
+    return c.json({
+      ok: true,
+      name,
+      engaged: engage,
+      // What the gate will actually deny on, straight from its own reader.
+      confirmedByGate: engagedNow.has(name) === engage,
+      engagedSwitches: [...engagedNow].sort(),
+      // Other processes hold their own cache. Said out loud rather than implied,
+      // because "it is engaged" and "it is engaged everywhere" differ by 10s.
+      propagationSeconds: KILL_SWITCH_CACHE_SECONDS,
+    });
   });
 
   app.get("/killswitch", async (c) => {
     if (!requireOperator(c)) return c.json({ error: "forbidden" }, 403);
-    const rows = await db.query("SELECT name, engaged, toggled_by, toggled_at FROM kill_switches ORDER BY name");
-    return c.json(rows.rows);
+    const rows = await db.query<{ name: string; engaged: boolean; toggled_by: string | null; toggled_at: Date | null }>(
+      "SELECT name, engaged, toggled_by, toggled_at FROM kill_switches ORDER BY name",
+    );
+    clearKillSwitchCache();
+    const engagedNow = await readEngagedSwitches(db, Date.now());
+    return c.json({
+      switches: rows.rows.map((r) => ({
+        ...r,
+        // ⛔ Per row. If the stored flag and the gate's own reader ever disagree,
+        // the console says so on that switch rather than averaging it away.
+        confirmedByGate: engagedNow.has(r.name) === r.engaged,
+      })),
+      // The switches that exist but have never been toggled have no row at all;
+      // the console needs the full roster to render them as released.
+      known: [...KILL_SWITCHES],
+      propagationSeconds: KILL_SWITCH_CACHE_SECONDS,
+      asOf: new Date().toISOString(),
+    });
   });
 
   /** One box: email, domain, business name, customer, build id, trace id. */
@@ -696,6 +748,124 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
        GROUP BY actor_id, model ORDER BY cost_cents DESC LIMIT 50`,
     );
     return c.json(rows.rows);
+  });
+
+  // --- The console's read model --------------------------------------------
+  //
+  // Organised by the QUESTION an operator has, not by the table the answer
+  // lives in. The six noun-shaped views these replace (exceptions, registry,
+  // vendors, vault …) each named a table and none of them answered "what needs
+  // me", "is it running" or "how is this customer doing".
+  //
+  // ⛔ Every payload carries `asOf`. A figure without a time is a figure whose
+  // staleness cannot be seen, and staleness is this system's characteristic
+  // failure.
+
+  /** Everything the home surface needs, in one round trip. */
+  app.get("/ops/now", async (c) => {
+    if (!requireOperator(c)) return c.json({ error: "forbidden" }, 403);
+    const now = new Date();
+    // Settled, not all-or-nothing: one board failing must not blank the other
+    // two. A home screen that renders empty on a single query error is
+    // indistinguishable from a home screen with nothing to report.
+    const [work, jobs, failures, spend] = await Promise.allSettled([
+      worklist(db, now),
+      jobBoard(db, now),
+      recentJobFailures(db, 10),
+      spendBoard(db, now),
+    ]);
+    const unwrap = <T,>(r: PromiseSettledResult<T>): { ok: true; data: T } | { ok: false; error: string } =>
+      r.status === "fulfilled"
+        ? { ok: true, data: r.value }
+        : { ok: false, error: r.reason instanceof Error ? r.reason.message : String(r.reason) };
+    return c.json({
+      asOf: now.toISOString(),
+      worklist: unwrap(work),
+      jobs: unwrap(jobs),
+      recentFailures: unwrap(failures),
+      spend: unwrap(spend),
+    });
+  });
+
+  app.get("/ops/jobs", async (c) => {
+    if (!requireOperator(c)) return c.json({ error: "forbidden" }, 403);
+    const now = new Date();
+    return c.json({
+      asOf: now.toISOString(),
+      jobs: await jobBoard(db, now),
+      recentFailures: await recentJobFailures(db, 50),
+    });
+  });
+
+  app.get("/ops/customers", async (c) => {
+    if (!requireOperator(c)) return c.json({ error: "forbidden" }, 403);
+    const limit = Math.min(500, Math.max(1, Number(c.req.query("limit") ?? 200)));
+    return c.json(await customerBoard(db, new Date(), limit));
+  });
+
+  app.get("/ops/customers/:id", async (c) => {
+    if (!requireOperator(c)) return c.json({ error: "forbidden" }, 403);
+    const detail = await customerDetail(db, c.req.param("id"), new Date());
+    if (detail === null) return c.json({ error: "unknown customer" }, 404);
+    return c.json(detail);
+  });
+
+  app.get("/ops/spend", async (c) => {
+    if (!requireOperator(c)) return c.json({ error: "forbidden" }, 403);
+    const since = new Date(Date.now() - 30 * 86_400_000);
+    return c.json({ ...(await spendBoard(db, new Date())), byRole: await costByRole(db, since) });
+  });
+
+  /** Models: the registry's champions beside what each role actually costs. */
+  app.get("/ops/models", async (c) => {
+    if (!requireOperator(c)) return c.json({ error: "forbidden" }, 403);
+    const since = new Date(Date.now() - 30 * 86_400_000);
+    return c.json({
+      asOf: new Date().toISOString(),
+      window: "last 30 days",
+      registry: await registryStatus(db),
+      cost: await costByRole(db, since),
+    });
+  });
+
+  /** The sending fleet: pools, warm-up and health. */
+  app.get("/ops/fleet", async (c) => {
+    if (!requireOperator(c)) return c.json({ error: "forbidden" }, 403);
+    const assets = await db.query(
+      `SELECT id, kind, provider, identifier, domain_class, pool, health, daily_cap,
+              sends_today, warmup_started, first_send_at, retired_at, retire_reason
+         FROM sending_assets WHERE retired_at IS NULL ORDER BY pool, health, identifier`,
+    );
+    // ⛔ The rates come with the counts they were divided by. A 0.00% complaint
+    // rate over four sends is not a healthy fleet, it is an unmeasured one, and
+    // the two are indistinguishable once the denominator is dropped.
+    const window = await db.one<{ sent: string; bounced: string; complained: string }>(
+      `SELECT count(*) FILTER (WHERE event_type = 'email.sent')       AS sent,
+              count(*) FILTER (WHERE event_type = 'email.bounced')    AS bounced,
+              count(*) FILTER (WHERE event_type = 'email.complained') AS complained
+         FROM events
+        WHERE event_type IN ('email.sent','email.bounced','email.complained')
+          AND occurred_at >= now() - interval '30 days'`,
+    );
+    const sent = Number(window.sent);
+    return c.json({
+      asOf: new Date().toISOString(),
+      window: "last 30 days",
+      assets: assets.rows,
+      deliverability: {
+        sent,
+        bounced: Number(window.bounced),
+        complained: Number(window.complained),
+        // ⛔ Null, not 0, when nothing was sent. A rate over an empty
+        // denominator is undefined, and rendering it as 0.00% is the exact
+        // lie this console exists to stop telling.
+        bounceRate: sent === 0 ? null : Number(window.bounced) / sent,
+        complaintRate: sent === 0 ? null : Number(window.complained) / sent,
+      },
+      retired: (await db.one<{ n: string }>(
+        "SELECT count(*) AS n FROM sending_assets WHERE retired_at IS NOT NULL",
+      )).n,
+    });
   });
 
   // --- Webhooks: signature-verified and idempotent --------------------------

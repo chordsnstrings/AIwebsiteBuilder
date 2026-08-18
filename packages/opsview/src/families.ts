@@ -366,3 +366,40 @@ export async function customerBoard(db: Db, now: Date, limit = 200): Promise<Cus
     asOf: now,
   };
 }
+
+export interface CustomerDetail {
+  customer: CustomerRow;
+  /**
+   * What this customer's vertical DEFINES, by name — the four clocks a plumber
+   * has, the ten watches a dentist has.
+   *
+   * ⛔ Shown beside what the customer actually has running, because the useful
+   * question is never "are there reminders" but "which of the four that should
+   * exist are missing". Config on one side, database on the other, in the same
+   * view: that comparison is not available anywhere else in the product.
+   */
+  defines: { family: FamilyId; items: string[] }[];
+  asOf: Date;
+}
+
+export async function customerDetail(db: Db, customerId: string, now: Date): Promise<CustomerDetail | null> {
+  // Reuses the board so a cell can never mean one thing on the list and another
+  // on the detail page.
+  const board = await customerBoard(db, now, 1000);
+  const row = board.rows.find((r) => r.id === customerId);
+  if (row === undefined) return null;
+
+  const v = row.vertical === null ? "" : resolveVertical(row.vertical, null);
+  const defines: { family: FamilyId; items: string[] }[] = [
+    { family: "cases", items: caseTypesFor(v).map((t) => t.label) },
+    // Statutory clocks are marked, because a missed statutory date is a
+    // different kind of problem from a missed courtesy reminder.
+    { family: "clocks", items: clocksFor(v).map((k) => (k.statutory ? `${k.label} (statutory)` : k.label)) },
+    { family: "journeys", items: journeysFor(v).map((j) => j.id) },
+    { family: "watches", items: watchesFor(v).map((w) => w.id) },
+    { family: "reconcile", items: reconTypesFor(v).map((r) => r.id) },
+    { family: "publishing", items: channelsFor(v).map((ch) => ch.id) },
+    { family: "assets", items: assetKindsFor(v).map((a) => a.id) },
+  ];
+  return { customer: row, defines, asOf: now };
+}

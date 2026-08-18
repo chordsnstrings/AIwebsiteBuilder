@@ -16,6 +16,7 @@ import {
   markIntentFailed,
   pendingIntents,
 } from "@adw/workflows";
+import { pruneJobRuns } from "@adw/opsview";
 import type { Job } from "./scheduler.ts";
 
 /**
@@ -114,7 +115,15 @@ export function documentsJob(run: (db: Db, now: Date) => Promise<unknown>): Job 
   return {
     name: "documents_and_retention",
     intervalMs: 60 * 60_000,
-    run: async ({ db, now }) => void (await run(db, now)),
+    run: async ({ db, now }) => {
+      await run(db, now);
+      // The job-run history the console reads from. The timer job alone writes
+      // 8,640 rows a day and none is interesting after a week, so it is trimmed
+      // here rather than being allowed to become the largest table in the
+      // database. Failures are kept far longer than successes — only they are
+      // evidence.
+      await pruneJobRuns(db, now);
+    },
   };
 }
 
