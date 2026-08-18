@@ -4,6 +4,7 @@
 // evidence exists, so a fetch/screenshot failure is never treated as a pass.
 import { detectNoCem, NO_CEM_DETECTOR_VERSION, type SubscriberType } from "@adw/compliance";
 import { emailHash, type Db } from "@adw/db";
+import { resolveVertical, segmentOf } from "@adw/taxonomy";
 import { emit } from "@adw/telemetry";
 
 export interface EmailVerifier {
@@ -53,14 +54,33 @@ export type IngestOutcome =
   | { status: "rejected"; reason: "invalid_email" | "duplicate" }
   | { status: "provenance_failed"; contactId: string; eligible: "opt_out_only" };
 
-const RELATES_ROLE_CATEGORIES = new Set([
-  "trades",
-  "personal_services",
-  "food_hospitality",
-  "automotive",
-  "professional_services",
-  "retail",
-]);
+/**
+ * Was this address published in a capacity relevant to the recipient's role?
+ *
+ * ⛔ THE LIST THIS REPLACES NEVER MATCHED ANYTHING. It held vertical-FAMILY
+ * names — "trades", "retail", "professional_services" — and was tested against
+ * `rec.category`, which carries TRADE names: "plumber", "landscaper",
+ * "dentist". Two vocabularies, so `.has()` returned false for every record ever
+ * ingested, and `relates_to_role` was false on all of them.
+ *
+ * That is not cosmetic. CASL, the Australian Spam Act and New Zealand's UEM
+ * rules all rest the implied-consent defence on the address having been
+ * published in a business capacity, and `rule_5_provenance_role` denies without
+ * it. So every Canadian, Australian and New Zealand contact was permanently
+ * unmailable — three of the six markets this system operates in, the same
+ * failure shape as the PECR one, and equally silent: the column was written,
+ * the rule read it, and nothing reported that the answer was always no.
+ *
+ * The canonical taxonomy answers it instead, which is what that file asks for
+ * in its own header: "Everything in the system that used to carry its own list
+ * of nine SMB trades now asks here instead." A local SMB publishing a contact
+ * address on its own listing is publishing it for its business function. An
+ * unresolvable category answers false, because unknown is not permission.
+ */
+function relatesToRoleFor(category: string): boolean {
+  const trade = resolveVertical(null, category);
+  return trade !== "" && segmentOf(trade) === "smb_local";
+}
 
 function legalBasisFor(countryCode: string): string {
   switch (countryCode) {
@@ -120,7 +140,7 @@ export async function ingestRecord(rec: IngestRecord, deps: ProvenanceDeps): Pro
   await deps.store.put(r2Key, page.screenshot);
 
   const noCem = detectNoCem(page.text);
-  const relatesToRole = RELATES_ROLE_CATEGORIES.has(rec.category);
+  const relatesToRole = relatesToRoleFor(rec.category);
 
   await db.query(
     `INSERT INTO provenance

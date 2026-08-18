@@ -41,7 +41,11 @@ function rec(businessId: string, over: Partial<IngestRecord> = {}): IngestRecord
     businessId,
     email: `p${Math.random().toString(36).slice(2)}@example.com`,
     sourceUrl: "https://acme.example",
-    category: "trades",
+    // ⛔ A trade, not a family. The old default was "trades", which is the
+    // vocabulary `RELATES_ROLE_CATEGORIES` was written against and which the
+    // sourcing path never produces — so every fixture here agreed with a check
+    // that disagreed with production.
+    category: "plumber",
     countryCode: "US",
     businessName: "Acme",
     ...over,
@@ -158,4 +162,42 @@ describe("enrolLead", () => {
     const second = await enrolLead(db, { ...c, campaignId: await makeCampaign() });
     expect(second).toEqual({ leadId: null, reason: "already_active" });
   });
+});
+
+describe("⛔ role relevance decides three markets", () => {
+  // CASL, the Australian Spam Act and New Zealand's UEM rules all rest the
+  // implied-consent defence on the address having been published in a business
+  // capacity, and `rule_5_provenance_role` denies without it. The check used to
+  // compare vertical-FAMILY names ("trades", "retail") against a TRADE name
+  // ("plumber", "landscaper") — two vocabularies, so it answered false for
+  // every record ever ingested and CA, AU and NZ were permanently unmailable.
+  const cases: [string, boolean][] = [
+    ["plumber", true],
+    ["electrician", true],
+    ["dentist", true],
+    // Spellings the source actually emits, resolved through the taxonomy's aliases.
+    ["roofer", true],
+    ["landscaper", true],
+    ["hair_salon", true],
+    // ⛔ An enterprise account is not a local SMB publishing a business contact.
+    ["hospitals_and_health_systems", false],
+    // ⛔ Unknown is not permission.
+    ["nonsense_category", false],
+    ["", false],
+    // ⛔ And the family name itself, which is what the old list matched on.
+    ["trades", false],
+  ];
+
+  for (const [category, expected] of cases) {
+    it(`${category === "" ? "(empty)" : category} → ${expected}`, async () => {
+      const biz = await makeBusiness("CA");
+      const out = await ingestRecord(rec(biz, { category }), mockDeps());
+      expect(out.status).toBe("accepted");
+      const row = await db.one<{ relates_to_role: boolean }>(
+        "SELECT relates_to_role FROM provenance WHERE contact_id = $1",
+        [(out as { contactId: string }).contactId],
+      );
+      expect(row.relates_to_role).toBe(expected);
+    });
+  }
 });
