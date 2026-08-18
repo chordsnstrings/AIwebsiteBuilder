@@ -22,10 +22,17 @@ import {
   type OutboundMessage,
 } from "@adw/gate";
 import {
+  agentBoard,
+  businessBoard,
+  businessDetail,
   costByRole,
   customerBoard,
   customerDetail,
+  deployedAgents,
+  gateSummary,
+  invocations,
   jobBoard,
+  outreachFunnel,
   recentJobFailures,
   spendBoard,
   worklist,
@@ -826,6 +833,79 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
       registry: await registryStatus(db),
       cost: await costByRole(db, since),
     });
+  });
+
+  /**
+   * ADW's own agents: contract, activity and whether each is halted.
+   *
+   * ⛔ The halt state is read from the gate's own switch reader rather than
+   * from a separate table, so the console cannot show an agent as running while
+   * the gate is refusing it.
+   */
+  app.get("/ops/agents", async (c) => {
+    if (!requireOperator(c)) return c.json({ error: "forbidden" }, 403);
+    const engaged = await readEngagedSwitches(db, Date.now());
+    const days = Math.min(365, Math.max(1, Number(c.req.query("days") ?? 30)));
+    return c.json(await agentBoard(db, new Date(), engaged, days));
+  });
+
+  /** One row per agent run — the granular record. */
+  app.get("/ops/agents/invocations", async (c) => {
+    if (!requireOperator(c)) return c.json({ error: "forbidden" }, 403);
+    const agentId = c.req.query("agentId");
+    return c.json({
+      asOf: new Date().toISOString(),
+      invocations: await invocations(db, {
+        ...(agentId === undefined ? {} : { agentId }),
+        injectionOnly: c.req.query("injection") === "1",
+        escalatedOnly: c.req.query("escalated") === "1",
+        retriedOnly: c.req.query("retried") === "1",
+        limit: Number(c.req.query("limit") ?? 100),
+      }),
+    });
+  });
+
+  /** The agent DEPLOYED to each customer — a different thing from the roster above. */
+  app.get("/ops/deployed-agents", async (c) => {
+    if (!requireOperator(c)) return c.json({ error: "forbidden" }, 403);
+    const limit = Math.min(500, Math.max(1, Number(c.req.query("limit") ?? 200)));
+    return c.json(await deployedAgents(db, new Date(), limit));
+  });
+
+  /** The SMB outreach funnel, gate denials by rule, and the businesses reached. */
+  app.get("/ops/outreach", async (c) => {
+    if (!requireOperator(c)) return c.json({ error: "forbidden" }, 403);
+    const now = new Date();
+    const [funnel, gate] = await Promise.allSettled([outreachFunnel(db, now), gateSummary(db, now)]);
+    return c.json({
+      asOf: now.toISOString(),
+      funnel: funnel.status === "fulfilled" ? { ok: true, data: funnel.value } : { ok: false, error: String(funnel.reason) },
+      gate: gate.status === "fulfilled" ? { ok: true, data: gate.value } : { ok: false, error: String(gate.reason) },
+    });
+  });
+
+  app.get("/ops/businesses", async (c) => {
+    if (!requireOperator(c)) return c.json({ error: "forbidden" }, 403);
+    const q = c.req.query("q");
+    return c.json(
+      await businessBoard(db, new Date(), {
+        ...(q === undefined || q === "" ? {} : { q }),
+        limit: Number(c.req.query("limit") ?? 100),
+      }),
+    );
+  });
+
+  /**
+   * One business in full: every contact, every gate decision with the rule that
+   * fired, every message, the provenance behind the contact and any preview.
+   */
+  app.get("/ops/businesses/:id", async (c) => {
+    if (!requireOperator(c)) return c.json({ error: "forbidden" }, 403);
+    const id = c.req.param("id");
+    if (!UUID_RE.test(id)) return c.json({ error: "not found" }, 404);
+    const detail = await businessDetail(db, id, new Date());
+    if (detail === null) return c.json({ error: "unknown business" }, 404);
+    return c.json(detail);
   });
 
   /** The sending fleet: pools, warm-up and health. */

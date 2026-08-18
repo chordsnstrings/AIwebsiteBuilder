@@ -54,3 +54,32 @@ export {
   type RoleCost,
   type SpendBoard,
 } from "./spend.ts";
+
+export {
+  agentBoard,
+  agentContracts,
+  deployedAgents,
+  invocations,
+  type AgentActivity,
+  type AgentBoard,
+  type AgentContractRow,
+  type AgentRow,
+  type DeployedAgentRow,
+  type DeployedBoard,
+  type Invocation,
+  type InvocationFilter,
+} from "./agents.ts";
+
+export {
+  businessBoard,
+  businessDetail,
+  gateSummary,
+  outreachFunnel,
+  type BusinessBoard,
+  type BusinessDetail,
+  type BusinessRow,
+  type DenialReason,
+  type FunnelStage,
+  type GateSummary,
+  type OutreachFunnel,
+} from "./outreach.ts";

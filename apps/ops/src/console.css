@@ -472,3 +472,11 @@ input::placeholder { color: var(--ink-3); }
   .main { padding: var(--s2) var(--s1) var(--s5); }
   .view-head { flex-direction: column; align-items: flex-start; gap: var(--s0); }
 }
+
+/* A table cell that acts as a link without being one — used where the row
+   target is a panel below rather than a route. */
+.linklike {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  color: var(--accent); font: inherit; text-align: left;
+}
+.linklike:hover { text-decoration: underline; text-underline-offset: 2px; }

@@ -68,6 +68,22 @@ export interface Agent<S extends z.ZodTypeAny, O extends z.ZodTypeAny> {
   readonly id: string;
   readonly role: RoleId;
   readonly capabilities: readonly Capability[];
+  /**
+   * The contract, readable at runtime.
+   *
+   * ⛔ These were declared in `AgentDefinition` and then sealed inside the
+   * closure, so nothing could enumerate what an agent is allowed to do, what it
+   * costs, or what class of data it may see. An operator console cannot offer
+   * control over an agent whose terms it cannot read, and a capability list
+   * nobody can inspect is a comment.
+   */
+  readonly dataClass: DataClass;
+  readonly maxTokensOut: number;
+  readonly budgetUsdPerPassingOutput: number;
+  /** Whether deterministic post-processing runs after the model returns. */
+  readonly hasClamp: boolean;
+  /** Whether this agent can raise a human escalation from its own output. */
+  readonly hasEscalation: boolean;
   can(cap: Capability): boolean;
   run(
     input: z.input<S>,
@@ -85,8 +101,14 @@ export function defineAgent<S extends z.ZodTypeAny, O extends z.ZodTypeAny>(
     id: def.id,
     role: def.role,
     capabilities: def.capabilities,
+    dataClass: def.dataClass,
+    maxTokensOut: def.maxTokensOut,
+    budgetUsdPerPassingOutput: def.budgetUsdPerPassingOutput,
+    hasClamp: def.postProcess !== undefined,
+    hasEscalation: def.detectEscalation !== undefined,
     can: (cap) => caps.has(cap),
     async run(input, deps, ctx) {
+      const startedAt = Date.now();
       const parsedIn = def.inputSchema.parse(input) as z.infer<S>;
       const { system, user } = def.buildPrompt(parsedIn);
       const res = await complete<Out>(
@@ -108,18 +130,89 @@ export function defineAgent<S extends z.ZodTypeAny, O extends z.ZodTypeAny>(
       // instructed in the prompt (spec §10.4, §13.8).
       const finalResult = def.postProcess ? def.postProcess(res.result, parsedIn) : res.result;
       const escalateReason = def.detectEscalation?.(finalResult, parsedIn);
-      return {
+      const envelope: AgentEnvelope<Out> = {
         result: finalResult,
         confidence: 0.9,
         injectionSuspected: detectInjectionFlag(finalResult),
         escalate: escalateReason !== undefined,
-        escalateReason,
+        ...(escalateReason === undefined ? {} : { escalateReason }),
         model: res.model,
         costCents: res.costCents,
         firstPass: res.firstPass,
       };
+
+      // ⛔ Recorded HERE, in the factory, and not left to the caller.
+      //
+      // Every one of the five fields above used to be computed and thrown away:
+      // ten call sites take this envelope and not one wrote it down. So every
+      // prompt-injection detection the system made vanished into a local
+      // variable, first-pass rate — a stated success monitor — could not be
+      // computed per agent, and "which agent escalates, and why" was
+      // unanswerable.
+      //
+      // Putting the write in `defineAgent` rather than in the callers is the
+      // whole point: a new agent gets the audit trail by existing, and no
+      // future call site can forget it.
+      await record(deps.db, def, envelope, ctx, Date.now() - startedAt);
+      return envelope;
     },
   };
+}
+
+/**
+ * Write the invocation record.
+ *
+ * ⛔ A failed audit write must not fail the agent — observability that can take
+ * down the thing it observes is worse than none. But it must not be silent
+ * either, and an INJECTION-SUSPECTED invocation that failed to record is a
+ * security event being lost, so that case additionally tries to raise an
+ * exception a human will see. If even that fails there is nothing left to do
+ * but log, and the alternative — throwing — would let an attacker suppress
+ * their own detection by arranging for the insert to fail.
+ */
+async function record<S extends z.ZodTypeAny, O extends z.ZodTypeAny>(
+  db: Db,
+  def: AgentDefinition<S, O>,
+  envelope: AgentEnvelope<z.infer<O>>,
+  ctx: { subjectId?: string; traceId?: string } | undefined,
+  durationMs: number,
+): Promise<void> {
+  try {
+    await db.query(
+      `INSERT INTO agent_invocations
+         (agent_id, role, model, data_class, subject_id, trace_id, cost_cents,
+          first_pass, confidence, injection_suspected, escalated, escalate_reason, duration_ms)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      [
+        def.id,
+        def.role,
+        envelope.model,
+        def.dataClass,
+        ctx?.subjectId ?? null,
+        ctx?.traceId ?? null,
+        Math.max(0, Math.round(envelope.costCents)),
+        envelope.firstPass,
+        envelope.confidence,
+        envelope.injectionSuspected,
+        envelope.escalate,
+        envelope.escalateReason ?? null,
+        Math.max(0, Math.round(durationMs)),
+      ],
+    );
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error(`[agents] could not record invocation of ${def.id}: ${detail}`);
+    if (envelope.injectionSuspected) {
+      await db
+        .query(
+          `INSERT INTO exceptions (trigger, severity, context, system_action, recommendation)
+           VALUES ('agent_audit_write_failed', 1, $1, 'the agent ran and its result was used',
+                   'An injection-suspected invocation could not be recorded. Check agent_invocations and the database before trusting any injection count.')`,
+          [JSON.stringify({ agentId: def.id, role: def.role, detail })],
+        )
+        .catch(() => undefined);
+    }
+  }
 }
 
 function detectInjectionFlag(result: unknown): boolean {

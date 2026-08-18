@@ -727,6 +727,9 @@ importers:
 
   packages/opsview:
     dependencies:
+      '@adw/agents':
+        specifier: workspace:*
+        version: link:../agents
       '@adw/assets':
         specifier: workspace:*
         version: link:../assets

@@ -29,8 +29,21 @@ describe("registry", () => {
 
   it("throws resolving a role with no champion (must eval first)", async () => {
     // enrichment starts with no champion until an eval run selects one.
-    await db.query("UPDATE registry_roles SET champion = NULL WHERE role = 'enrichment'");
-    await expect(resolveRole(db, "enrichment")).rejects.toThrow(/no champion/i);
+    //
+    // ⛔ Restored afterwards, in a finally. This test shares a database with
+    // every other suite, and leaving `enrichment` championless made the gateway
+    // tests fail intermittently — they resolve that same role, and whether they
+    // passed depended on which file finished first. A test that breaks a shared
+    // row and walks away is not testing, it is dealing damage.
+    const before = await db.one<{ champion: string | null }>(
+      "SELECT champion FROM registry_roles WHERE role = 'enrichment'",
+    );
+    try {
+      await db.query("UPDATE registry_roles SET champion = NULL WHERE role = 'enrichment'");
+      await expect(resolveRole(db, "enrichment")).rejects.toThrow(/no champion/i);
+    } finally {
+      await db.query("UPDATE registry_roles SET champion = $1 WHERE role = 'enrichment'", [before.champion]);
+    }
   });
 
   it("setChampion requires an eval run id and writes an audit row", async () => {

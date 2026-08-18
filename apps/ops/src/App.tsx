@@ -19,6 +19,8 @@ import { Login } from "./Login.tsx";
 import { Now } from "./views/Now.tsx";
 import { Customers, CustomerView } from "./views/Customers.tsx";
 import { Acquisition } from "./views/Acquisition.tsx";
+import { Agents, DeployedAgents } from "./views/Agents.tsx";
+import { Outreach, BusinessView } from "./views/Outreach.tsx";
 import { Fleet } from "./views/Fleet.tsx";
 import { Models } from "./views/Models.tsx";
 import { Vendors } from "./views/Vendors.tsx";
@@ -43,12 +45,18 @@ const NAV = [
     items: [
       { to: "/", label: "Now", el: <Now />, end: true },
       { to: "/customers", label: "Customers", el: <Customers /> },
+      { to: "/outreach", label: "Outreach", el: <Outreach /> },
       { to: "/acquisition", label: "Acquisition", el: <Acquisition /> },
     ],
   },
   {
     label: "Machinery",
     items: [
+      // ⛔ Three distinct things that the old console collapsed into one
+      // "Registry" screen: our own agents, the agent shipped to customers, and
+      // the models underneath both.
+      { to: "/agents", label: "Agents", el: <Agents /> },
+      { to: "/deployed", label: "Deployed agents", el: <DeployedAgents /> },
       { to: "/fleet", label: "Fleet", el: <Fleet /> },
       { to: "/models", label: "Models", el: <Models /> },
       { to: "/vendors", label: "Vendors & vault", el: <Vendors /> },
@@ -140,6 +148,10 @@ function Shell({
           <Route
             path="/customers/:id"
             element={<ViewBoundary view="Customer"><CustomerView /></ViewBoundary>}
+          />
+          <Route
+            path="/outreach/:id"
+            element={<ViewBoundary view="Business"><BusinessView /></ViewBoundary>}
           />
         </Routes>
       </main>

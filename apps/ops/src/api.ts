@@ -172,6 +172,76 @@ export interface OpportunityRow {
   nextStage: string | null; nextGate: string | null; missingEvidence: string[]; updatedAt: string;
 }
 
+// ── Agents ────────────────────────────────────────────────────────────────
+export interface AgentContractRow {
+  id: string; role: string; dataClass: string; capabilities: string[];
+  maxTokensOut: number; budgetUsdPerPassingOutput: number;
+  hasClamp: boolean; hasEscalation: boolean;
+}
+export interface AgentActivity {
+  agentId: string; invocations: number; firstPassRate: number | null;
+  escalations: number; injectionSuspected: number; costCents: number;
+  medianDurationMs: number | null; lastRunAt: string | null; models: string[];
+}
+export interface AgentRow extends AgentContractRow { activity: AgentActivity; halted: boolean }
+export interface AgentBoard {
+  agents: AgentRow[]; windowDays: number; totalInvocations: number;
+  neverInvoked: number; asOf: string;
+}
+export interface Invocation {
+  id: string; agentId: string; role: string; model: string; dataClass: string;
+  subjectId: string | null; traceId: string | null; costCents: number;
+  firstPass: boolean; confidence: number | null; injectionSuspected: boolean;
+  escalated: boolean; escalateReason: string | null; durationMs: number | null; createdAt: string;
+}
+export interface DeployedAgentRow {
+  customerId: string; legalName: string; domain: string | null; vertical: string | null;
+  live: boolean; blockedBy: string[]; packApproved: boolean; packVersion: number | null;
+  pairCount: number; openGaps: number; sessions: number; turns: number;
+  answeredFromPack: number; deflectionRate: number | null; escalations: number;
+  unacknowledgedIncidents: number; lastSessionAt: string | null; medianLatencyMs: number | null;
+}
+export interface DeployedBoard {
+  rows: DeployedAgentRow[]; totalCustomers: number; liveCount: number; asOf: string;
+}
+
+// ── Outreach ──────────────────────────────────────────────────────────────
+export interface FunnelStage {
+  key: string; label: string; count: number; source: string;
+  ofPrevious: number | null; ofCohort: number | null;
+  subsetOf: string | null; violatesSubset: boolean;
+}
+export interface OutreachFunnel { stages: FunnelStage[]; windowDays: number | null; asOf: string }
+export interface DenialReason { ruleId: string; reason: string; count: number }
+export interface GateSummary {
+  total: number; allowed: number; denied: number; denialRate: number | null;
+  reasons: DenialReason[]; asOf: string;
+}
+export interface OutreachPayload {
+  asOf: string;
+  funnel: Band<OutreachFunnel>;
+  gate: Band<GateSummary>;
+}
+export interface BusinessRow {
+  id: string; name: string; vertical: string | null; category: string | null; segment: string;
+  countryCode: string; regionCode: string; city: string | null; websiteUrl: string | null;
+  ingestedAt: string; hasProvenance: boolean; contacts: number; leads: number;
+  messagesSent: number; gateAllowed: number; gateDenied: number;
+  hasPreview: boolean; previewClaimed: boolean; isCustomer: boolean; suppressed: boolean;
+}
+export interface BusinessBoard {
+  rows: BusinessRow[]; total: number; withoutProvenance: number; asOf: string;
+}
+export interface BusinessDetail {
+  business: BusinessRow;
+  contacts: { id: string; emailHash: string; verification: string | null; subscriberType: string | null; suppressed: boolean; suppressionReason: string | null }[];
+  decisions: { id: string; allow: boolean; ruleId: string | null; reason: string | null; channel: string | null; messageClass: string | null; jurisdiction: string | null; legalBasis: string | null; decidedAt: string; configVersion: string | null }[];
+  messages: { id: string; direction: string | null; subject: string | null; sentAt: string | null; gateDecisionId: string | null }[];
+  provenance: { id: string; retrievedAt: string; legalBasis: string | null; sourceUrl: string | null; noCemStatement: boolean | null; reviewedBy: string | null }[];
+  previews: { id: string; generatedAt: string; claimedAt: string | null; deployUrl: string | null; expiresAt: string | null; takedownAt: string | null }[];
+  asOf: string;
+}
+
 export interface OpsUser { id: string; email: string; role: "superadmin" | "customer" }
 
 export type LoginOutcome =
@@ -218,6 +288,25 @@ export const api = {
   models: () => get<ModelsBoard>("/ops/models"),
   fleet: () => get<FleetBoard>("/ops/fleet"),
   opportunities: () => get<{ pipeline: OpportunityRow[] }>("/ops/opportunities"),
+
+  // ── Agents ──────────────────────────────────────────────────────────────
+  agents: (days = 30) => get<AgentBoard>(`/ops/agents?days=${days}`),
+  agentInvocations: (opts: { agentId?: string; injection?: boolean; escalated?: boolean; retried?: boolean; limit?: number } = {}) => {
+    const p = new URLSearchParams();
+    if (opts.agentId !== undefined) p.set("agentId", opts.agentId);
+    if (opts.injection === true) p.set("injection", "1");
+    if (opts.escalated === true) p.set("escalated", "1");
+    if (opts.retried === true) p.set("retried", "1");
+    p.set("limit", String(opts.limit ?? 100));
+    return get<{ asOf: string; invocations: Invocation[] }>(`/ops/agents/invocations?${p.toString()}`);
+  },
+  deployedAgents: (limit = 200) => get<DeployedBoard>(`/ops/deployed-agents?limit=${limit}`),
+
+  // ── Outreach ────────────────────────────────────────────────────────────
+  outreach: () => get<OutreachPayload>("/ops/outreach"),
+  businesses: (q = "", limit = 100) =>
+    get<BusinessBoard>(`/ops/businesses?q=${encodeURIComponent(q)}&limit=${limit}`),
+  business: (id: string) => get<BusinessDetail>(`/ops/businesses/${id}`),
 
   // ── Controls ────────────────────────────────────────────────────────────
   killSwitches: () => get<KillSwitchBoard>("/killswitch"),

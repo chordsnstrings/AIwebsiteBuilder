@@ -5,6 +5,7 @@ import { z } from "zod";
 import { config } from "@adw/config";
 import { prompts } from "@adw/prompts";
 import { resolveTrade } from "@adw/taxonomy";
+import { suspectsInjection } from "./injection.ts";
 import { defineAgent } from "./framework.ts";
 
 // --- Enrichment (spec §17) -------------------------------------------------
@@ -51,7 +52,7 @@ export const enrichmentAgent = defineAgent({
       icpScore,
       scoreReasons: [`segment ${input.segment}`, `${input.reviewCount} reviews`],
       previewWorthy: icpScore >= 62,
-      injectionSuspected: /ignore (previous|all) instructions/i.test(input.listingText),
+      injectionSuspected: suspectsInjection(input.listingText, input.name),
     };
   },
 });
@@ -215,7 +216,7 @@ export const careAgent = defineAgent({
       quoteRequested: /quote|price|how much/.test(m),
       escalate: escalate !== undefined,
       escalateReason: escalate,
-      injectionSuspected: /ignore (previous|all) instructions|system prompt/i.test(input.message),
+      injectionSuspected: suspectsInjection(input.message),
     };
   },
   // Parking is a code clamp, not prompt guidance: below intent 30 after two
@@ -487,7 +488,7 @@ export const kbExtractAgent = defineAgent({
       facts,
       conflicts: [],
       gaps: facts.some((f) => f.factKey === "price") ? [] : ["published pricing"],
-      injectionSuspected: /ignore (previous|all) instructions|system prompt/i.test(text),
+      injectionSuspected: suspectsInjection(text),
     };
   },
 });
@@ -592,7 +593,7 @@ export const intentRouterAgent = defineAgent({
       urgency: /emergency|flooding|gas|no power|burst/.test(t) ? "emergency" as const
              : /urgent|asap|today|right now/.test(t) ? "urgent" as const
              : "normal" as const,
-      injectionSuspected: /ignore (previous|all) instructions|system prompt/i.test(input.text),
+      injectionSuspected: suspectsInjection(input.text),
     };
   },
 });
@@ -653,7 +654,7 @@ export const conciergeFallbackAgent = defineAgent({
         refused: true,
         groundedIn: [],
         escalate: false,
-        injectionSuspected: /ignore (previous|all) instructions/i.test(input.question),
+        injectionSuspected: suspectsInjection(input.question),
       };
     }
     return {
@@ -891,7 +892,7 @@ export const emailResponderAgent = defineAgent({
       ...(wrongPerson && referral?.[1] !== undefined ? { referredTo: referral[1] } : {}),
       escalate: hostile,
       ...(hostile ? { escalateReason: "hostile_reply" } : {}),
-      injectionSuspected: /ignore (previous|all) instructions|system prompt|you are now/i.test(input.message),
+      injectionSuspected: suspectsInjection(input.message),
     };
   },
   // ⛔ Clamps, in code, after the model has spoken.
