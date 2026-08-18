@@ -663,7 +663,86 @@ describe("customer revision requests", () => {
     const res = await appAs(OPERATOR).request(`/customers/${randomUUID()}/revisions`, json({ requestText: "hi" }));
     expect(res.status).toBe(404);
   });
+
+  // -------------------------------------------------------------------------
+  // ⛔ This route used to substitute "" for businessId and buildId when the
+  // customer had no build, enqueue the revision workflow anyway, and answer
+  // `queued: true`. The workflow died on the first activity that touched a uuid
+  // column — 28 of them were sitting dead — and because the customer had been
+  // shown a confirmation, the one person who would have chased it believed the
+  // change was in hand.
+  // -------------------------------------------------------------------------
+  async function makeBuild(customerId: string): Promise<string> {
+    const biz = await db.one<{ business_id: string }>(
+      "SELECT business_id FROM customers WHERE id = $1", [customerId],
+    );
+    const row = await db.one<{ id: string }>(
+      `INSERT INTO builds (business_id, customer_id, mode, role_chain, first_pass, gate_results, cost_cents, artefact_r2_key)
+       VALUES ($1,$2,'full','["developer"]'::jsonb,true,'{}'::jsonb,0,$3) RETURNING id`,
+      [biz.business_id, customerId, `artefact/${randomUUID()}.tar`],
+    );
+    return row.id;
+  }
+
+  it("⛔ never enqueues a revision with a fabricated build id", async () => {
+    const customerId = await makeCustomer();
+    const res = await appAs(owner(customerId)).request(
+      `/customers/${customerId}/revisions`, json({ requestText: "make the header smaller" }),
+    );
+    expect(res.status).toBe(200);
+    const intents = await db.query<{ payload: { buildId: string; businessId: string } }>(
+      "SELECT payload FROM workflow_intents WHERE workflow_type = 'revision' AND payload->>'customerId' = $1",
+      [customerId],
+    );
+    for (const row of intents.rows) {
+      expect(row.payload.buildId, "an empty string is not a uuid — the workflow dies on it").not.toBe("");
+      expect(row.payload.businessId).not.toBe("");
+    }
+  });
+
+  it("⛔ does not claim a change is queued when nothing was queued", async () => {
+    const customerId = await makeCustomer();
+    const res = await appAs(owner(customerId)).request(
+      `/customers/${customerId}/revisions`, json({ requestText: "swap the colours" }),
+    );
+    const body = (await res.json()) as { queued: boolean; status?: string };
+    expect(body.queued, "reported queued while no workflow exists to do it").toBe(false);
+    expect(body.status).toBe("awaiting_build");
+  });
+
+  it("puts a change request with no build on the operator queue", async () => {
+    // The request itself is never lost — it is on the event log and on the
+    // conversation. But nothing automatic can act on it, so a person must.
+    const customerId = await makeCustomer();
+    await appAs(owner(customerId)).request(
+      `/customers/${customerId}/revisions`, json({ requestText: "add a booking form" }),
+    );
+    const exc = await db.maybeOne<{ severity: number; recommendation: string | null }>(
+      `SELECT severity, recommendation FROM exceptions
+        WHERE trigger = 'revision_without_build' AND context->>'customerId' = $1`,
+      [customerId],
+    );
+    expect(exc, "the request went nowhere and nobody was told").not.toBeNull();
+    expect(exc!.recommendation).toBeTruthy();
+  });
+
+  it("enqueues the real ids once a build exists", async () => {
+    const customerId = await makeCustomer();
+    const buildId = await makeBuild(customerId);
+    const res = await appAs(owner(customerId)).request(
+      `/customers/${customerId}/revisions`, json({ requestText: "new opening hours" }),
+    );
+    expect(((await res.json()) as { queued: boolean }).queued).toBe(true);
+    const intent = await db.maybeOne<{ payload: { buildId: string; businessId: string } }>(
+      "SELECT payload FROM workflow_intents WHERE workflow_type = 'revision' AND payload->>'customerId' = $1",
+      [customerId],
+    );
+    expect(intent!.payload.buildId).toBe(buildId);
+    expect(intent!.payload.businessId).toMatch(UUID_SHAPE);
+  });
 });
+
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // ---------------------------------------------------------------------------
 // One-click unsubscribe (RFC 8058). The gate will not let a cold message out
@@ -830,6 +909,18 @@ describe("workflow ignition", () => {
 
   it("a dashboard revision request queues a revision workflow", async () => {
     const customerId = await makeCustomerForIgnition();
+    // ⛔ A build has to exist. Without one this test passed against a route
+    // that substituted "" for both uuids and enqueued a workflow that died on
+    // its first activity — the test certified the ignition while the thing it
+    // ignited was dead on arrival.
+    const biz = await db.one<{ business_id: string }>(
+      "SELECT business_id FROM customers WHERE id = $1", [customerId],
+    );
+    await db.query(
+      `INSERT INTO builds (business_id, customer_id, mode, role_chain, first_pass, gate_results, cost_cents, artefact_r2_key)
+       VALUES ($1,$2,'full','["developer"]'::jsonb,true,'{}'::jsonb,0,$3)`,
+      [biz.business_id, customerId, `artefact/${randomUUID()}.tar`],
+    );
     const res = await appAs(OPERATOR).request(`/customers/${customerId}/revisions`, json({ requestText: "make it blue" }));
     expect(res.status).toBe(200);
     const intent = await db.one<{ kind: string; workflow_type: string }>(

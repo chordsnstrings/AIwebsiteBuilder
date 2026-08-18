@@ -1,4 +1,4 @@
-export { Engine, type EngineOptions } from "./engine.ts";
+export { Engine, normaliseError, type EngineOptions } from "./engine.ts";
 export {
   SystemClock,
   TestClock,

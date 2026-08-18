@@ -24,6 +24,24 @@ interface JournalEntry {
   error: string | null;
 }
 
+/**
+ * Collapse an error message to what is stable about it, for grouping.
+ *
+ * ⛔ Identifiers vary per execution, so leaving them in would defeat the
+ * deduplication entirely: "deploy failed for build a1b2…" and "deploy failed
+ * for build c3d4…" are one bug, and grouping them separately reproduces the
+ * exact queue-flooding this exists to prevent.
+ */
+export function normaliseError(message: string): string {
+  return message
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "<uuid>")
+    .replace(/\b[0-9a-f]{16,}\b/gi, "<hex>")
+    .replace(/\b\d+\b/g, "<n>")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+}
+
 export interface EngineOptions {
   db: Db;
   clock?: Clock;
@@ -170,11 +188,88 @@ export class Engine {
         await this.db.query("UPDATE workflow_executions SET updated_at=now() WHERE id=$1", [id]);
         return; // stay running; resumed by a timer or signal
       }
+      const message = err instanceof Error ? err.message : String(err);
       await this.db.query(
         "UPDATE workflow_executions SET status='failed', error=$2, updated_at=now() WHERE id=$1",
-        [id, err instanceof Error ? err.message : String(err)],
+        [id, message],
       );
+      // ⛔ THE ROW WAS THE ONLY RECORD. Marking `status='failed'` and stopping
+      // is how 28 revision workflows sat dead for hours with nothing anywhere
+      // reporting it — every customer who asked for a change to their site got
+      // an "ok, queued" and then silence. A workflow is the unit of work for
+      // everything this system promises: outreach, builds, onboarding,
+      // subscriptions, revisions. When one dies the promise it carried dies
+      // with it, so the death has to reach a person.
+      //
+      // Raised AFTER the status write and swallowed on error: a failure in
+      // reporting the failure must never leave the execution stuck 'running',
+      // which would make it replay forever.
+      await this.reportFailure(id, exec.type, message).catch((reportErr: unknown) => {
+        console.error(`[engine] workflow ${id} failed and the failure could not be reported`, reportErr);
+      });
     }
+  }
+
+  /**
+   * Put a dead workflow on the operator's queue.
+   *
+   * ⛔ Deduplicated by (type, normalised error) across OPEN exceptions. One
+   * broken activity fails every execution that reaches it, and 500 identical
+   * rows would bury the queue so thoroughly that the operator learns nothing —
+   * the same outcome as reporting nothing at all. Collapsed, it reads as one
+   * item: which workflow, how many executions, when it started, when it last
+   * happened.
+   *
+   * `raised_at` deliberately stays at the FIRST occurrence, so the age shown in
+   * the console is how long this has been broken rather than how recently it
+   * last recurred.
+   */
+  private async reportFailure(id: string, type: string, message: string): Promise<void> {
+    const signature = normaliseError(message);
+    const open = await this.db.maybeOne<{ id: string; context: { occurrences?: number; executionIds?: string[] } }>(
+      `SELECT id, context FROM exceptions
+        WHERE status = 'open' AND trigger = 'workflow_failed'
+          AND context->>'workflowType' = $1 AND context->>'signature' = $2
+        LIMIT 1`,
+      [type, signature],
+    );
+
+    if (open) {
+      const seen = Array.isArray(open.context.executionIds) ? open.context.executionIds : [];
+      await this.db.query(
+        `UPDATE exceptions
+            SET context = context
+              || jsonb_build_object('occurrences', $2::int, 'lastAt', $3::text, 'executionIds', $4::jsonb)
+          WHERE id = $1`,
+        [
+          open.id,
+          (open.context.occurrences ?? 1) + 1,
+          new Date(this.clock.now()).toISOString(),
+          // A sample, not a log: enough to reproduce, capped so the row cannot
+          // grow without bound while the exception stays open.
+          JSON.stringify([...seen, id].slice(-20)),
+        ],
+      );
+      return;
+    }
+
+    await this.db.query(
+      `INSERT INTO exceptions (trigger, severity, context, system_action, recommendation)
+       VALUES ('workflow_failed', 2, $1,
+               'execution marked failed; no further steps will run',
+               'Fix the cause, then restart the affected executions — a failed workflow does not retry itself')`,
+      [
+        JSON.stringify({
+          workflowType: type,
+          signature,
+          error: message.slice(0, 500),
+          occurrences: 1,
+          firstAt: new Date(this.clock.now()).toISOString(),
+          lastAt: new Date(this.clock.now()).toISOString(),
+          executionIds: [id],
+        }),
+      ],
+    );
   }
 
   private makeContext(id: string, journal: Map<number, JournalEntry>): WorkflowContext {

@@ -67,7 +67,7 @@ function NeedsYou({ band }: { band: Band<Worklist> }) {
       </section>
     );
   }
-  const { items, coverage } = band.data;
+  const { items, coverage, truncated } = band.data;
   const healthy = coverage.filter((c) => c.ok);
   const broken = coverage.filter((c) => !c.ok);
   const considered = healthy.reduce((n, c) => n + c.considered, 0);
@@ -76,18 +76,24 @@ function NeedsYou({ band }: { band: Band<Worklist> }) {
   // is functionally the same as not showing them. The count below says exactly
   // how many are not on screen, so the cap is visible rather than silent.
   const shown = items.slice(0, TRIAGE_LIMIT);
-  const hidden = items.length - shown.length;
+  // ⛔ `truncated` is what the READ MODEL dropped before this component ever saw
+  // it — the API caps the list so one runaway source cannot make the response
+  // unusable. Counting only the rows this view hides would report "and 180
+  // more" while several hundred sat behind the server-side cap, and an operator
+  // who worked to the bottom would believe they had reached the end.
+  const hidden = items.length - shown.length + truncated;
+  const waiting = items.length + truncated;
 
   return (
     <section className="section">
       <Eyebrow
-        count={items.length}
+        count={waiting}
         note={`${healthy.length} of ${coverage.length} sources answered`}
       >
         Needs you
       </Eyebrow>
 
-      {items.length === 0 ? (
+      {waiting === 0 ? (
         <Empty
           headline="Nothing is waiting on a person"
           checked={`${healthy.length} sources checked over ${considered.toLocaleString()} rows${
@@ -131,6 +137,9 @@ function NeedsYou({ band }: { band: Band<Worklist> }) {
             <p className="figure-evidence" style={{ padding: "var(--s1)" }}>
               and {hidden.toLocaleString()} more, less severe or more recent — the {TRIAGE_LIMIT} above
               are the most severe, oldest first.
+              {truncated > 0
+                ? ` ${truncated.toLocaleString()} of them are past the server's cap and are not in this response at all.`
+                : ""}
             </p>
           ) : null}
         </div>

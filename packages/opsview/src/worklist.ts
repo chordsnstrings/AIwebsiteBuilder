@@ -55,6 +55,18 @@ export interface Worklist {
   items: WorkItem[];
   /** ⛔ Always returned, even when every source is empty. */
   coverage: SourceCoverage[];
+  /**
+   * Items the cap dropped.
+   *
+   * ⛔ The list is capped so one runaway source cannot make the board unusable.
+   * But a cap that truncates silently is worse than no board: the operator sees
+   * a full screen, works to the bottom, and believes they have reached the end
+   * of the queue when hundreds more are waiting behind it. That reads as "all
+   * clear" while nothing is clear — the exact shape of failure this whole
+   * package exists to make impossible. The number is always present; zero means
+   * the list is genuinely complete.
+   */
+  truncated: number;
   asOf: Date;
 }
 
@@ -305,5 +317,10 @@ export async function worklist(db: Db, now: Date, limit = 200): Promise<Worklist
   }
 
   items.sort((a, b) => a.severity - b.severity || a.waitingSince.getTime() - b.waitingSince.getTime());
-  return { items: items.slice(0, limit), coverage, asOf: now };
+  return {
+    items: items.slice(0, limit),
+    coverage,
+    truncated: Math.max(0, items.length - limit),
+    asOf: now,
+  };
 }

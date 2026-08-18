@@ -591,14 +591,35 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Vars }> {
         "SELECT id, business_id FROM builds WHERE customer_id = $1 ORDER BY created_at DESC LIMIT 1",
         [customerId],
       );
+      // ⛔ NO BUILD MEANS NOTHING TO REVISE. This used to substitute `""` for
+      // both ids and enqueue the workflow anyway, then answer `queued: true`.
+      // The workflow died on the first activity that touched a uuid column and
+      // nobody was told — the customer had been shown a confirmation, so the
+      // one person who would have chased it believed it was in hand.
+      //
+      // A customer with no build and no running onboarding is already an
+      // exceptional state (the onboarding died or never started), so it goes to
+      // the operator queue. The request itself is safe either way: it is on the
+      // event log and on the conversation above, so it is not lost — it is
+      // waiting for a person rather than being applied by a machine.
+      if (!build) {
+        await db.query(
+          `INSERT INTO exceptions (trigger, severity, context, system_action, recommendation)
+           VALUES ('revision_without_build', 2, $1,
+                   'change request recorded; no revision workflow started',
+                   'The customer has no build to revise — check whether their onboarding failed, then apply the change once a build exists')`,
+          [JSON.stringify({ customerId, round, requestText: parsed.text.slice(0, 500), eventId: event.event_id })],
+        );
+        return c.json({ ok: true, round, queued: false, status: "awaiting_build" });
+      }
       await enqueueIntent(db, {
         kind: "start",
         workflowType: "revision",
         executionId: executionId.revision(customerId, round),
         payload: {
           customerId,
-          businessId: build?.business_id ?? "",
-          buildId: build?.id ?? "",
+          businessId: build.business_id,
+          buildId: build.id,
           requestText: parsed.text,
           round,
         },

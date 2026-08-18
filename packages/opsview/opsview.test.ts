@@ -153,6 +153,24 @@ describe("the worklist", () => {
     }
   });
 
+  it("⛔ says how many items the cap dropped", async () => {
+    // A cap that truncates silently is worse than no board. The operator sees a
+    // full screen, works to the bottom, and believes they have reached the end
+    // of the queue while hundreds wait behind it — "all clear" when nothing is
+    // clear. The number is always present; zero means the list is complete.
+    const now = new Date();
+    const full = await worklist(db, now, 100_000);
+    expect(full.truncated, "nothing was dropped, so it must report zero").toBe(0);
+
+    if (full.items.length < 2) return; // nothing to truncate; the assertion above is the whole check
+    const capped = await worklist(db, now, 1);
+    expect(capped.items).toHaveLength(1);
+    expect(capped.truncated).toBe(full.items.length - 1);
+    // ⛔ And the dropped ones are the LESS severe: a cap that discarded the top
+    // of the queue would hide exactly the items it exists to surface.
+    expect(capped.items[0]!.severity).toBeLessThanOrEqual(full.items[1]!.severity);
+  });
+
   it("ranks a safety protocol above everything else, and ages items up", async () => {
     const now = new Date("2026-03-01T12:00:00Z");
     await db.query(
@@ -171,10 +189,16 @@ describe("the worklist", () => {
     expect(list.items[0]!.blocking).toBe("unacknowledged safety protocol");
     expect(list.items.some((i) => i.key === `protocol_incident:${incident.id}`)).toBe(true);
 
+    // ⛔ Read from an UNCAPPED list. The default cap is 200 and the shared test
+    // database holds far more open items than that, so `list` above cannot be
+    // relied on to contain a specific severity-2 row — this assertion is about
+    // ageing, not about which rows survive the cap, and reading it out of the
+    // capped list made it fail the moment the population grew.
+    const full = await worklist(db, now, 100_000);
     // Scoped to the row this test inserted: the database is shared across the
     // suite and picking "the first exception" would assert about somebody
     // else's fixture.
-    const exception = list.items.find((i) => i.title === "budget exceeded")!;
+    const exception = full.items.find((i) => i.title === "budget exceeded")!;
     // 3 hours old, under the 24h escalation window, so it keeps its severity.
     expect(exception.severity).toBe(2);
 

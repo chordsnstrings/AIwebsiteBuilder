@@ -95,7 +95,13 @@ export interface WorkItem {
   ageHours: number; blocking: string | null; href: string;
 }
 export interface SourceCoverage { source: string; considered: number; waiting: number; ok: boolean; error?: string }
-export interface Worklist { items: WorkItem[]; coverage: SourceCoverage[]; asOf: string }
+export interface Worklist {
+  items: WorkItem[];
+  coverage: SourceCoverage[];
+  /** Items the server's cap dropped. Never omitted — zero means the list is complete. */
+  truncated: number;
+  asOf: string;
+}
 
 export interface Figure { cents: number; rows: number; capCents: number | null; window: string; source: string }
 export interface SpendBoard {
