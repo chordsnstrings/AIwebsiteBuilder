@@ -105,7 +105,7 @@ describe("scheduler isolation", () => {
 describe("the jobs actually advance the system", () => {
   it("workflow timers fire, so a sleeping workflow resumes", async () => {
     const clock = new TestClock(0);
-    const engine = new Engine({ db, clock });
+    const engine = new Engine({ db, clock, owner: "test:worker:jobs" });
     const marks: string[] = [];
     engine.registerActivity("mark", async (s) => {
       marks.push(s as string);

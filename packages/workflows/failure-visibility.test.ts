@@ -42,7 +42,7 @@ async function raised(type: string): Promise<ExceptionRow[]> {
 
 /** An engine whose only workflow throws the message it is given. */
 function thrower(type: string, clock: TestClock): Engine {
-  const engine = new Engine({ db, clock });
+  const engine = new Engine({ db, clock, owner: "test:workflows:failure" });
   engine.registerWorkflow({
     type,
     run: async (_ctx: WorkflowContext, input: unknown) => {
@@ -122,7 +122,7 @@ describe("⛔ a dead workflow reaches a person", () => {
     // replaced by an infinite loop that is much harder to diagnose.
     const type = `fv-report-${randomUUID().slice(0, 8)}`;
     const clock = new TestClock(0);
-    const engine = new Engine({ db, clock });
+    const engine = new Engine({ db, clock, owner: "test:workflows:failure" });
     engine.registerWorkflow({ type, run: async () => { throw new Error("boom"); } });
     const original = db.query.bind(db);
     let sabotaged = false;
@@ -145,7 +145,7 @@ describe("⛔ a dead workflow reaches a person", () => {
 
   it("does not raise anything for a workflow that succeeds", async () => {
     const type = `fv-ok-${randomUUID().slice(0, 8)}`;
-    const engine = new Engine({ db, clock: new TestClock(0) });
+    const engine = new Engine({ db, clock: new TestClock(0), owner: "test:workflows:failure" });
     engine.registerWorkflow({ type, run: async () => ({ fine: true }) });
     await engine.start(type, `${type}-1`, {});
     expect(await raised(type)).toHaveLength(0);
@@ -156,7 +156,7 @@ describe("⛔ a dead workflow reaches a person", () => {
     // lead workflows. Treating a suspension as a death would raise an exception
     // for every single one of them.
     const type = `fv-sleep-${randomUUID().slice(0, 8)}`;
-    const engine = new Engine({ db, clock: new TestClock(0) });
+    const engine = new Engine({ db, clock: new TestClock(0), owner: "test:workflows:failure" });
     engine.registerWorkflow({
       type,
       run: async (ctx: WorkflowContext) => { await ctx.sleep("wait", 90 * 24 * 60 * 60_000); return null; },
@@ -167,6 +167,66 @@ describe("⛔ a dead workflow reaches a person", () => {
     );
     expect(row.status).toBe("running");
     expect(await raised(type)).toHaveLength(0);
+  });
+});
+
+describe("⛔ an engine does not drive another engine's executions", () => {
+  it("refuses an execution stamped by a different owner", async () => {
+    // Type names are global, and `replay` used to guard on nothing else. Two
+    // engines against one database — different activity registries, different
+    // configuration — each resumed the other's executions from the other's
+    // journal using its own implementations. The loud case is a stub's
+    // `{ packId: "pack-deep-1" }` reaching a production activity that expects a
+    // uuid. The quiet case is an execution that advances with the wrong
+    // implementations and completes looking perfectly normal.
+    const type = `own-${randomUUID().slice(0, 8)}`;
+    const id = `${type}-1`;
+    const clock = new TestClock(0);
+
+    const mine = new Engine({ db, clock, owner: "engine-a" });
+    mine.registerActivity("step", async () => "from-a");
+    mine.registerWorkflow({
+      type,
+      run: async (ctx: WorkflowContext) => {
+        await ctx.sleep("wait", 1000);
+        return await ctx.activity("step", null);
+      },
+    });
+    await mine.start(type, id, {});
+
+    // A second engine, same type, different implementation. It must not touch it.
+    const theirs = new Engine({ db, clock, owner: "engine-b" });
+    let ranHere = false;
+    theirs.registerActivity("step", async () => { ranHere = true; return "from-b"; });
+    theirs.registerWorkflow({
+      type,
+      run: async (ctx: WorkflowContext) => {
+        await ctx.sleep("wait", 1000);
+        return await ctx.activity("step", null);
+      },
+    });
+    clock.advance(5000);
+    await theirs.fireDueTimers();
+    expect(ranHere, "engine B ran an activity inside engine A's execution").toBe(false);
+
+    // …and the owning engine still finishes it with its own implementation.
+    await mine.fireDueTimers();
+    expect(await mine.result<string>(id)).toBe("from-a");
+  });
+
+  it("an unstamped execution is still drivable by anyone", async () => {
+    // ⛔ Undefined owner is production's setting and must keep its old meaning,
+    // or every execution started before this column existed becomes orphaned.
+    const type = `own-open-${randomUUID().slice(0, 8)}`;
+    const id = `${type}-1`;
+    const anyone = new Engine({ db, clock: new TestClock(0) });
+    anyone.registerWorkflow({ type, run: async () => "done" });
+    await anyone.start(type, id, {});
+    expect(await anyone.result<string>(id)).toBe("done");
+    const row = await db.one<{ owner: string | null }>(
+      "SELECT owner FROM workflow_executions WHERE id = $1", [id],
+    );
+    expect(row.owner).toBeNull();
   });
 });
 

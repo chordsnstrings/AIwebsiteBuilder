@@ -188,3 +188,4 @@ export function detectNoCem(pageText: string): boolean {
 // blocks that fail closed, and bidi normalisation.
 // ---------------------------------------------------------------------------
 export * from "./localisation.ts";
+export * from "./cold-email.ts";

@@ -135,11 +135,55 @@ const outreachIn = z.object({
   name: z.string(),
   city: z.string(),
   verifiedDefects: z.array(z.string()),
-  previewUrl: z.string(),
+  /**
+   * Whether a preview exists — NOT its URL.
+   *
+   * ⛔ The prompt for this role says "never include a recipient address, link,
+   * or sender identity — those come from the workflow", and it used to be
+   * handed the URL anyway. In demo mode `simulate` interpolated it into the
+   * body, which is the only reason any cold email has ever carried a preview
+   * link; the live prompt never receives the URL, so against a real model the
+   * body came out with no link at all and nothing downstream added one. The
+   * entire pitch — "we built you a site, look at it" — shipped without the
+   * look-at-it. The URL is now substituted by the activity after the model
+   * returns, the same way the unsubscribe URL already is.
+   */
+  hasPreview: z.boolean(),
   sequenceStep: z.number(),
   locale: z.string().default("en-US"),
 });
 const outreachOut = z.object({ subject: z.string(), bodyText: z.string() });
+
+/**
+ * Anything that looks like a link or an address.
+ *
+ * ⛔ Enforced rather than merely requested. A model that writes a plausible URL
+ * into cold outreach is writing a destination nobody verified, to a recipient
+ * who was contacted without asking — which is the exact shape of the injection
+ * the untrusted-input defences exist to stop, arriving through the output side
+ * instead of the input side.
+ */
+const LINK_OR_ADDRESS = "(?:https?://|www\\.)[^\\s<>\"')]+|[\\w.+-]+@[\\w-]+\\.[a-z]{2,}";
+/** Non-global: `.test()` on a global regex is stateful and would alternate. */
+const MODEL_WROTE_A_LINK = new RegExp(LINK_OR_ADDRESS, "i");
+const STRIP_LINKS = new RegExp(LINK_OR_ADDRESS, "gi");
+
+/** Remove anything link-shaped, then tidy the whitespace it left behind. */
+function withoutLinks(text: string): string {
+  return text.replace(STRIP_LINKS, "").replace(/\s+([.,;:!?])/g, "$1").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Strip links the model wrote into outreach copy.
+ *
+ * Exported so it can be tested directly: this is the enforcement behind the
+ * prompt's instruction, and an enforcement nobody can test is a request.
+ */
+export function stripModelLinks(out: { subject: string; bodyText: string }): { subject: string; bodyText: string } {
+  return MODEL_WROTE_A_LINK.test(out.bodyText) || MODEL_WROTE_A_LINK.test(out.subject)
+    ? { subject: withoutLinks(out.subject), bodyText: withoutLinks(out.bodyText) }
+    : out;
+}
 export const outreachAgent = defineAgent({
   id: "outreach_draft",
   role: "outreach_draft",
@@ -151,20 +195,56 @@ export const outreachAgent = defineAgent({
   budgetUsdPerPassingOutput: 0.003,
   buildPrompt: (input) =>
     prompts.outreach_draft!.build({
-      facts: { name: input.name, verifiedDefects: input.verifiedDefects, step: input.sequenceStep },
+      facts: {
+        name: input.name,
+        verifiedDefects: input.verifiedDefects,
+        step: input.sequenceStep,
+        // ⛔ Whether a preview exists changes what may truthfully be claimed.
+        // Without this the model writes preview copy for every lead, including
+        // the ones the workflow deliberately routed to a text-only pitch.
+        hasPreview: input.hasPreview,
+      },
       outputShape: "{ subject, bodyText }",
     }),
   simulate: (input) => {
-    const subjects = [
-      `A website preview for ${input.name}`,
-      `One thing your ${input.city} customers can't find`,
-      `Last note about ${input.name}'s web presence`,
-    ];
+    // ⛔ The demo body must have the SAME SHAPE as the live one: prose, no link.
+    // The old simulate interpolated the preview URL, so demo mode produced a
+    // complete-looking email while live mode produced one with no link at all —
+    // and demo mode is the only mode anyone runs.
+    const subjects = input.hasPreview
+      ? [
+          `A website preview for ${input.name}`,
+          `One thing your ${input.city} customers can't find`,
+          `Last note about ${input.name}'s web presence`,
+        ]
+      : [
+          `${input.name} and your ${input.city} customers`,
+          `A quick note about ${input.name}'s web presence`,
+          `Last note about ${input.name}`,
+        ];
+    // ⛔ Claims about their current site come from the audit or not at all.
+    // "your listing has 0 issues" was going out on every email, because the
+    // caller passed an empty array and the copy printed the length regardless.
+    const finding = input.verifiedDefects.length === 0
+      ? "We help trades in your area get found by customers searching online."
+      : `We checked your listing and found ${input.verifiedDefects.length === 1 ? "one thing" : `${input.verifiedDefects.length} things`} making you harder to find: ${input.verifiedDefects.slice(0, 3).join("; ")}.`;
+    const offer = input.hasPreview
+      ? `We built a working preview of a site for ${input.name} so you can see what it would look like.`
+      // ⛔ No dangling referent: with no defects to point at, "if that is worth
+      // fixing" and "a better one" refer to nothing the reader has been told.
+      : `If a site that answers those questions for you is worth a look, we can put one together.`;
     return {
       subject: subjects[Math.min(input.sequenceStep, 2)]!,
-      bodyText: `Hi, we built a quick preview of a website for ${input.name}. Your current listing has ${input.verifiedDefects.length} issues that make you hard to find. See it here: ${input.previewUrl}`,
+      // The greeting is its own line, so the first sentence keeps its capital
+      // rather than reading "Hi, We checked your listing…".
+      bodyText: `Hi,\n\n${finding} ${offer}`,
     };
   },
+  // ⛔ The prompt asks the model not to write links. This makes it true. A
+  // fabricated URL in cold outreach is a destination nobody verified, sent to
+  // someone who never asked to hear from us; stripping it is the only safe
+  // response, and the workflow appends the real one afterwards.
+  postProcess: (out) => stripModelLinks(out),
 });
 
 // --- Customer care (spec §21) — parking is a code clamp --------------------

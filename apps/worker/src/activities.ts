@@ -35,7 +35,7 @@ import {
 import { buildsHalted, gatedSend, paymentsOnboardingHalted, readEngagedSwitches, type OutboundMessage } from "@adw/gate";
 import { mayBuildSpeculativePreview, openOpportunity, trackFor } from "@adw/acquisition";
 import { resolveVertical } from "@adw/taxonomy";
-import { mintUnsubscribeToken, unsubscribeHeaders, unsubscribeSecret, unsubscribeUrl } from "@adw/compliance";
+import { composeColdEmailBody, mintUnsubscribeToken, unsubscribeHeaders, unsubscribeSecret, unsubscribeUrl } from "@adw/compliance";
 import { mintReplyToken, replyAddress } from "@adw/inbound";
 import { renderSite, buildArtifactFromHtml, familyForCategory } from "@adw/site-templates";
 import { reviewBuild } from "@adw/reviewer-gates";
@@ -296,7 +296,7 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
     return { generated: true, previewId: row.id, url: deployed.url };
   });
 
-  on("send_outreach", async (input: LeadRef & { step: number }) => {
+  on("send_outreach", async (input: LeadRef & { step: number; topDefects?: string[] }) => {
     const biz = await business(db, input.businessId);
     const contact = await db.one<{ id: string; email: string; subscriber_type: string | null }>(
       "SELECT id, email::text AS email, subscriber_type FROM contacts WHERE id = $1",
@@ -310,12 +310,22 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
       ? await db.maybeOne<{ deploy_url: string }>("SELECT deploy_url FROM previews WHERE id = $1", [lead.preview_id])
       : null;
 
+    // ⛔ A preview URL or nothing. This used to fall back to `publicBase` — the
+    // foundry's own marketing site — so a lead the workflow deliberately routed
+    // to a text-only pitch got an email saying "we built you a preview, see it
+    // here" pointing at our homepage. 601 of 621 contacted leads had no preview.
+    const previewUrl = preview?.deploy_url ?? null;
+
     const draft = await outreachAgent.run(
       {
         name: biz.name,
         city: biz.city ?? "",
-        verifiedDefects: [],
-        previewUrl: preview?.deploy_url ?? publicBase,
+        // ⛔ From the deterministic audit, threaded through by the workflow.
+        // Hardcoding `[]` here made every email read "your current listing has
+        // 0 issues that make you hard to find" — the one sentence the whole
+        // grading step exists to make true, printing the opposite.
+        verifiedDefects: input.topDefects ?? [],
+        hasPreview: previewUrl !== null,
         sequenceStep: input.step,
       },
       agentDeps,
@@ -329,15 +339,21 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
       unsubscribeSecret(),
     );
     const unsubUrl = unsubscribeUrl(publicBase, unsubToken);
-    const blocks = legalBlocks(biz.country_code ?? "US");
-    const body = [
-      draft.result.bodyText,
-      "",
-      blocks["ai_disclosure"] ?? "",
-      (blocks["unsubscribe"] ?? "").replace("{unsub_url}", unsubUrl),
-      `${legal().entity}, ${legal().postal_address}`,
-      `Privacy: ${legal().privacy_url}`,
-    ].join("\n");
+    // ⛔ The preview URL is SUBSTITUTED here, never model-written — the same
+    // rule the unsubscribe URL follows, and what this role's own prompt has
+    // always instructed. Nothing downstream ever honoured it: the URL reached
+    // the body only because demo mode's `simulate` interpolated it, so against
+    // a real model every cold email went out with no preview link at all. The
+    // pitch is "we built you a site, look at it"; there was no look-at-it.
+    const body = composeColdEmailBody({
+      bodyText: draft.result.bodyText,
+      previewUrl,
+      blocks: legalBlocks(biz.country_code ?? "US"),
+      unsubscribeUrl: unsubUrl,
+      entity: legal().entity,
+      postalAddress: legal().postal_address,
+      privacyUrl: legal().privacy_url,
+    });
 
     const asset = await pickAsset(db, "cold");
     if (!asset) {

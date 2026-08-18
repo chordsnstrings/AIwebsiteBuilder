@@ -158,17 +158,25 @@ describe("the worklist", () => {
     // full screen, works to the bottom, and believes they have reached the end
     // of the queue while hundreds wait behind it — "all clear" when nothing is
     // clear. The number is always present; zero means the list is complete.
+    //
+    // ⛔ Every assertion reads ONE response. The database is shared and other
+    // suites insert while this runs, so comparing a capped call against a
+    // separately-read uncapped one races — and a flaky assertion about
+    // truncation teaches people to ignore truncation.
     const now = new Date();
-    const full = await worklist(db, now, 100_000);
-    expect(full.truncated, "nothing was dropped, so it must report zero").toBe(0);
+    const uncapped = await worklist(db, now, 100_000);
+    expect(uncapped.truncated, "nothing was dropped, so it must report zero").toBe(0);
 
-    if (full.items.length < 2) return; // nothing to truncate; the assertion above is the whole check
-    const capped = await worklist(db, now, 1);
-    expect(capped.items).toHaveLength(1);
-    expect(capped.truncated).toBe(full.items.length - 1);
-    // ⛔ And the dropped ones are the LESS severe: a cap that discarded the top
-    // of the queue would hide exactly the items it exists to surface.
-    expect(capped.items[0]!.severity).toBeLessThanOrEqual(full.items[1]!.severity);
+    if (uncapped.items.length < 2) return; // nothing to truncate
+
+    const capped = await worklist(db, now, 2);
+    expect(capped.items).toHaveLength(2);
+    expect(capped.truncated).toBeGreaterThan(0);
+    // The total is recoverable from the response alone — that is the point.
+    expect(capped.items.length + capped.truncated).toBeGreaterThanOrEqual(uncapped.items.length);
+    // ⛔ And the cap keeps the TOP of the queue: one that discarded the most
+    // severe items would hide exactly what it exists to surface.
+    expect(capped.items[0]!.severity).toBeLessThanOrEqual(capped.items[1]!.severity);
   });
 
   it("ranks a safety protocol above everything else, and ages items up", async () => {

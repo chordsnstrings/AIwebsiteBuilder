@@ -55,7 +55,7 @@ describe("workflow outbox", () => {
   it("starts a workflow from a queued start intent", async () => {
     const ran: string[] = [];
     const type = `probe_${randomUUID().slice(0, 8)}`;
-    const engine = new Engine({ db });
+    const engine = new Engine({ db, owner: "test:worker:intents" });
     engine.registerWorkflow(probeWorkflow(type, ran));
 
     const id = `exec:${randomUUID()}`;
@@ -73,7 +73,7 @@ describe("workflow outbox", () => {
   it("delivers a signal to a parked execution", async () => {
     const ran: string[] = [];
     const type = `probe_${randomUUID().slice(0, 8)}`;
-    const engine = new Engine({ db });
+    const engine = new Engine({ db, owner: "test:worker:intents" });
     engine.registerWorkflow(probeWorkflow(type, ran));
 
     const id = `exec:${randomUUID()}`;
@@ -106,7 +106,7 @@ describe("workflow outbox", () => {
   it("one undeliverable intent does not stall the ones behind it", async () => {
     const ran: string[] = [];
     const type = `probe_${randomUUID().slice(0, 8)}`;
-    const engine = new Engine({ db });
+    const engine = new Engine({ db, owner: "test:worker:intents" });
     engine.registerWorkflow(probeWorkflow(type, ran));
 
     // An unregistered type throws inside engine.start().
@@ -217,7 +217,7 @@ describe("enrol → dispatch → contacted", () => {
     expect(enrolled.leadId).not.toBeNull();
 
     // The worker, assembled exactly as worker.ts assembles it.
-    const engine = new Engine({ db });
+    const engine = new Engine({ db, owner: "test:worker:intents" });
     engine.registerWorkflow(leadWorkflow);
     registerActivities(engine, {
       db,

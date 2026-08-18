@@ -140,6 +140,20 @@ describe("⛔ the queue can actually be cleared", () => {
     }
   });
 
+  it("⛔ finds an overdue item that sits far past the queue's page", async () => {
+    // The detector used to read the first 500 queue rows and filter them, so
+    // everything past that was invisible — the exact blind spot it exists to
+    // detect. Severity 4 sorts last in the queue's ordering, which is where a
+    // page-filtered implementation loses it.
+    const id = await raise(`overdue-deep-${Date.now()}`, 4);
+    await assignItem(db, id, "op@example.com", new Date(Date.now() - 7_200_000));
+    const found = await overdueItems(db);
+    expect(found.map((i) => i.id)).toContain(id);
+    // ⛔ Every row it returns is genuinely overdue — a detector that over-reports
+    // gets muted, which is the same outcome as one that under-reports.
+    for (const item of found) expect(item.overdue).toBe(true);
+  });
+
   it("⛔ surfaces items nobody touched past their due time", async () => {
     // A queue that silently accumulates unacknowledged items has stopped being
     // a control and become a backlog, and the difference is invisible from the

@@ -36,7 +36,7 @@ interface Calls {
 function revisionEngine(clock: TestClock, scenario: RevisionScenario = {}) {
   const gate = scenario.gate ?? { pass: true, hardFail: false };
   const ip = scenario.ip ?? "pass";
-  const engine = new Engine({ db, clock });
+  const engine = new Engine({ db, clock, owner: "test:workflows:revision" });
   const calls: Calls = { order: [], deployed: [] };
   const track = <T>(name: string, result: T) => {
     calls.order.push(name);
@@ -169,7 +169,7 @@ describe("revision workflow — deploy is unreachable except past both gates", (
 // ---------------------------------------------------------------------------
 
 function onboardingEngine(clock: TestClock) {
-  const engine = new Engine({ db, clock });
+  const engine = new Engine({ db, clock, owner: "test:workflows:revision" });
   const calls: Calls = { order: [], deployed: [] };
   const track = <T>(name: string, result: T) => {
     calls.order.push(name);

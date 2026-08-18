@@ -45,6 +45,19 @@ export function normaliseError(message: string): string {
 export interface EngineOptions {
   db: Db;
   clock?: Clock;
+  /**
+   * Which engine is entitled to drive the executions this one starts.
+   *
+   * ⛔ Undefined (the default, and production's setting) means "any engine may
+   * drive" — the behaviour that has always applied. Set it whenever a second
+   * Engine shares the database with a DIFFERENT activity registry: without it,
+   * `replay` picks up work by workflow TYPE alone, and type names are global,
+   * so each engine resumes the other's executions from the other's journal
+   * using its own implementations. The symptom is a value from one registry
+   * arriving in the other's activity; the silent case is an execution that
+   * advances with the wrong implementations and completes looking fine.
+   */
+  owner?: string;
 }
 
 export class Engine {
@@ -53,8 +66,10 @@ export class Engine {
   private readonly activities = new Map<string, ActivityFn>();
   private readonly workflows = new Map<string, WorkflowDefinition<unknown, unknown>>();
   private readonly locks = new Map<string, Promise<void>>();
+  private readonly owner: string | null;
 
   constructor(opts: EngineOptions) {
+    this.owner = opts.owner ?? null;
     this.db = opts.db;
     this.clock = opts.clock ?? new SystemClock();
   }
@@ -87,9 +102,9 @@ export class Engine {
   async start<In>(type: string, id: string, input: In): Promise<void> {
     if (!this.workflows.has(type)) throw new Error(`Unregistered workflow type: ${type}`);
     await this.db.query(
-      `INSERT INTO workflow_executions (id, type, status, input) VALUES ($1,$2,'running',$3)
+      `INSERT INTO workflow_executions (id, type, status, input, owner) VALUES ($1,$2,'running',$3,$4)
        ON CONFLICT (id) DO NOTHING`,
-      [id, type, JSON.stringify(input ?? null)],
+      [id, type, JSON.stringify(input ?? null), this.owner],
     );
     await this.runOnce(id);
   }
@@ -103,9 +118,16 @@ export class Engine {
     await this.runOnce(id);
   }
 
-  /** Fire any timers whose fire_at has passed, and resume their executions.
-   * Scoped to executions of a type this engine handles, so an engine sharing a
-   * database with another does not fire (and starve) the other's timers. */
+  /**
+   * Fire any timers whose fire_at has passed, and resume their executions.
+   *
+   * ⛔ Scoped by BOTH the types this engine handles and the executions it is
+   * entitled to drive. Claiming a timer is destructive — it is marked fired
+   * before the replay — so an engine that claims one and then declines to drive
+   * the execution has not merely done nothing, it has consumed the wake-up and
+   * left the owning engine with a workflow that never resumes. Filtering after
+   * the claim would trade a corruption bug for a starvation bug.
+   */
   async fireDueTimers(): Promise<number> {
     const now = new Date(this.clock.now());
     const types = [...this.workflows.keys()];
@@ -113,8 +135,9 @@ export class Engine {
     const due = await this.db.query<{ id: string; execution_id: string }>(
       `SELECT t.id, t.execution_id FROM workflow_timers t
        JOIN workflow_executions e ON e.id = t.execution_id
-       WHERE t.fired = FALSE AND t.fire_at <= $1 AND e.type = ANY($2)`,
-      [now, types],
+       WHERE t.fired = FALSE AND t.fire_at <= $1 AND e.type = ANY($2)
+         AND (e.owner IS NULL OR e.owner IS NOT DISTINCT FROM $3)`,
+      [now, types, this.owner],
     );
     for (const t of due.rows) {
       await this.db.query("UPDATE workflow_timers SET fired = TRUE WHERE id = $1", [t.id]);
@@ -158,11 +181,20 @@ export class Engine {
   }
 
   private async replay(id: string): Promise<void> {
-    const exec = await this.db.maybeOne<{ type: string; status: string; input: unknown }>(
-      "SELECT type, status, input FROM workflow_executions WHERE id = $1",
+    const exec = await this.db.maybeOne<{ type: string; status: string; input: unknown; owner: string | null }>(
+      "SELECT type, status, input, owner FROM workflow_executions WHERE id = $1",
       [id],
     );
     if (!exec || exec.status === "completed" || exec.status === "failed") return;
+
+    // ⛔ Not ours. An execution stamped by another engine is driven by that
+    // engine's activity registry, and resuming it here would replay ITS journal
+    // through OUR implementations — a stub's `{ packId: "pack-deep-1" }`
+    // arriving in a production activity that expects a uuid, or worse, an
+    // execution that advances with the wrong implementations and completes
+    // looking perfectly normal. Type name alone was the only guard, and type
+    // names are global.
+    if (exec.owner !== null && exec.owner !== this.owner) return;
 
     // Skip executions of a type this engine does not handle. In a multi-engine
     // deployment (or a shared test database) fireDueTimers may surface an

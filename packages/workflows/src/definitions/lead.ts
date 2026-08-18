@@ -90,8 +90,14 @@ export const leadWorkflow: WorkflowDefinition<LeadInput, LeadOutput> = {
     if (!scored.previewWorthy) {
       // Below the preview threshold: a text-only pitch, no generation spend.
       // This threshold is the single largest cost lever in acquisition.
-      await ctx.activity("send_outreach", { ...input, step: 0 });
-      return await waitOutSequence(ctx, input, { previewGenerated: false, agentBound: false });
+      //
+      // ⛔ No audit has run on this branch, so there are no verified defects and
+      // no preview. Both are stated explicitly rather than left to a default:
+      // the activity used to substitute the foundry's own homepage for the
+      // missing preview URL, so "the text-only pitch" was in fact a preview
+      // pitch pointing at our marketing site.
+      await ctx.activity("send_outreach", { ...input, step: 0, topDefects: [] });
+      return await waitOutSequence(ctx, input, { previewGenerated: false, agentBound: false, topDefects: [] });
     }
 
     // A2 — transactability grading. The audit is what makes the outreach copy
@@ -183,10 +189,16 @@ export const leadWorkflow: WorkflowDefinition<LeadInput, LeadOutput> = {
     });
 
     // E1 → A7 — the gate, then transport. Step 0 of the sequence.
-    await ctx.activity("send_outreach", { ...input, step: 0 });
+    //
+    // ⛔ The audit's defects travel WITH the send. A2's comment says "the audit
+    // is what makes the outreach copy true; every claim in it traces to a
+    // deterministic check here" — and the defects never left this function, so
+    // the copy printed "your current listing has 0 issues" on every email.
+    await ctx.activity("send_outreach", { ...input, step: 0, topDefects: graded.topDefects });
     return await waitOutSequence(ctx, input, {
       previewGenerated: preview.generated,
       agentBound: preview.agentBound,
+      topDefects: graded.topDefects,
     });
   },
 };
@@ -221,7 +233,10 @@ interface ReplySignal {
 async function waitOutSequence(
   ctx: WorkflowContext,
   input: LeadInput,
-  flags: { previewGenerated: boolean; agentBound: boolean },
+  // ⛔ `topDefects` travels the whole sequence, not just step 0. Follow-ups are
+  // the same claim made again; a step-1 email that says "0 issues" because the
+  // defects were dropped after the first send is no truer than the first one.
+  flags: { previewGenerated: boolean; agentBound: boolean; topDefects: string[] },
 ): Promise<LeadOutput> {
   for (let step = 1; step <= 3; step++) {
     const reply = await ctx.waitForSignal<ReplySignal>(
@@ -266,7 +281,7 @@ async function waitOutSequence(
       return { finalState: "PARKED", contacted: true, ...flags };
     }
     if (step < 3) {
-      await ctx.activity("send_outreach", { ...input, step });
+      await ctx.activity("send_outreach", { ...input, step, topDefects: flags.topDefects });
     }
   }
 

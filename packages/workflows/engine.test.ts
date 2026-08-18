@@ -17,7 +17,7 @@ afterAll(async () => {
 describe("durable workflow engine", () => {
   it("runs a simple activity workflow to completion", async () => {
     const clock = new TestClock(0);
-    const engine = new Engine({ db, clock });
+    const engine = new Engine({ db, clock, owner: "test:workflows:engine" });
     engine.registerActivity("double", async (n) => (n as number) * 2);
     engine.registerWorkflow({
       type: "simple",
@@ -34,7 +34,7 @@ describe("durable workflow engine", () => {
 
   it("runs a 180-day cooldown workflow in milliseconds via time-skip", async () => {
     const clock = new TestClock(0);
-    const engine = new Engine({ db, clock });
+    const engine = new Engine({ db, clock, owner: "test:workflows:engine" });
     const seen: string[] = [];
     engine.registerActivity("mark", async (s) => {
       seen.push(s as string);
@@ -69,7 +69,7 @@ describe("durable workflow engine", () => {
 
   it("does not re-run journaled activities on resume (durability)", async () => {
     const clock = new TestClock(0);
-    const engine = new Engine({ db, clock });
+    const engine = new Engine({ db, clock, owner: "test:workflows:engine" });
     let runs = 0;
     engine.registerActivity("countOnce", async () => {
       runs++;
@@ -95,7 +95,7 @@ describe("durable workflow engine", () => {
 
   it("resumes on a signal and returns its payload", async () => {
     const clock = new TestClock(0);
-    const engine = new Engine({ db, clock });
+    const engine = new Engine({ db, clock, owner: "test:workflows:engine" });
     engine.registerWorkflow({
       type: "await_reply",
       run: async (ctx: WorkflowContext) => {
@@ -112,7 +112,7 @@ describe("durable workflow engine", () => {
 
   it("times out a signal wait after the durable timeout", async () => {
     const clock = new TestClock(0);
-    const engine = new Engine({ db, clock });
+    const engine = new Engine({ db, clock, owner: "test:workflows:engine" });
     engine.registerWorkflow({
       type: "await_timeout",
       run: async (ctx: WorkflowContext) => {

@@ -18,7 +18,7 @@ afterAll(async () => {
 });
 
 function buildEngine(clock: TestClock, gate: { pass: boolean; hardFail: boolean }, ip: "pass" | "flag") {
-  const engine = new Engine({ db, clock });
+  const engine = new Engine({ db, clock, owner: "test:workflows:definitions" });
   const deployed: string[] = [];
   registerStubActivities(engine, {
     reviewer_gate: async () => gate,
@@ -65,7 +65,7 @@ describe("build workflow — deploy is unreachable except from a passing gate", 
 
 describe("lead workflow — engagement and cooldown", () => {
   function leadEngine(clock: TestClock) {
-    const engine = new Engine({ db, clock });
+    const engine = new Engine({ db, clock, owner: "test:workflows:definitions" });
     const marks: string[] = [];
     registerStubActivities(engine, {
       mark_engaged: async () => { marks.push("engaged"); return null; },
@@ -81,7 +81,7 @@ describe("lead workflow — engagement and cooldown", () => {
     // hospital group's website, under their name, on our domain, and emailing
     // the link is passing off — so the branch is taken BEFORE the knowledge
     // base and the pack, not at the render.
-    const engine = new Engine({ db, clock: new TestClock(0) });
+    const engine = new Engine({ db, clock: new TestClock(0), owner: "test:workflows:definitions" });
     const reached: string[] = [];
     registerStubActivities(engine, {
       resolve_acquisition_track: async () => ({ segment: "enterprise_global", speculativePreview: false }),

@@ -318,7 +318,16 @@ export async function queue(
       LIMIT $3`,
     [opts.customerId ?? null, opts.includeAcknowledged === true, opts.limit ?? 100],
   );
-  return rows.rows.map((r) => ({
+  return rows.rows.map(toQueueItem(now));
+}
+
+/** One row shape, so `queue` and `overdueItems` cannot describe an item differently. */
+function toQueueItem(now: Date) {
+  return (r: {
+    id: string; trigger: string; severity: number; context: unknown;
+    system_action: string; recommendation: string; raised_at: Date;
+    assignee: string | null; due_at: Date | null; acknowledged_at: Date | null;
+  }): QueueItem => ({
     id: r.id,
     trigger: r.trigger,
     severity: r.severity,
@@ -330,7 +339,7 @@ export async function queue(
     dueAt: r.due_at,
     acknowledgedAt: r.acknowledged_at,
     overdue: r.due_at !== null && r.due_at < now,
-  }));
+  });
 }
 
 /**
@@ -378,7 +387,33 @@ export async function assignItem(db: Db, id: string, to: string, dueAt?: Date): 
  * stopped being a control and become a backlog, and the difference is invisible
  * from the top of the list.
  */
+/**
+ * Items nobody touched past their due time.
+ *
+ * ⛔ Queried directly, NOT filtered out of a page of the queue. This used to
+ * read the first 500 rows and filter them, which meant it could only ever see
+ * overdue items that happened to sit near the top of an unrelated ordering —
+ * everything past row 500 was invisible. That is precisely the failure this
+ * function exists to detect: "a queue that silently accumulates unacknowledged
+ * items has stopped being a control and become a backlog, and the difference is
+ * invisible from the top of the list." The detector had the same blind spot as
+ * the thing it was detecting.
+ *
+ * Ordered oldest-overdue first, because how long something has been ignored is
+ * the whole point; severity is the tiebreak.
+ */
 export async function overdueItems(db: Db, now: Date = new Date()): Promise<QueueItem[]> {
-  const all = await queue(db, { customerId: null, includeAcknowledged: true, limit: 500 }, now);
-  return all.filter((i) => i.overdue);
+  const rows = await db.query<{
+    id: string; trigger: string; severity: number; context: unknown;
+    system_action: string; recommendation: string; raised_at: Date;
+    assignee: string | null; due_at: Date | null; acknowledged_at: Date | null;
+  }>(
+    `SELECT id, trigger, severity, context, system_action, recommendation, raised_at,
+            assignee, due_at, acknowledged_at
+       FROM exceptions
+      WHERE resolved_at IS NULL AND due_at IS NOT NULL AND due_at < $1
+      ORDER BY due_at ASC, severity ASC`,
+    [now],
+  );
+  return rows.rows.map(toQueueItem(now));
 }
