@@ -6,6 +6,7 @@
 // Postgres advisory lock so running two worker replicas is safe — the spare sits
 // idle and takes over if the leader dies, rather than duplicating side effects.
 import type { Db } from "@adw/db";
+import { recordJobRun, registerJob } from "@adw/opsview";
 
 export interface Job {
   name: string;
@@ -97,15 +98,20 @@ export class Scheduler {
     if (!job.everyReplica && !this.isLeader) return;
 
     this.running.add(job.name);
+    const startedAt = this.now();
     const started = Date.now();
     const stat = this.stats.get(job.name)!;
+    let ok = false;
+    let error: string | undefined;
     try {
-      await job.run({ db: this.db, now: this.now() });
+      await job.run({ db: this.db, now: startedAt });
       stat.runs++;
       stat.lastError = null;
+      ok = true;
     } catch (err) {
       stat.failures++;
       stat.lastError = err instanceof Error ? err.message : String(err);
+      error = stat.lastError;
       // A failing job must never take the process down; the Sentinel and the
       // exception queue are how a human finds out.
       this.log(`[worker] ${job.name} FAILED: ${stat.lastError}`);
@@ -113,6 +119,52 @@ export class Scheduler {
       stat.lastRunAt = this.now();
       stat.lastDurationMs = Date.now() - started;
       this.running.delete(job.name);
+    }
+
+    // ⛔ Outside the try/finally, and deliberately after `running` is cleared.
+    // These stats used to live only in this process's memory, which meant the
+    // one question an operator needs answered about an autonomous system — is
+    // it running? — could only be answered by reading the worker's stdout.
+    await this.persist({
+      name: job.name,
+      intervalMs: job.intervalMs,
+      ok,
+      startedAt,
+      durationMs: Date.now() - started,
+      ...(error === undefined ? {} : { error }),
+      leader: this.isLeader,
+    });
+  }
+
+  /**
+   * ⛔ A heartbeat write that fails must not fail the job. Observability that
+   * can take down the thing it observes is worse than none: the loop would stop
+   * for a full disk on a history table nobody was reading.
+   */
+  private async persist(run: Parameters<typeof recordJobRun>[1]): Promise<void> {
+    try {
+      await recordJobRun(this.db, run);
+    } catch (err) {
+      this.log(`[worker] heartbeat write failed for ${run.name}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /**
+   * Declare the roster before anything runs.
+   *
+   * ⛔ Called at boot so a job that has never executed once still has a row.
+   * Without it, a job that is registered but broken on its very first tick is
+   * indistinguishable from a job that was never deployed — both are an absence,
+   * and an absence renders as nothing at all. The console must be able to say
+   * "never run" in words.
+   */
+  async register(): Promise<void> {
+    for (const job of this.jobs) {
+      try {
+        await registerJob(this.db, job.name, job.intervalMs);
+      } catch (err) {
+        this.log(`[worker] could not register ${job.name}: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   }
 

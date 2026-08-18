@@ -30,6 +30,7 @@
     "@adw/journeys": "workspace:*",
     "@adw/kb": "workspace:*",
     "@adw/mcp": "workspace:*",
+    "@adw/opsview": "workspace:*",
     "@adw/orchestrator": "workspace:*",
     "@adw/protocol": "workspace:*",
     "@adw/provenance": "workspace:*",

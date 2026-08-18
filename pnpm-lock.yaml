@@ -123,6 +123,9 @@ importers:
       '@adw/mcp':
         specifier: workspace:*
         version: link:../../packages/mcp
+      '@adw/opsview':
+        specifier: workspace:*
+        version: link:../../packages/opsview
       '@adw/orchestrator':
         specifier: workspace:*
         version: link:../../packages/orchestrator
@@ -334,6 +337,9 @@ importers:
       '@adw/mcp':
         specifier: workspace:*
         version: link:../../packages/mcp
+      '@adw/opsview':
+        specifier: workspace:*
+        version: link:../../packages/opsview
       '@adw/orchestrator':
         specifier: workspace:*
         version: link:../../packages/orchestrator
@@ -715,6 +721,36 @@ importers:
       '@adw/db':
         specifier: workspace:*
         version: link:../db
+
+  packages/opsview:
+    dependencies:
+      '@adw/assets':
+        specifier: workspace:*
+        version: link:../assets
+      '@adw/cases':
+        specifier: workspace:*
+        version: link:../cases
+      '@adw/config':
+        specifier: workspace:*
+        version: link:../config
+      '@adw/db':
+        specifier: workspace:*
+        version: link:../db
+      '@adw/journeys':
+        specifier: workspace:*
+        version: link:../journeys
+      '@adw/publish':
+        specifier: workspace:*
+        version: link:../publish
+      '@adw/reconcile':
+        specifier: workspace:*
+        version: link:../reconcile
+      '@adw/taxonomy':
+        specifier: workspace:*
+        version: link:../taxonomy
+      '@adw/watch':
+        specifier: workspace:*
+        version: link:../watch
 
   packages/orchestrator:
     dependencies:

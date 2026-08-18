@@ -367,6 +367,9 @@ const scheduler = new Scheduler({
 
 const leader = await scheduler.acquireLeadership();
 console.log(`[worker] ${leader ? "LEADER — running jobs" : "standby — leader elsewhere"}`);
+// Declare the roster before the first tick, so the console can distinguish a
+// job that has never succeeded from a job that was never deployed.
+await scheduler.register();
 scheduler.start();
 
 // Graceful shutdown: stop scheduling, let in-flight jobs settle, release the

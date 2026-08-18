@@ -28,6 +28,7 @@
     "@adw/journeys": "workspace:*",
     "@adw/kb": "workspace:*",
     "@adw/mcp": "workspace:*",
+    "@adw/opsview": "workspace:*",
     "@adw/orchestrator": "workspace:*",
     "@adw/publish": "workspace:*",
     "@adw/qapack": "workspace:*",
