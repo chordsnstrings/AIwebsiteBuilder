@@ -30,13 +30,44 @@ export function allowedOrigins(): string[] {
   ];
 }
 
+/**
+ * Routes a customer's own website calls from a visitor's browser.
+ *
+ * ⛔ THE ALLOWLIST CANNOT COVER THESE. Every other route is called by our four
+ * apps from origins we know, and reflecting only those is right. These two are
+ * called from the CUSTOMER'S site — `previews-<uuid>-html.pages.dev` today,
+ * their own domain after cutover, a different domain per customer forever — and
+ * no fixed list can enumerate them.
+ *
+ * The consequence of getting this wrong is invisible from the server: the agent
+ * answers every server-side test perfectly, and in a browser the preflight comes
+ * back without `access-control-allow-origin`, the fetch is blocked, and the chat
+ * box says "Could not reach the agent just now." on every site we have ever
+ * deployed. The widget's own catch branch prints exactly that sentence.
+ */
+export const PUBLIC_CORS_PATHS = ["/agent/ask", "/api/enquiry"] as const;
+
+export function isPublicCorsPath(path: string): boolean {
+  return (PUBLIC_CORS_PATHS as readonly string[]).includes(path);
+}
+
 export function corsMiddleware(origins: string[] = allowedOrigins()): MiddlewareHandler {
   const allow = new Set(origins);
   return async (c: Context, next: Next) => {
     const origin = c.req.header("origin");
-    // Only reflect an origin we actually trust — never echo an arbitrary one
-    // while credentials are allowed.
-    if (origin && allow.has(origin)) {
+    if (isPublicCorsPath(c.req.path)) {
+      // ⛔ `*` and NO credentials, deliberately paired. These endpoints read no
+      // cookie and grant nothing on the strength of one: `/agent/ask` needs an
+      // unguessable ref, `/api/enquiry` a customer id, and both answer the same
+      // for an anonymous caller as for a signed-in one. `*` with
+      // `allow-credentials: true` is the combination that turns a public
+      // endpoint into a cross-site request forgery against every logged-in
+      // operator — every browser rejects it, and this must never be the code
+      // that tries.
+      c.header("access-control-allow-origin", "*");
+    } else if (origin && allow.has(origin)) {
+      // Only reflect an origin we actually trust — never echo an arbitrary one
+      // while credentials are allowed.
       c.header("access-control-allow-origin", origin);
       c.header("access-control-allow-credentials", "true");
       c.header("vary", "Origin");

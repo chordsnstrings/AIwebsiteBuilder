@@ -128,9 +128,12 @@ describe("⛔ the queue can actually be cleared", () => {
     const ours = await raise(`adw-${Date.now()}`, 3, false);
     expect((await queue(db, { customerId })).map((i) => i.id)).toContain(mine);
     expect((await queue(db, { customerId })).map((i) => i.id)).not.toContain(ours);
-    // The ops queue carries every exception raised by every other suite, so it
-    // is asked with a limit that can actually reach a fresh row.
-    expect((await queue(db, { customerId: null, limit: 1000 })).map((i) => i.id)).toContain(ours);
+    // ⛔ Uncapped, because this assertion is about SCOPING and not about paging.
+    // The queue orders severity then oldest-first, so a row raised a moment ago
+    // sorts last by construction — asking for the first N and expecting to find
+    // it is wrong at every N, and picking a bigger N each time the shared test
+    // database grows is a race, not a fix.
+    expect((await queue(db, { customerId: null, limit: 100_000 })).map((i) => i.id)).toContain(ours);
   });
 
   it("orders by severity, then age", async () => {

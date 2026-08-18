@@ -416,9 +416,13 @@ async function makePreview(
   const email = `preview_${randomUUID()}@example.com`;
   const expires = new Date(Date.now() + (opts.expiresInDays ?? 30) * 86_400_000);
   const preview = await db.one<{ id: string }>(
-    `INSERT INTO previews (business_id, r2_key, deploy_url, claim_token, label_version, expires_at, takedown_at)
-     VALUES ($1,'r2/x','https://p.example/x',$2,'label-v1',$3,$4) RETURNING id`,
-    [businessId, token, expires, opts.takenDown ? new Date() : null],
+    `INSERT INTO previews (business_id, r2_key, deploy_url, claim_token, label_version, expires_at,
+                           takedown_at, takedown_reason)
+     VALUES ($1,'r2/x','https://p.example/x',$2,'label-v1',$3,$4,$5) RETURNING id`,
+    // ⛔ A takedown carries its reason. The schema now requires it, because a
+    // timestamp with nothing beside it records that the page came down and
+    // nothing about whether anybody asked.
+    [businessId, token, expires, opts.takenDown ? new Date() : null, opts.takenDown ? "not_for_me" : null],
   );
   const contact = await db.one<{ id: string }>(
     "INSERT INTO contacts (business_id, email, email_hash, verification) VALUES ($1,$2,$3,'valid') RETURNING id",

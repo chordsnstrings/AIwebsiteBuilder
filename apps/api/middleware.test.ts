@@ -16,6 +16,8 @@ function corsApp() {
   app.use("*", corsMiddleware(ORIGINS));
   app.get("/x", (c) => c.json({ ok: true }));
   app.post("/x", (c) => c.json({ ok: true }));
+  app.post("/agent/ask", (c) => c.json({ ok: true }));
+  app.post("/api/enquiry", (c) => c.json({ ok: true }));
   return app;
 }
 
@@ -51,6 +53,68 @@ describe("CORS", () => {
   it("passes through a request with no Origin (server-to-server)", async () => {
     const res = await corsApp().request("/x");
     expect(res.status).toBe(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ⛔ The customer's own website calls two of these routes from a visitor's
+// browser, and no allowlist can ever contain those origins — the site lives on
+// `previews-<uuid>-html.pages.dev` today and on the customer's own domain after
+// cutover, a different domain per customer forever.
+//
+// Getting this wrong is invisible server-side: every test of the agent passes,
+// and in a browser the preflight comes back with no
+// `access-control-allow-origin`, the fetch is blocked, and the chat box on
+// every site we have ever deployed says "Could not reach the agent just now."
+// ---------------------------------------------------------------------------
+describe("⛔ the endpoints a customer's own site calls", () => {
+  for (const path of ["/agent/ask", "/api/enquiry"]) {
+    it(`${path} answers a browser on a domain we have never seen`, async () => {
+      const res = await corsApp().request(path, {
+        method: "POST",
+        headers: { origin: "https://ridgeline-roofing.example" },
+      });
+      expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    });
+
+    it(`${path} preflights from that domain`, async () => {
+      // The widget posts application/json, which is not a CORS-simple request:
+      // the browser preflights first and refuses to send the POST at all unless
+      // the OPTIONS answer names the origin.
+      const res = await corsApp().request(path, {
+        method: "OPTIONS",
+        headers: {
+          origin: "https://previews-abc123-html.pages.dev",
+          "access-control-request-method": "POST",
+          "access-control-request-headers": "content-type",
+        },
+      });
+      expect(res.status).toBe(204);
+      expect(res.headers.get("access-control-allow-origin")).toBe("*");
+      expect(res.headers.get("access-control-allow-headers")).toContain("content-type");
+    });
+
+    it(`⛔ ${path} never pairs the wildcard with credentials`, async () => {
+      // `*` plus `allow-credentials: true` turns a public endpoint into a
+      // cross-site request forgery against every signed-in operator. Browsers
+      // reject the combination; this must never be the code that tries it.
+      const res = await corsApp().request(path, {
+        method: "POST",
+        headers: { origin: "https://evil.example" },
+      });
+      expect(res.headers.get("access-control-allow-origin")).toBe("*");
+      expect(res.headers.get("access-control-allow-credentials")).toBeNull();
+    });
+  }
+
+  it("⛔ leaves every other route on the allowlist", async () => {
+    // The blast radius of the above is exactly two paths. An operator route
+    // answering an arbitrary origin is the vulnerability this pairing avoids.
+    const res = await corsApp().request("/x", {
+      method: "POST",
+      headers: { origin: "https://ridgeline-roofing.example" },
+    });
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
   });
 });
 
