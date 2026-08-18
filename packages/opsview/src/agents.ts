@@ -257,6 +257,25 @@ export interface DeployedAgentRow {
 export interface DeployedBoard {
   rows: DeployedAgentRow[];
   totalCustomers: number;
+  /**
+   * ⛔ Computed across EVERY customer, not summed from `rows`.
+   *
+   * The figure tiles first added up the returned page, so with a limit of 200
+   * against 940 customers the headline read "0 conversations" while 499
+   * sessions sat in the table. A total that silently means "total of what I
+   * happened to fetch" is the denominator error this console exists to stop,
+   * and putting it in the summary tiles was the worst possible place for it.
+   */
+  totals: {
+    live: number;
+    sessions: number;
+    turns: number;
+    answeredFromPack: number;
+    openGaps: number;
+    /** Null when there were no turns at all — not 100%, and not 0%. */
+    deflectionRate: number | null;
+  };
+  /** Retained for callers that only need the live count. */
   liveCount: number;
   asOf: Date;
 }
@@ -324,6 +343,24 @@ export async function deployedAgents(db: Db, now: Date, limit = 200): Promise<De
   );
 
   const total = await db.one<{ n: string }>("SELECT count(*) AS n FROM customers");
+
+  // Population-wide, in SQL. These are the numbers on the summary tiles and
+  // they must not depend on the page size.
+  const totals = await db.one<{
+    sessions: string; turns: string; answered: string; gaps: string; live: string;
+  }>(
+    `SELECT
+       (SELECT count(*) FROM agent_sessions)                                            AS sessions,
+       (SELECT count(*) FROM agent_turns)                                               AS turns,
+       (SELECT count(*) FROM agent_turns WHERE answered_from IN ('pack','pack_hedged')) AS answered,
+       (SELECT count(*) FROM agent_gaps WHERE status = 'open')                          AS gaps,
+       (SELECT count(*) FROM customers c
+          WHERE COALESCE(c.vertical, (SELECT b.vertical FROM businesses b WHERE b.id = c.business_id)) IS NOT NULL
+            AND EXISTS (SELECT 1 FROM knowledge_bases k WHERE k.customer_id = c.id)
+            AND EXISTS (SELECT 1 FROM qa_packs q WHERE q.customer_id = c.id AND q.approved_at IS NOT NULL)
+       )                                                                                 AS live`,
+  );
+  const allTurns = Number(totals.turns);
   let liveCount = 0;
 
   const board: DeployedAgentRow[] = rows.rows.map((r) => {
@@ -356,5 +393,18 @@ export async function deployedAgents(db: Db, now: Date, limit = 200): Promise<De
     };
   });
 
-  return { rows: board, totalCustomers: Number(total.n), liveCount, asOf: now };
+  return {
+    rows: board,
+    totalCustomers: Number(total.n),
+    totals: {
+      live: Number(totals.live),
+      sessions: Number(totals.sessions),
+      turns: allTurns,
+      answeredFromPack: Number(totals.answered),
+      openGaps: Number(totals.gaps),
+      deflectionRate: allTurns === 0 ? null : Number(totals.answered) / allTurns,
+    },
+    liveCount,
+    asOf: now,
+  };
 }

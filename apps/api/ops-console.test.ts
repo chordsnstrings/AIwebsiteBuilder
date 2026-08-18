@@ -328,3 +328,39 @@ describe("⛔ outreach: the SMB motion that had no screen", () => {
     expect((await appAs(OPERATOR).request("/ops/businesses/not-a-uuid")).status).toBe(404);
   });
 });
+
+describe("⛔ summary tiles are computed over the population, not the page", () => {
+  it("a one-row page still reports totals larger than that row", async () => {
+    // They did not. The tiles summed `rows`, so with a limit of 200 against 940
+    // customers the headline read "0 conversations" while 499 sessions sat in
+    // the table. A total that quietly means "total of what I happened to fetch"
+    // is the exact denominator error this console exists to stop.
+    //
+    // Checked WITHIN one response rather than against a second query: the suite
+    // shares a database and other files insert sessions while this runs, so
+    // comparing to a separately-read count would be racy and would fail for a
+    // reason that has nothing to do with the property under test.
+    const res = await appAs(OPERATOR).request("/ops/deployed-agents?limit=1");
+    const body = (await res.json()) as {
+      rows: { sessions: number; turns: number; openGaps: number; live: boolean }[];
+      totals: { sessions: number; turns: number; live: number; openGaps: number; deflectionRate: number | null };
+      totalCustomers: number;
+    };
+    expect(body.rows.length).toBeLessThanOrEqual(1);
+    expect(body.totalCustomers).toBeGreaterThan(body.rows.length);
+
+    const pageSessions = body.rows.reduce((n, r) => n + r.sessions, 0);
+    const pageTurns = body.rows.reduce((n, r) => n + r.turns, 0);
+    // ⛔ THE assertion: the totals cannot have come from this page.
+    expect(body.totals.sessions).toBeGreaterThan(pageSessions);
+    expect(body.totals.turns).toBeGreaterThan(pageTurns);
+    expect(body.totals.live).toBeGreaterThanOrEqual(body.rows.filter((r) => r.live).length);
+
+    // And the deflection rate is derived from the same population.
+    if (body.totals.turns === 0) expect(body.totals.deflectionRate).toBeNull();
+    else {
+      expect(body.totals.deflectionRate).not.toBeNull();
+      expect(body.totals.deflectionRate!).toBeLessThanOrEqual(1);
+    }
+  });
+});

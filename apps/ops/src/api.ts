@@ -203,6 +203,10 @@ export interface DeployedAgentRow {
 }
 export interface DeployedBoard {
   rows: DeployedAgentRow[]; totalCustomers: number; liveCount: number; asOf: string;
+  totals: {
+    live: number; sessions: number; turns: number;
+    answeredFromPack: number; openGaps: number; deflectionRate: number | null;
+  };
 }
 
 // ── Outreach ──────────────────────────────────────────────────────────────

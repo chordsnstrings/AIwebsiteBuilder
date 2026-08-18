@@ -480,3 +480,11 @@ input::placeholder { color: var(--ink-3); }
   color: var(--accent); font: inherit; text-align: left;
 }
 .linklike:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+/* Funnel bar. Taller than the 2px `.figure-bar` used inside a figure tile —
+   in a wide table cell that hairline is invisible, which makes the column
+   decorative rather than informative. */
+.funnel-bar { display: block; height: var(--s0); background: var(--surface-sunk); min-width: 120px; }
+.funnel-bar span { display: block; height: 100%; background: var(--accent); }
+.funnel-bar span[data-tone="bad"] { background: var(--bad); }
+.funnel-stage { white-space: nowrap; }

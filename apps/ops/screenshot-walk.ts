@@ -31,6 +31,9 @@ const PASSWORD = "correct horse battery staple";
 const ROUTES: { hash: string; name: string; waitFor: string }[] = [
   { hash: "#/", name: "01-now", waitFor: ".coverage" },
   { hash: "#/customers", name: "02-customers", waitFor: ".family-strip, .empty" },
+  { hash: "#/outreach", name: "02b-outreach", waitFor: "table.data, .empty" },
+  { hash: "#/agents", name: "02c-agents", waitFor: "table.data, .empty" },
+  { hash: "#/deployed", name: "02d-deployed", waitFor: "table.data, .empty" },
   { hash: "#/acquisition", name: "03-acquisition", waitFor: "table.data, .empty" },
   { hash: "#/fleet", name: "04-fleet", waitFor: ".figures" },
   { hash: "#/models", name: "05-models", waitFor: "table.data, .empty" },

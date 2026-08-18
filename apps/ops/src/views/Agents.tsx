@@ -307,44 +307,46 @@ export function DeployedAgents() {
       <Board what="The deployed agents" result={board}>
         {(data) => {
           const rows = onlyBlocked ? data.rows.filter((r) => !r.live) : data.rows;
-          const turns = data.rows.reduce((n, r) => n + r.turns, 0);
-          const deflected = data.rows.reduce((n, r) => n + r.answeredFromPack, 0);
+          // ⛔ From `totals`, computed in SQL across every customer — never
+          // summed from `rows`, which is one page. Summing the page reported
+          // "0 conversations" over a database holding 499 sessions.
+          const t = data.totals;
           return (
             <>
               <section className="section">
                 <Figures>
                   <FigureTile
                     label="Agents live"
-                    value={`${data.liveCount} / ${data.totalCustomers}`}
+                    value={`${t.live} / ${data.totalCustomers}`}
                     evidence="a knowledge base, an approved pack and a resolved vertical — all three"
-                    of={{ used: data.liveCount, cap: Math.max(1, data.totalCustomers) }}
+                    of={{ used: t.live, cap: Math.max(1, data.totalCustomers) }}
                   />
                   <FigureTile
                     label="Conversations"
-                    value={data.rows.reduce((n, r) => n + r.sessions, 0).toLocaleString()}
-                    evidence={`${turns.toLocaleString()} turns across all customers`}
+                    value={t.sessions.toLocaleString()}
+                    evidence={`${t.turns.toLocaleString()} turns · every customer, not this page`}
                   />
                   <FigureTile
                     label="Answered from the pack"
                     // ⛔ Null over zero turns, and refusals and protocol replies
                     // are excluded — counting those as deflection would inflate
                     // the one number this screen exists to report.
-                    value={turns === 0 ? null : `${((deflected / turns) * 100).toFixed(1)}%`}
+                    value={t.deflectionRate === null ? null : `${(t.deflectionRate * 100).toFixed(1)}%`}
                     evidence={
-                      turns === 0
+                      t.turns === 0
                         ? "no turns recorded — nothing to measure"
-                        : `${deflected.toLocaleString()} of ${turns.toLocaleString()} · refusals and protocol replies excluded`
+                        : `${t.answeredFromPack.toLocaleString()} of ${t.turns.toLocaleString()} · refusals and protocol replies excluded`
                     }
                   />
                   <FigureTile
                     label="Open knowledge gaps"
-                    value={data.rows.reduce((n, r) => n + r.openGaps, 0)}
+                    value={t.openGaps.toLocaleString()}
                     evidence="questions asked that the pack could not answer"
                   />
                 </Figures>
               </section>
 
-              {data.liveCount === 0 && data.totalCustomers > 0 ? (
+              {t.live === 0 && data.totalCustomers > 0 ? (
                 <div className="failed" style={{ marginBottom: "var(--s2)" }}>
                   Not one customer agent can answer. Every customer is paying for a product that is
                   silently switched off — check the blocking reasons below before anything else.
@@ -353,7 +355,7 @@ export function DeployedAgents() {
 
               <section className="section">
                 <Eyebrow
-                  count={`${rows.length}/${data.rows.length}`}
+                  count={`${rows.length}/${data.totalCustomers}`}
                   note={
                     <label style={{ display: "inline-flex", gap: "var(--s0)", alignItems: "center", cursor: "pointer" }}>
                       <input

@@ -144,7 +144,7 @@ function Funnel({ stages }: { stages: FunnelStage[] }) {
           <tbody>
             {stages.map((s) => (
               <tr key={s.key}>
-                <td>
+                <td className="funnel-stage">
                   {s.label}
                   {s.violatesSubset ? (
                     <span className="cell-sub" style={{ color: "var(--bad)" }}>
@@ -159,7 +159,7 @@ function Funnel({ stages }: { stages: FunnelStage[] }) {
                 <td>
                   {/* A bar, not a chart: the comparison that matters is against
                       the cohort, and one length per row says it exactly. */}
-                  <span className="figure-bar" style={{ marginTop: 0 }}>
+                  <span className="funnel-bar">
                     <span
                       style={{ width: top === 0 || s.count < 0 ? "0%" : `${(s.count / top) * 100}%` }}
                       {...(s.violatesSubset ? { "data-tone": "bad" } : {})}
