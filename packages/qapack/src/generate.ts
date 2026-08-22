@@ -123,7 +123,7 @@ export async function generateQAPack(
 ): Promise<QAPack> {
   const embeddings = deps.embeddings ?? localEmbeddingProvider;
   const now = deps.now?.() ?? new Date();
-  const id = packId(kb.businessId, kb.version);
+  const id = packId(kb.id, kb.version);
 
   // A claimed-but-unverified certification is never a source. The agent may not
   // assert it (§21.2), and an answer built on it would be exactly that.

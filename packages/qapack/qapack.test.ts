@@ -291,7 +291,7 @@ describe("generateQAPack shape", () => {
     const base = kb(richFacts());
     const first = await generateQAPack(base, ROOFING, { now: () => new Date("2026-01-01T00:00:00Z") });
     const second = await generateQAPack(base, ROOFING, { now: () => new Date("2027-06-06T12:00:00Z") });
-    expect(first.id).toBe(packId(base.businessId, base.version));
+    expect(first.id).toBe(packId(base.id, base.version));
     expect(second.id).toBe(first.id);
     expect(first.pairs.map((p) => p.id)).toEqual(second.pairs.map((p) => p.id));
   });

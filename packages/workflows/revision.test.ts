@@ -243,6 +243,29 @@ describe("onboarding — revision rounds run before the domain is registered", (
     expect(calls.order).toContain("send_delivery_email");
   });
 
+  it("⛔ the delivery email precedes the cutover window, not the far side of it", async () => {
+    // The header promises the cutover is off the critical path — and delivery
+    // used to sit BEHIND a ten-day cutover_approved wait, with the dashboard
+    // provisioned later still. The customer could not approve a cutover for a
+    // site nobody had told them existed, from a dashboard that did not exist.
+    const clock = new TestClock(0);
+    const { engine, calls } = onboardingEngine(clock);
+    const id = nextId("onb-order");
+    await engine.start("onboarding", id, ONBOARD);
+    await engine.signal(id, "approved", { approvedBy: "customer" });
+    // Delivery and the dashboard happen NOW, with no cutover signal ever sent.
+    expect(calls.order).toContain("send_delivery_email");
+    expect(calls.order).toContain("provision_dashboard");
+    expect(calls.order).not.toContain("cutover_dns");
+    // The customer asks for their domain afterwards, and only then does DNS move.
+    await engine.signal(id, "cutover_approved", { domain: "example.com" });
+    await drive(clock, engine);
+    expect(calls.order.indexOf("send_delivery_email")).toBeLessThan(calls.order.indexOf("cutover_dns"));
+    const res = await engine.result<{ delivered: boolean; cutover: string }>(id);
+    expect(res.delivered).toBe(true);
+    expect(res.cutover).toBe("completed");
+  });
+
   it("an explicit approval ends the loop and proceeds straight to the domain step", async () => {
     const clock = new TestClock(0);
     const { engine, calls } = onboardingEngine(clock);

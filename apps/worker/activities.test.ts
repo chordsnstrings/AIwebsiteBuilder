@@ -17,7 +17,7 @@ import { seedRegistry, setChampion, type RoleId } from "@adw/registry";
 import { config } from "@adw/config";
 import { Engine } from "@adw/workflows";
 import { embedText, persistQAPack, type QAPack } from "@adw/qapack";
-import { resolveObjectStore } from "@adw/vendors";
+import { getEmailTransport, resolveObjectStore } from "@adw/vendors";
 import { recipientClock, registerActivities } from "./src/activities.ts";
 
 const URL = process.env.DATABASE_ADMIN_URL ?? "postgres://adw_admin@127.0.0.1:5433/adw_test";
@@ -489,5 +489,116 @@ describe("⛔ the paid build ships the product", () => {
     const html = await renderedSite(fx);
     expect(html).toContain("Ridgeline Roofing");
     expect(html).not.toContain("adw-agent-form");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ⛔ The delivery email — the one email the entire pipeline exists to send.
+//
+// It read `live${domain ? ` at https://${domain}` : ""}`, and the onboarding
+// workflow's own header says the DNS cutover is off the critical path by
+// design — so for the ordinary customer `domain` was NULL and the email said
+// "Your website is live." with no address in it. A paying customer, at the
+// moment of delivery, with nothing to click. The same defect as the cold email
+// that carried no preview link, one stage later and paid for.
+// ---------------------------------------------------------------------------
+describe("⛔ the delivery email contains the website", () => {
+  // `db` is assigned in the file-level beforeAll, so the engine is built
+  // lazily — constructing it at module evaluation captures `undefined`.
+  let engine: Engine;
+  beforeAll(() => {
+    engine = new Engine({ db, owner: "test:worker:delivery" });
+    registerActivities(engine, { db, vault, forceMock: true });
+  });
+
+  async function seedDelivered(opts: { domain?: string; deployed?: boolean } = {}): Promise<{
+    customerId: string;
+    email: string;
+    deployedUrl: string | null;
+  }> {
+    const batch = await db.one<{ id: string }>(
+      "INSERT INTO ingest_batches (vendor, licence_ref, record_count, cost_cents, checksum) VALUES ('d','LIC',1,0,'x') RETURNING id",
+    );
+    const biz = await db.one<{ id: string }>(
+      `INSERT INTO businesses (source_vendor, source_batch_id, name, category, city, country_code, region_code, segment)
+       VALUES ('d',$1,'Ridgeline Roofing','roofer','Boise','US','R1','stale_site') RETURNING id`,
+      [batch.id],
+    );
+    const email = `delivery_${randomUUID()}@example.com`;
+    const customer = await db.one<{ id: string }>(
+      `INSERT INTO customers (business_id, region_code, legal_name, contact_email, locale, timezone, status, domain)
+       VALUES ($1,'R1','Ridgeline Roofing',$2,'en-US','UTC','active',$3) RETURNING id`,
+      [biz.id, email, opts.domain ?? null],
+    );
+    let deployedUrl: string | null = null;
+    if (opts.deployed !== false) {
+      deployedUrl = `https://ridgeline-${randomUUID().slice(0, 8)}.pages.dev`;
+      await db.query(
+        `INSERT INTO builds (business_id, customer_id, mode, role_chain, first_pass, gate_results, cost_cents,
+                             artefact_r2_key, deployed_url)
+         VALUES ($1,$2,'full','["developer"]'::jsonb,true,'{}'::jsonb,0,$3,$4)`,
+        [biz.id, customer.id, `builds/${randomUUID()}.html`, deployedUrl],
+      );
+    }
+    return { customerId: customer.id, email, deployedUrl };
+  }
+
+  /** What actually left through the transport, for this recipient. */
+  function deliveredTo(email: string): { subject: string; body: string } | undefined {
+    const transport = getEmailTransport("aws_ses") as unknown as {
+      sentMessages(): readonly { to: string; subject: string; body: string }[];
+    };
+    return [...transport.sentMessages()].reverse().find((m) => m.to === email);
+  }
+
+  it("⛔ carries the deployed site URL for a subdomain customer", async () => {
+    // The ordinary case: no cutover, domain NULL. This is the customer the old
+    // body gave nothing to click.
+    const fx = await seedDelivered();
+    const out = (await engine.runActivity("send_delivery_email", { customerId: fx.customerId })) as { sent: boolean };
+    expect(out.sent).toBe(true);
+    const mail = deliveredTo(fx.email);
+    expect(mail, "nothing reached the transport").toBeDefined();
+    expect(mail!.body).toContain(fx.deployedUrl!);
+  });
+
+  it("prefers the customer's own domain once the cutover completed", async () => {
+    // Unique per run: customers.domain has a unique index, and a fixed name
+    // collides with the previous run's row on the shared database.
+    const domain = `ridgeline-${randomUUID().slice(0, 8)}.com`;
+    const fx = await seedDelivered({ domain });
+    await engine.runActivity("send_delivery_email", { customerId: fx.customerId });
+    const mail = deliveredTo(fx.email)!;
+    expect(mail.body).toContain(`https://${domain}`);
+  });
+
+  it("⛔ refuses to announce a site that was never deployed", async () => {
+    // The workflow guarantees deploy_customer_site ran first, so a missing
+    // deployed URL means the deploy silently failed. Announcing "live" anyway
+    // is the lie this system keeps almost telling; a person gets it instead.
+    const fx = await seedDelivered({ deployed: false });
+    const out = (await engine.runActivity("send_delivery_email", { customerId: fx.customerId })) as {
+      sent: boolean;
+      reason?: string;
+    };
+    expect(out.sent).toBe(false);
+    expect(out.reason).toBe("no_deployed_site");
+    expect(deliveredTo(fx.email), "an email with no site in it went out anyway").toBeUndefined();
+    const exc = await db.maybeOne(
+      `SELECT 1 AS x FROM exceptions WHERE trigger = 'delivery_without_deploy' AND context->>'customerId' = $1`,
+      [fx.customerId],
+    );
+    expect(exc, "the failed delivery reached nobody").not.toBeNull();
+  });
+
+  it("tells the customer when booking shipped disabled", async () => {
+    // The workflow has always passed bookingSkipped; the activity's input type
+    // silently dropped it. The customer must hear it from us before a visitor
+    // asks them why online booking "doesn't work".
+    const fx = await seedDelivered();
+    await engine.runActivity("send_delivery_email", { customerId: fx.customerId, bookingSkipped: true });
+    const mail = deliveredTo(fx.email)!;
+    expect(mail.body.toLowerCase()).toContain("booking is not enabled");
+    expect(mail.body.toLowerCase()).toContain("calendar");
   });
 });

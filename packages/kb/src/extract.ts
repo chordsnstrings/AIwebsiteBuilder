@@ -382,7 +382,21 @@ export async function extractKnowledgeBase(input: ExtractInput, deps: ExtractDep
 
   const siteHash = sha256Hex(...kept.map((p) => `${p.url}#${sha256Hex(normalizeValue(p.text))}`).sort());
   const gbpHash = input.gbp === undefined ? "none" : gbpFingerprint(input.gbp);
-  const kbId = deterministicUuid(input.businessId, "kb", siteHash, gbpHash);
+  // ⛔ THE OWNER IS PART OF THE IDENTITY, not an accident of content hashing.
+  // Without the scope term, a customer's deep knowledge base whose crawl saw
+  // the same content as the speculative preview crawl hashed to the SAME id —
+  // and `persistKnowledgeBase` is ON CONFLICT DO NOTHING, so the deep persist
+  // silently kept the preview row: customer NULL, version 1. Everything
+  // downstream inherited the confusion: `buildPack` re-loaded that shallow row,
+  // derived the PREVIEW pack's id from it, collided with the speculatively
+  // approved preview pack, and the paying customer's agent shipped answering
+  // from the shallow crawl under a policy approval no owner ever signed. A
+  // speculative KB and a customer's KB are different artefacts even over
+  // identical bytes — different retention, different approval lifecycle,
+  // different DSAR obligations — so they get different ids. Idempotency is
+  // untouched: re-extracting the same content for the same owner is still the
+  // same id, and a re-run is still a no-op.
+  const kbId = deterministicUuid(input.businessId, "kb", input.customerId ?? "speculative", siteHash, gbpHash);
 
   const raw = await deps.extract(kept, input.gbp, input.reviews);
   for (const answer of input.onboarding ?? []) {

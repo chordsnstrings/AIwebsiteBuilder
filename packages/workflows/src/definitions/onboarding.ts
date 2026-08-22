@@ -1,8 +1,8 @@
 // Sale, onboarding and delivery — Pipeline C (spec §47, agent-workflow §4).
 //
 //   payment → deep KB → deep pack → build → revisions → agent activation
-//           → AGENT EVAL GATE → deploy → DNS cutover → integration verify
-//           → delivery email
+//           → AGENT EVAL GATE → deploy → integration verify → DELIVERY EMAIL
+//           → dashboard → DNS cutover (optional, after the customer has both)
 //
 // Two structural guarantees, both enforced by the shape of this function rather
 // than by a conditional an agent could influence:
@@ -53,8 +53,11 @@ export interface OnboardingOutput {
   revisionsApplied: number;
   /** False when the 30-case gate failed — delivery is then unreachable. */
   agentLive: boolean;
-  /** 'declined' and 'parked' are ordinary outcomes, not failures. */
-  cutover: "completed" | "declined" | "parked" | "reverted" | "not_attempted";
+  /** 'declined', 'parked' and 'halted' are ordinary outcomes, not failures —
+   *  'halted' means the cutover refused itself (e.g. no DNS snapshot exists for
+   *  the requested domain) and raised for a person, with the delivered site
+   *  untouched on its subdomain. */
+  cutover: "completed" | "declined" | "parked" | "reverted" | "halted" | "not_attempted";
 }
 
 interface EvalGateResult {
@@ -67,7 +70,11 @@ interface EvalGateResult {
 }
 
 interface CutoverResult {
-  status: "completed" | "reverted" | "parked";
+  // ⛔ Matches what the activity actually returns. "halted" (no snapshot for
+  // the requested domain — refused, exception raised) and "parked" (no domain
+  // to move) were being returned by the activity while this union claimed they
+  // could not be, and the out-of-union value flowed silently into the output.
+  status: "completed" | "reverted" | "parked" | "halted";
   mailRecordsChanged: boolean;
 }
 
@@ -142,11 +149,42 @@ export const onboardingWorkflow: WorkflowDefinition<OnboardingInput, OnboardingO
 
     await ctx.activity("deploy_customer_site", { ...scope, buildId });
 
-    // --- DNS cutover. Off the critical path by design ----------------------
     // The snapshot is taken BEFORE the customer is asked to change anything:
     // without a before-state there is no diff, and without a diff the safety
     // claim is a promise rather than a verified assertion.
     await ctx.activity("snapshot_dns", scope);
+
+    // Verification runs against the subdomain, which is the origin that is
+    // live right now. A declined cutover is a complete product, not a degraded
+    // one, so this is the check that gates delivery — not the cutover.
+    const verify = await ctx.activity<typeof scope, { ok: boolean }>("integration_verify", scope);
+    if (!verify.ok) {
+      await ctx.activity("raise_onboarding_exception", { ...scope, reason: "integration_verification_failed" });
+      return {
+        customerId: customer.customerId,
+        delivered: false,
+        revisionsApplied,
+        agentLive: true,
+        cutover: "not_attempted",
+      };
+    }
+
+    // ⛔ DELIVERY BEFORE THE CUTOVER WINDOW, NOT AFTER IT. This used to sit on
+    // the far side of a ten-day `cutover_approved` wait, with the dashboard
+    // provisioned later still — so the ordinary customer, the one the header
+    // above promises a complete product without touching their domain, was told
+    // their site was live TEN DAYS after it went live, and the dashboard
+    // holding the cutover-approval button did not exist during the only window
+    // in which approving was possible. The header's own guarantee, inverted by
+    // ordering: the cutover was off the critical path in every way except the
+    // one the customer experiences.
+    await ctx.activity("send_delivery_email", { ...scope, bookingSkipped: gate.bookingSkipped });
+    await ctx.activity("provision_dashboard", scope);
+
+    // --- DNS cutover. Off the critical path, and now genuinely so -----------
+    // The customer has the delivery email and a live dashboard; this parks
+    // waiting for them to ask for their own domain, and silence is an ordinary
+    // outcome that changes nothing they already have.
     const approvedCutover = await ctx.waitForSignal<{ domain: string }>(
       "cutover_approved",
       CUTOVER_APPROVAL_WINDOW_MS,
@@ -162,22 +200,11 @@ export const onboardingWorkflow: WorkflowDefinition<OnboardingInput, OnboardingO
       if (result.mailRecordsChanged) {
         // The worst thing this system can do to a customer. The activity has
         // already reverted; this raises the SEV1 and stops the flow announcing
-        // a successful delivery on top of it.
+        // a successful cutover on top of it.
         await ctx.activity("raise_onboarding_exception", { ...scope, reason: "mail_records_changed" });
       }
     }
 
-    // Integration verification is deterministic and runs against whichever
-    // origin is live — their domain if the cutover completed, the subdomain
-    // otherwise. A declined cutover is a complete product, not a degraded one.
-    const verify = await ctx.activity<typeof scope, { ok: boolean }>("integration_verify", scope);
-    if (!verify.ok) {
-      await ctx.activity("raise_onboarding_exception", { ...scope, reason: "integration_verification_failed" });
-      return { customerId: customer.customerId, delivered: false, revisionsApplied, agentLive: true, cutover };
-    }
-
-    await ctx.activity("send_delivery_email", { ...scope, bookingSkipped: gate.bookingSkipped });
-    await ctx.activity("provision_dashboard", scope);
     return { customerId: customer.customerId, delivered: true, revisionsApplied, agentLive: true, cutover };
   },
 };

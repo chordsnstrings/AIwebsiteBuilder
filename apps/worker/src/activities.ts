@@ -834,15 +834,53 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
     return { ok: html !== null && /<form/i.test(html) };
   });
 
-  on("send_delivery_email", async (input: { customerId: string }) => {
-    const customer = await db.one<{ contact_email: string; legal_name: string; domain: string | null }>(
-      "SELECT contact_email::text AS contact_email, legal_name, domain FROM customers WHERE id = $1",
+  on("send_delivery_email", async (input: { customerId: string; bookingSkipped?: boolean }) => {
+    const customer = await db.one<{
+      contact_email: string;
+      legal_name: string;
+      domain: string | null;
+      country_code: string | null;
+    }>(
+      `SELECT cu.contact_email::text AS contact_email, cu.legal_name, cu.domain, b.country_code
+         FROM customers cu JOIN businesses b ON b.id = cu.business_id
+        WHERE cu.id = $1`,
       [input.customerId],
     );
-    const blocks = legalBlocks("US");
+
+    // ⛔ THE EMAIL MUST CONTAIN THE WEBSITE. This used to read
+    // `live${domain ? ` at https://${domain}` : ""}` — and the workflow's own
+    // header says the DNS cutover is off the critical path by design, so for
+    // the ordinary customer `domain` is NULL and the delivery email announced
+    // "Your website is live." with no address at all. The one email the entire
+    // pipeline exists to send, the moment a paying customer is handed what they
+    // bought, and there was nothing in it to click. Same defect as the cold
+    // email with no preview link, one stage later and paid for.
+    //
+    // Their own domain when the cutover completed; otherwise the deployed
+    // subdomain that `deploy_customer_site` wrote one workflow step earlier.
+    const build = await db.maybeOne<{ deployed_url: string }>(
+      `SELECT deployed_url FROM builds
+        WHERE customer_id = $1 AND deployed_url IS NOT NULL
+        ORDER BY created_at DESC LIMIT 1`,
+      [input.customerId],
+    );
+    const siteUrl = customer.domain ? `https://${customer.domain}` : (build?.deployed_url ?? null);
+    if (siteUrl === null) {
+      // The workflow guarantees deploy_customer_site ran before this step, so
+      // no deployed URL means the deploy silently failed. Telling the customer
+      // their site is live anyway — with no address — is the lie this system
+      // keeps almost telling; a person gets it instead.
+      await raise(db, "delivery_without_deploy", 2, { customerId: input.customerId });
+      return { sent: false, reason: "no_deployed_site" };
+    }
+
+    // The customer's jurisdiction, not "US" for everyone: the guarantee wording
+    // and the sender block are legal text, and legal text follows the recipient.
+    const country = customer.country_code ?? "US";
+    const blocks = legalBlocks(country);
     const message: OutboundMessage = {
       emailHash: emailHash(customer.contact_email),
-      countryCode: "US",
+      countryCode: country,
       subscriberType: "corporate",
       channel: "email",
       // Transactional, not cold: a customer who bought a site is entitled to be
@@ -854,10 +892,26 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
       localHour: 10,
       localWeekday: 2,
       body: [
-        `Your website is live${customer.domain ? ` at https://${customer.domain}` : ""}.`,
+        `Your website is live: ${siteUrl}`,
+        "",
+        `It answers questions itself — try asking it what you charge or what areas you cover.`,
+        // ⛔ The workflow has always passed `bookingSkipped` and this activity's
+        // input type silently dropped it. When no calendar is connected the
+        // agent ships with booking disabled, and the customer must hear that
+        // from us before a visitor asks them why online booking "doesn't work".
+        ...(input.bookingSkipped === true
+          ? ["", "Online booking is not enabled yet — connect your calendar from your dashboard to switch it on."]
+          : []),
         "",
         blocks["guarantee"] ?? "",
         `${legal().entity}, ${legal().postal_address}`,
+        // ⛔ An obligation, not decoration. Every jurisdiction's transactional
+        // obligations include a privacy notice link, and the gate's
+        // required-elements rule checks the BODY for it materially. The old
+        // body did not carry one — so the gate denied this send on
+        // rule_10_required_elements for every customer ever delivered, and the
+        // "your website is live" email has never actually left this system.
+        `Privacy: ${legal().privacy_url}`,
       ].join("\n"),
       headers: { From: brandSender() },
     };
@@ -873,6 +927,17 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
       },
       { db },
     );
+    // ⛔ A blocked delivery email must reach a person. The workflow ignores
+    // this return by design — the SITE is live either way — which is exactly
+    // why a denial here was invisible: gatedSend refused every delivery email
+    // for its missing privacy link, the activity shrugged, and onboarding
+    // reported delivered=true while no customer ever received the announcement.
+    if (!result.sent) {
+      await raise(db, "delivery_email_blocked", 2, {
+        customerId: input.customerId,
+        reason: result.reason ?? "unknown",
+      });
+    }
     return { sent: result.sent };
   });
 
@@ -1177,7 +1242,13 @@ export function registerActivities(engine: Engine, deps: ActivityDeps): void {
 
     // An unapproved pack cannot be measured, and reaching here with one means
     // the owner sign-off step was skipped upstream.
-    if (!(pack.approvedAt instanceof Date)) {
+    //
+    // ⛔ OWNER approval specifically, not any approval. The timestamp alone is
+    // not the signature: a speculative pack carries approved_at too, stamped on
+    // policy so a preview can answer, and a pack-id collision put exactly that
+    // stamp in front of this gate — which read it as the owner having signed.
+    // The kind is the fact that matters, here as in `loadLiveAgent`.
+    if (!(pack.approvedAt instanceof Date) || pack.approvalKind !== "owner") {
       return { verdict: "fail", passed: 0, total: 0, bookingSkipped: false, reason: "pack_not_approved" };
     }
 

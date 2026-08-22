@@ -16,9 +16,24 @@ function uuidFrom(parts: readonly string[]): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-/** Stable UUID for a pack built from this business at this KB version. */
-export function packId(businessId: string, kbVersion: number): string {
-  return uuidFrom([businessId, "qapack", String(kbVersion)]);
+/**
+ * Stable UUID for a pack built from THIS knowledge base at this version.
+ *
+ * ⛔ Keyed on the KB id, not the business id. A business has more than one
+ * knowledge base — the shallow preview crawl and the deep paid crawl — and the
+ * old key sha256(businessId | 'qapack' | version) hashed both to the SAME uuid.
+ * The deep pack's persist then collided with the preview pack's row via
+ * ON CONFLICT (id) DO UPDATE, which touches neither kb_id nor customer_id: the
+ * paying customer's "deep pack" was the preview row wearing a new pair count —
+ * still built from the shallow crawl, still customer-less, and still carrying
+ * the SPECULATIVE approval stamped for the preview. The eval gate then read
+ * that policy approval as if it were the owner's signature. Idempotency is
+ * preserved — rebuilding the same KB at the same version is still a no-op —
+ * but two different knowledge bases are now two different packs, which is what
+ * they always were.
+ */
+export function packId(kbId: string, kbVersion: number): string {
+  return uuidFrom([kbId, "qapack", String(kbVersion)]);
 }
 
 /**
