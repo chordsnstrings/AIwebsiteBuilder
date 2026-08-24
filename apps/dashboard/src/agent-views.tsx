@@ -12,7 +12,14 @@
 // waiting rather than a task, and the DNS diff promises their email never moved.
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Badge, Card, Reveal } from "@adw/ui";
-import { customerIdFromUrl, dashboardApi, DEMO_CUSTOMER_ID } from "./api.ts";
+import {
+  customerIdFromUrl,
+  dashboardApi,
+  DEMO_CUSTOMER_ID,
+  isDemo,
+  type ApiEnquiry,
+} from "./api.ts";
+import { DemoBanner, Live, Unreachable, useLive } from "./live.tsx";
 
 // ---------------------------------------------------------------------------
 // Seed data. The dashboard renders instantly against these and upgrades if the
@@ -178,73 +185,142 @@ const urgencyTone = (u: Enquiry["urgency"]): "bad" | "warn" | "ok" =>
 // Enquiries — ranked by urgency, never by recency
 // ---------------------------------------------------------------------------
 
-export function EnquiriesView({ items = seedEnquiries }: { items?: Enquiry[] }) {
-  const [open, setOpen] = useState<string | null>(items[0]?.id ?? null);
+/**
+ * ⛔ THE PANEL THAT WAS LYING.
+ *
+ * `commitEnquiry` has written these rows correctly since the concierge shipped
+ * and nothing in the repository ever read the table — no route, no job, no
+ * SELECT anywhere. This view rendered `seedEnquiries`, a fixture, to every
+ * owner who opened it. Meanwhile the agent told the visitor, in words, that it
+ * had passed their details on.
+ *
+ * It now reads `/agent/:customerId/enquiries`, and it can move one along:
+ * "called back" and "done" are the two things an owner actually does with a
+ * lead, and a queue nothing can be cleared from is a list.
+ */
+export function EnquiriesView() {
+  const state = useLive((id) => dashboardApi.listEnquiries(id), {
+    enquiries: seedEnquiries.map(toApiShape),
+    summary: { open: seedEnquiries.length, emergency: 1, unnotified: 0 },
+  });
+  const [acted, setActed] = useState<Record<string, "contacted" | "closed">>({});
+  const [open, setOpen] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
 
-  // Urgency first. A flooding kitchen from this morning outranks a quote
-  // request from ten minutes ago, and sorting by time would bury it.
-  const ranked = useMemo(() => {
-    const weight = { emergency: 0, urgent: 1, normal: 2 } as const;
-    return [...items].sort((a, b) => weight[a.urgency] - weight[b.urgency]);
-  }, [items]);
+  const act = async (id: string, what: "contacted" | "closed", isDemoData: boolean) => {
+    if (isDemoData) return;
+    setBusy(id);
+    const res = what === "contacted"
+      ? await dashboardApi.markEnquiryContacted(id)
+      : await dashboardApi.resolveEnquiry(id);
+    setBusy(null);
+    // ⛔ Only reflect it on screen if the API actually took it. An optimistic
+    // update that survives a failed request is how an owner comes to believe
+    // they called someone back.
+    if (res.ok) setActed((prev) => ({ ...prev, [id]: what }));
+  };
 
   return (
     <>
       <Head
         title="Enquiries"
-        sub="Everything the agent captured, most urgent first. The full conversation is here — you can see exactly what was said before you call back."
+        sub="Everything the agent captured, most urgent first. Mark one off when you have called them back."
       />
-      {ranked.length === 0 ? (
-        <Empty>Nothing yet. Enquiries land here the moment your agent captures one.</Empty>
-      ) : (
-        <div className="adw-col" style={{ gap: 12 }}>
-          {ranked.map((e, i) => (
-            <Reveal key={e.id} stagger={i}>
-              <Card>
-                <div className="adw-spread">
-                  <div>
-                    <div className="adw-row" style={{ gap: 8, alignItems: "center" }}>
-                      <strong>{e.name}</strong>
-                      <Badge tone={urgencyTone(e.urgency)}>{e.urgency}</Badge>
-                    </div>
-                    <p style={{ margin: "6px 0 0", maxWidth: "60ch" }}>{e.need}</p>
-                    <div className="adw-muted" style={{ fontSize: "0.85rem", marginTop: 6 }}>
-                      {e.contact} · {e.channel} · {e.at}
-                    </div>
-                  </div>
-                  <button
-                    className="adw-btn adw-ghost"
-                    onClick={() => setOpen(open === e.id ? null : e.id)}
-                    aria-expanded={open === e.id}
-                  >
-                    {open === e.id ? "Hide" : "Transcript"}
-                  </button>
+      <Live state={state}>
+        {(data, isDemoData) => {
+          const rows = data.enquiries
+            .map((e) => ({ ...e, status: acted[e.id] ?? e.status }))
+            .filter((e) => e.status !== "closed");
+          if (rows.length === 0) {
+            return <Empty>Nothing waiting. Enquiries land here the moment your agent captures one.</Empty>;
+          }
+          return (
+            <>
+              {isDemoData && <DemoBanner />}
+              {data.summary.emergency > 0 && (
+                <div className="adw-notice adw-notice-warn" role="status" style={{ marginBottom: 14 }}>
+                  <strong>
+                    {data.summary.emergency} emergency {data.summary.emergency === 1 ? "enquiry" : "enquiries"} waiting.
+                  </strong>
                 </div>
-                {open === e.id && (
-                  <div className="adw-col" style={{ gap: 8, marginTop: 14 }}>
-                    {e.transcript.map((t, n) => (
-                      <div
-                        key={n}
-                        style={{
-                          alignSelf: t.who === "visitor" ? "flex-start" : "flex-end",
-                          maxWidth: "80%",
-                          padding: "8px 12px",
-                          borderRadius: 12,
-                          background: t.who === "visitor" ? "var(--adw-surface-2, #f2f5f9)" : "var(--adw-accent-soft, #e8f0ff)",
-                        }}
-                      >
-                        {t.text}
+              )}
+              <div className="adw-col" style={{ gap: 12 }}>
+                {rows.map((e, i) => (
+                  <Reveal key={e.id} stagger={i}>
+                    <Card>
+                      <div className="adw-spread">
+                        <div>
+                          <div className="adw-row" style={{ gap: 8, alignItems: "center" }}>
+                            <strong>{e.name ?? "Someone"}</strong>
+                            <Badge tone={urgencyTone(e.urgency)}>{e.urgency}</Badge>
+                            {e.status === "contacted" && <Badge tone="ok">called back</Badge>}
+                          </div>
+                          <p style={{ margin: "6px 0 0", maxWidth: "60ch" }}>{e.need}</p>
+                          <div className="adw-muted" style={{ fontSize: "0.85rem", marginTop: 6 }}>
+                            {/* The number is the point of the screen. */}
+                            <strong style={{ color: "var(--adw-text)" }}>{e.contact}</strong>
+                            {" · "}
+                            {new Date(e.createdAt).toLocaleString()}
+                          </div>
+                        </div>
+                        <div className="adw-row" style={{ gap: 8 }}>
+                          {e.status === "open" && (
+                            <button
+                              className="adw-btn adw-ghost adw-sm"
+                              disabled={busy === e.id || isDemoData}
+                              onClick={() => void act(e.id, "contacted", isDemoData)}
+                            >
+                              Called back
+                            </button>
+                          )}
+                          <button
+                            className="adw-btn adw-sm"
+                            disabled={busy === e.id || isDemoData}
+                            onClick={() => void act(e.id, "closed", isDemoData)}
+                          >
+                            Done
+                          </button>
+                          <button
+                            className="adw-btn adw-ghost adw-sm"
+                            onClick={() => setOpen(open === e.id ? null : e.id)}
+                            aria-expanded={open === e.id}
+                          >
+                            {open === e.id ? "Hide" : "Details"}
+                          </button>
+                        </div>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </Card>
-            </Reveal>
-          ))}
-        </div>
-      )}
+                      {open === e.id && (
+                        <div className="adw-muted" style={{ marginTop: 14, fontSize: "0.86rem" }}>
+                          <div>Captured {new Date(e.createdAt).toLocaleString()}</div>
+                          <div>
+                            {/* ⛔ Says plainly whether we managed to email them. An
+                                owner who thinks they were notified and was not will
+                                not go looking. */}
+                            {e.notifiedAt === null
+                              ? "We have not been able to email you about this one — it is here on the dashboard instead."
+                              : `We emailed you about this at ${new Date(e.notifiedAt).toLocaleString()}.`}
+                          </div>
+                        </div>
+                      )}
+                    </Card>
+                  </Reveal>
+                ))}
+              </div>
+            </>
+          );
+        }}
+      </Live>
     </>
   );
+}
+
+/** Renders the design-review fixtures through the live shape. */
+function toApiShape(e: Enquiry): ApiEnquiry {
+  return {
+    id: e.id, name: e.name, need: e.need, contact: e.contact, urgency: e.urgency,
+    status: "open", createdAt: new Date().toISOString(), notifiedAt: new Date().toISOString(),
+    resolvedAt: null, resolvedBy: null, sessionId: null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -258,17 +334,24 @@ export function GapsView({ items = seedGaps }: { items?: Gap[] }) {
   const [saving, setSaving] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
 
-  // First paint is the fixtures, always; the live list replaces them once it
-  // arrives. Nothing here blocks rendering, which is the whole reason the panel
-  // opens instantly on a phone in a van.
+  // ⛔ For a REAL customer the fixtures are never shown. They used to be the
+  // first paint and the permanent fallback, so a failed request left Bright
+  // Plumbing's sample questions on a paying owner's screen indefinitely. Now the
+  // panel loads, and says so if it cannot.
+  const [unreachable, setUnreachable] = useState(false);
   useEffect(() => {
     const customerId = customerIdFromUrl();
     if (customerId === DEMO_CUSTOMER_ID) return;
-    let live = true;
-    void dashboardApi.listGaps(customerId).then((data) => {
-      if (!live || data === null) return;
+    let alive = true;
+    setGaps([]);
+    void dashboardApi.listGaps(customerId).then((res) => {
+      if (!alive) return;
+      if (!res.live) {
+        setUnreachable(true);
+        return;
+      }
       setGaps(
-        data.gaps.map((g) => ({
+        res.data.gaps.map((g) => ({
           id: g.id,
           question: g.question,
           timesAsked: g.timesAsked,
@@ -279,7 +362,7 @@ export function GapsView({ items = seedGaps }: { items?: Gap[] }) {
       );
     });
     return () => {
-      live = false;
+      alive = false;
     };
   }, []);
 
@@ -315,7 +398,9 @@ export function GapsView({ items = seedGaps }: { items?: Gap[] }) {
         sub="Real questions from real visitors that your published information doesn't cover. Answer one and your agent knows it from then on — it never guesses on its own."
       />
 
-      {open.length === 0 ? (
+      {unreachable ? (
+        <Unreachable />
+      ) : open.length === 0 ? (
         <Empty>No open gaps. Your agent answered everything it was asked.</Empty>
       ) : (
         <div className="adw-col" style={{ gap: 12 }}>
@@ -407,40 +492,198 @@ export function GapsView({ items = seedGaps }: { items?: Gap[] }) {
 // Bookings
 // ---------------------------------------------------------------------------
 
-export function BookingsView({ items = seedBookings }: { items?: Booking[] }) {
+/**
+ * ⛔ There was a POST to take a slot, a POST to cancel one, and no GET at all,
+ * so a booking the agent accepted was invisible to the one person obliged to
+ * turn up for it. This screen showed fixtures.
+ */
+export function BookingsView() {
+  const state = useLive((id) => dashboardApi.listBookings(id), {
+    bookings: seedBookings.map((b, i) => ({
+      id: b.id,
+      start: new Date(Date.now() + (i + 1) * 86_400_000).toISOString(),
+      end: new Date(Date.now() + (i + 1) * 86_400_000 + 3_600_000).toISOString(),
+      contact: b.contact,
+      status: b.status,
+      resourceName: b.service,
+      createdAt: new Date().toISOString(),
+    })),
+  });
+  const [cancelled, setCancelled] = useState<Record<string, true>>({});
+
   return (
     <>
-      <Head title="Bookings" sub="Everything the agent put in your calendar. Two-way synced — move it in your calendar and it moves here." />
-      {items.length === 0 ? (
-        <Empty>No bookings yet.</Empty>
-      ) : (
-        <div className="adw-col" style={{ gap: 10 }}>
-          {items.map((b, i) => (
-            <Reveal key={b.id} stagger={i}>
-              <Card>
-                <div className="adw-spread">
-                  <div>
-                    <strong>{b.when}</strong>
-                    <div className="adw-muted" style={{ fontSize: "0.9rem", marginTop: 4 }}>
-                      {b.contact} · {b.service}
-                    </div>
-                  </div>
-                  <Badge tone={b.status === "confirmed" ? "ok" : b.status === "held" ? "warn" : "bad"}>{b.status}</Badge>
-                </div>
-              </Card>
-            </Reveal>
-          ))}
-        </div>
-      )}
+      <Head
+        title="Bookings"
+        sub="Everything the agent put in your diary, soonest first."
+      />
+      <Live state={state}>
+        {(data, isDemoData) => {
+          const rows = data.bookings.filter((b) => cancelled[b.id] === undefined);
+          if (rows.length === 0) return <Empty>Nothing booked yet.</Empty>;
+          return (
+            <>
+              {isDemoData && <DemoBanner />}
+              <div className="adw-col" style={{ gap: 10 }}>
+                {rows.map((b, i) => {
+                  const start = new Date(b.start);
+                  return (
+                    <Reveal key={b.id} stagger={i}>
+                      <Card>
+                        <div className="adw-spread">
+                          <div>
+                            <strong>
+                              {start.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}
+                              {" · "}
+                              {start.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                            </strong>
+                            <div className="adw-muted" style={{ fontSize: "0.9rem", marginTop: 4 }}>
+                              {b.contact ?? "No contact given"}
+                              {b.resourceName === null ? "" : ` · ${b.resourceName}`}
+                            </div>
+                          </div>
+                          <div className="adw-row" style={{ gap: 8, alignItems: "center" }}>
+                            <Badge tone={b.status === "confirmed" ? "ok" : b.status === "held" ? "warn" : "bad"}>
+                              {b.status}
+                            </Badge>
+                            <button
+                              className="adw-btn adw-ghost adw-sm"
+                              disabled={isDemoData}
+                              onClick={() => {
+                                void dashboardApi.cancelBooking(b.id).then((r) => {
+                                  // Only strike it off if the API took it.
+                                  if (r.ok) setCancelled((prev) => ({ ...prev, [b.id]: true }));
+                                });
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      </Card>
+                    </Reveal>
+                  );
+                })}
+              </div>
+            </>
+          );
+        }}
+      </Live>
     </>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Photo triage — the price field is deliberately empty
-// ---------------------------------------------------------------------------
+/**
+ * The owner's queue (MF3).
+ *
+ * ⛔ Three worker jobs write `exceptions` rows WITH `customer_id` set — due
+ * reminders, journey steps needing a person, and watcher findings at severity 2
+ * or worse — and `@adw/cases` exports queue/acknowledge/resolve to work them.
+ * No route served it and no screen read it, so those three jobs ran hourly,
+ * looked healthy, and produced work nobody could see. This is the screen.
+ */
+export function QueueView() {
+  const state = useLive((id) => dashboardApi.listQueue(id), { items: [] });
+  const [done, setDone] = useState<Record<string, true>>({});
+  const [busy, setBusy] = useState<string | null>(null);
 
-export function PhotosView({ items = seedPhotos }: { items?: PhotoItem[] }) {
+  return (
+    <>
+      <Head
+        title="Needs you"
+        sub="Things the system noticed and deliberately did not decide for you. Most severe first."
+      />
+      <Live state={state}>
+        {(data, isDemoData) => {
+          const rows = data.items.filter((i) => done[i.id] === undefined);
+          if (rows.length === 0) {
+            return <Empty>Nothing needs you right now. This list is empty by design.</Empty>;
+          }
+          return (
+            <div className="adw-col" style={{ gap: 12 }}>
+              {rows.map((item, i) => (
+                <Reveal key={item.id} stagger={i}>
+                  <Card>
+                    <div className="adw-spread">
+                      <div>
+                        <div className="adw-row" style={{ gap: 8, alignItems: "center" }}>
+                          <strong>{humanTrigger(item.trigger)}</strong>
+                          {item.severity <= 1 && <Badge tone="bad">urgent</Badge>}
+                          {item.overdue && <Badge tone="warn">overdue</Badge>}
+                        </div>
+                        {/* ⛔ The recommendation, never an action already taken.
+                            MF3's own clamp: "Flags, never clears — judgement
+                            stays human." */}
+                        <p style={{ margin: "6px 0 0", maxWidth: "62ch" }}>{item.recommendation}</p>
+                        <div className="adw-muted" style={{ fontSize: "0.85rem", marginTop: 6 }}>
+                          {item.systemAction} · noticed {new Date(item.createdAt).toLocaleString()}
+                        </div>
+                      </div>
+                      <div className="adw-row" style={{ gap: 8 }}>
+                        {item.acknowledgedAt === null && (
+                          <button
+                            className="adw-btn adw-ghost adw-sm"
+                            disabled={busy === item.id || isDemoData}
+                            onClick={() => {
+                              setBusy(item.id);
+                              void dashboardApi.acknowledgeQueueItem(item.id).then(() => setBusy(null));
+                            }}
+                          >
+                            Seen it
+                          </button>
+                        )}
+                        <button
+                          className="adw-btn adw-sm"
+                          disabled={busy === item.id || isDemoData}
+                          onClick={() => {
+                            setBusy(item.id);
+                            void dashboardApi.resolveQueueItem(item.id, "handled by the owner").then((r) => {
+                              setBusy(null);
+                              if (r.ok) setDone((prev) => ({ ...prev, [item.id]: true }));
+                            });
+                          }}
+                        >
+                          Done
+                        </button>
+                      </div>
+                    </div>
+                  </Card>
+                </Reveal>
+              ))}
+            </div>
+          );
+        }}
+      </Live>
+    </>
+  );
+}
+
+/** Trigger keys are for us; the owner gets a sentence. */
+function humanTrigger(trigger: string): string {
+  const known: Record<string, string> = {
+    reminder_due: "A date you asked to be reminded about",
+    journey_step_due: "A follow-up is due",
+    watch_finding: "Something changed in your market",
+    enquiry_notification_undelivered: "We could not email you about an enquiry",
+    document_chase_due: "A document is still outstanding",
+  };
+  return known[trigger] ?? trigger.replace(/_/g, " ");
+}
+
+/**
+ * ⛔ Photo triage and review drafting have a table and a design, and no read
+ * route — so for a REAL customer this list is empty rather than populated with
+ * someone else's sample jobs. Showing a paying owner three fabricated photo
+ * assessments is worse than showing them nothing: they would reply to them.
+ *
+ * The fixtures survive for the demo id, which is the design-review surface.
+ */
+export function PhotosView({ items }: { items?: PhotoItem[] }) {
+  const rows = items ?? (isDemo() ? seedPhotos : []);
+  return <PhotosPanel items={rows} demo={items === undefined && isDemo()} />;
+}
+
+function PhotosPanel({ items, demo }: { items: PhotoItem[]; demo: boolean }) {
   const [prices, setPrices] = useState<Record<string, string>>({});
   const [sent, setSent] = useState<Record<string, boolean>>({});
 
@@ -516,7 +759,12 @@ export function PhotosView({ items = seedPhotos }: { items?: PhotoItem[] }) {
 // Reviews — drafts awaiting approval, never auto-posted
 // ---------------------------------------------------------------------------
 
-export function ReviewsView({ items = seedReviews }: { items?: ReviewItem[] }) {
+export function ReviewsView({ items }: { items?: ReviewItem[] }) {
+  const rows = items ?? (isDemo() ? seedReviews : []);
+  return <ReviewsPanel items={rows} demo={items === undefined && isDemo()} />;
+}
+
+function ReviewsPanel({ items, demo }: { items: ReviewItem[]; demo: boolean }) {
   const [reviews, setReviews] = useState(items);
 
   return (

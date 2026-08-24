@@ -2,7 +2,14 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from "re
 import { HashRouter, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { Badge, Button, Card, Counter, Reveal, Stat, Table, useTheme } from "@adw/ui";
 import { demoCustomer } from "@adw/demo-data";
-import { customerIdFromUrl, dashboardApi } from "./api.ts";
+import {
+  customerIdFromUrl,
+  dashboardApi,
+  DEMO_CUSTOMER_ID,
+  type ApiOverview,
+  type ApiReport,
+} from "./api.ts";
+import { DemoBanner, Live, LoadingRows, useLive, type LiveState } from "./live.tsx";
 
 /* ------------------------------------------------------------------ *
  * Toast — a tiny slide-in notifier shared across every view.
@@ -50,7 +57,18 @@ function Head({ title, sub }: { title: string; sub: string }) {
   );
 }
 
-const money = (n: number) => `$${n.toLocaleString()}`;
+/**
+ * ⛔ Formats in the CURRENCY THE ROW IS IN. This was a hardcoded `$`, and the
+ * pricing table has GBP, AUD, CAD and NZD regions — so a Leeds plumber on a £65
+ * plan read "$65" on every screen that mentioned money.
+ */
+const money = (n: number, currency = "USD"): string => {
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency, maximumFractionDigits: 2 }).format(n);
+  } catch {
+    return `${currency} ${n.toLocaleString()}`;
+  }
+};
 const fmtDate = (iso: string) => new Date(iso + "T00:00:00").toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 
 // Icons — inline SVG, no external requests.
@@ -66,6 +84,7 @@ import {
   DnsDiffPanel,
   EnquiriesView,
   GapsView,
+  QueueView,
   PhotosView,
   ReviewsView,
 } from "./agent-views.tsx";
@@ -86,30 +105,91 @@ const ICONS = {
 };
 
 /* ------------------------------------------------------------------ *
+ * The signed-in customer, fetched once for the whole shell.
+ *
+ * ⛔ Home, Domain, Billing, Payments, Account AND the business name in the
+ * sidebar each read `demoCustomer` directly. Every one of them showed Bright
+ * Plumbing to whoever was logged in. Fetching once here means the shell knows
+ * whose dashboard it is before any panel renders, and there is exactly one
+ * place that decides what happens when we cannot find out.
+ * ------------------------------------------------------------------ */
+const OverviewCtx = createContext<LiveState<ApiOverview>>({ status: "loading" as const });
+const useOverview = () => useContext(OverviewCtx);
+
+function OverviewProvider({ children }: { children: ReactNode }) {
+  const state = useLive((id) => dashboardApi.overview(id), DEMO_OVERVIEW);
+  return <OverviewCtx.Provider value={state}>{children}</OverviewCtx.Provider>;
+}
+
+/** The overview, or null while it is loading / unavailable. */
+function overviewOrNull(state: LiveState<ApiOverview>): ApiOverview | null {
+  return state.status === "ready" || state.status === "demo" ? state.data : null;
+}
+
+/**
+ * The business name in the sidebar. Loading renders nothing rather than a
+ * placeholder name — a placeholder is the bug this whole pass removed.
+ */
+function BrandName() {
+  const o = overviewOrNull(useOverview());
+  return <>{o?.businessName ?? "\u00a0"}</>;
+}
+
+/* ------------------------------------------------------------------ *
  * 1 — HOME
  * ------------------------------------------------------------------ */
+/**
+ * ⛔ EVERY FIGURE ON THIS SCREEN USED TO BE SOMEBODY ELSE'S.
+ *
+ * `const c = demoCustomer` — Bright Plumbing, 342 visits, 28 calls, 11 form
+ * enquiries, a £65 plan and a domain renewing in March 2027 — rendered to every
+ * customer who logged in, whoever they were. It was completely convincing and
+ * entirely fictional.
+ *
+ * It now reads `/agent/:customerId/overview`. Where a figure does not exist yet
+ * it says so rather than substituting a plausible one: an owner in their first
+ * month has no traffic report, and "—" is the truthful rendering of that.
+ */
 function Home() {
-  const notify = useToast();
-  const [sent, setSent] = useState(false);
-  const c = demoCustomer;
+  const state = useOverview();
+  return (
+    <Live state={state} loading={<LoadingRows rows={4} />}>
+      {(o, isDemoData) => <HomePanel o={o} demo={isDemoData} />}
+    </Live>
+  );
+}
+
+function HomePanel({ o, demo }: { o: ApiOverview; demo: boolean }) {
+  const host = o.siteUrl === null ? null : o.siteUrl.replace(/^https?:\/\//, "");
   return (
     <>
-      <Head title={`Welcome back, ${c.businessName}`} sub="Your site at a glance — what happened this month, and one thing worth doing next." />
+      <Head
+        title={`Welcome back, ${o.businessName}`}
+        sub="Your site at a glance — what came in, and anything waiting for you."
+      />
+      {demo && <DemoBanner />}
 
       <div className="dash-grid-2" style={{ marginBottom: 16 }}>
         <Reveal>
           <div className="site-preview">
             <div className="site-chrome">
               <span className="dots"><i /><i /><i /></span>
-              <span className="addr">{c.siteUrl.replace("https://", "")}</span>
+              <span className="addr">{host ?? "not deployed yet"}</span>
             </div>
             <div className="site-body">
               <div className="fake-nav">
-                <b>{c.businessName}</b>
+                <b>{o.businessName}</b>
                 <span><i /><i /><i /></span>
               </div>
-              <h3>Trusted local plumbing, done right the first time</h3>
-              <p className="lede">Fast leak repair, water heaters and drain cleaning across the metro.</p>
+              <h3>{o.businessName}</h3>
+              <p className="lede">
+                {/* ⛔ Describes the agent's real state. "Your agent is live"
+                    printed over a pack nobody signed off would be the same class
+                    of lie this whole screen just stopped telling. */}
+                {o.agent.live
+                  ? "Your website answers questions on its own, from the answers you approved."
+                  : "Your website is up. Your agent starts answering once you approve its answers."}
+              </p>
               <span className="cta">Get a free quote</span>
               <span className="cards"><i /><i /><i /></span>
             </div>
@@ -121,69 +201,127 @@ function Home() {
             <div className="adw-spread">
               <div>
                 <div className="adw-muted" style={{ fontSize: "0.82rem" }}>Your website</div>
-                <h2 style={{ margin: "2px 0 0" }}>{c.domain.name}</h2>
+                <h2 style={{ margin: "2px 0 0" }}>{o.domain?.name ?? host ?? "—"}</h2>
               </div>
-              <Badge tone="ok">{c.status}</Badge>
+              <Badge tone={o.status === "active" ? "ok" : "warn"}>{o.status}</Badge>
             </div>
             <div className="adw-col" style={{ gap: 10, marginTop: 16 }}>
-              <div className="adw-spread"><span className="adw-muted">Plan</span><strong>{c.plan}</strong></div>
-              <div className="adw-spread"><span className="adw-muted">Monthly cost</span><strong>{money(c.mrr)}/mo</strong></div>
-              <div className="adw-spread"><span className="adw-muted">Domain renews</span><strong>{fmtDate(c.domain.expiresAt)}</strong></div>
+              <div className="adw-spread">
+                <span className="adw-muted">Plan</span>
+                <strong>{o.subscription?.planCode ?? "—"}</strong>
+              </div>
+              <div className="adw-spread">
+                <span className="adw-muted">Monthly cost</span>
+                <strong>
+                  {o.subscription === null
+                    ? "—"
+                    : `${money(o.subscription.amountCents / 100, o.subscription.currency)}/${o.subscription.interval === "year" ? "yr" : "mo"}`}
+                </strong>
+              </div>
+              <div className="adw-spread">
+                <span className="adw-muted">Answering questions</span>
+                <strong>{o.agent.live ? "Yes" : "Not yet"}</strong>
+              </div>
+              <div className="adw-spread">
+                <span className="adw-muted">Online booking</span>
+                <strong>{o.agent.calendarConnected ? "On" : "Off — connect a calendar"}</strong>
+              </div>
             </div>
             <div className="adw-row" style={{ marginTop: 18 }}>
-              <a className="adw-btn" href={c.siteUrl} target="_blank" rel="noreferrer">Visit site ↗</a>
+              {o.siteUrl !== null && (
+                <a className="adw-btn" href={o.siteUrl} target="_blank" rel="noreferrer">Visit site ↗</a>
+              )}
               <NavLink className="adw-btn adw-ghost" to="/edit">Request a change</NavLink>
             </div>
           </Card>
         </Reveal>
       </div>
 
-      <h2 style={{ fontSize: "1.1rem", margin: "6px 0 12px" }}>This month</h2>
+      {/* ⛔ WAITING FOR YOU, above the traffic numbers. An enquiry with a phone
+          number on it matters more than a visit count, and the old Home put
+          three vanity metrics where this belongs. */}
+      <h2 style={{ fontSize: "1.1rem", margin: "6px 0 12px" }}>Waiting for you</h2>
       <div className="dash-grid-stats" style={{ marginBottom: 18 }}>
         {[
-          { label: "Visits", value: c.visitsThisMonth },
-          { label: "Phone calls", value: c.callsThisMonth },
-          { label: "Form enquiries", value: c.formsThisMonth },
+          { label: "Enquiries", value: o.counts.openEnquiries, to: "/enquiries", warn: o.counts.emergencyEnquiries > 0 },
+          { label: "Bookings ahead", value: o.counts.upcomingBookings, to: "/bookings", warn: false },
+          { label: "Questions to answer", value: o.counts.openGaps, to: "/gaps", warn: false },
+          { label: "Needs you", value: o.counts.openQueueItems, to: "/queue", warn: o.counts.openQueueItems > 0 },
         ].map((s, i) => (
           <Reveal key={s.label} stagger={i}>
-            <Card hoverable>
-              <Stat label={s.label}>
-                <Counter to={s.value} />
-              </Stat>
-            </Card>
+            <NavLink to={s.to} style={{ textDecoration: "none", color: "inherit", display: "block" }}>
+              <Card hoverable>
+                <Stat label={s.label}>
+                  <span style={s.warn && s.value > 0 ? { color: "var(--adw-danger)" } : undefined}>
+                    <Counter to={s.value} />
+                  </span>
+                </Stat>
+              </Card>
+            </NavLink>
           </Reveal>
         ))}
       </div>
 
-      <Reveal>
-        <Card hoverable>
-          <div className="suggest">
-            <div className="spark" aria-hidden="true">💡</div>
-            <div style={{ flex: 1 }}>
-              <div className="adw-row" style={{ alignItems: "center", gap: 8, marginBottom: 4 }}>
-                <strong>Suggested for you</strong>
-                <Badge tone="warn">1 action</Badge>
-              </div>
-              <p style={{ margin: "0 0 14px" }}>{c.suggestion}</p>
-              {sent ? (
-                <Badge tone="ok">Sent — our team is on it</Badge>
-              ) : (
-                <Button
-                  onClick={() => {
-                    setSent(true);
-                    notify("Reply sent", "We'll add those reviews and let you know when it's live.");
-                  }}
-                >
-                  Reply YES
-                </Button>
-              )}
-            </div>
-          </div>
+      <h2 style={{ fontSize: "1.1rem", margin: "6px 0 12px" }}>
+        {o.latestReport === null ? "Last month" : `${MONTHS[o.latestReport.month - 1]} ${o.latestReport.year}`}
+      </h2>
+      {o.latestReport === null ? (
+        <Card>
+          <p className="adw-muted" style={{ margin: 0 }}>
+            {/* ⛔ Not zeros. A brand-new customer with no closed month has no
+                figures, and printing "0 visits" would read as a bad month
+                rather than as no month. */}
+            Your first monthly report arrives once your first full calendar month is complete.
+          </p>
         </Card>
-      </Reveal>
+      ) : (
+        <div className="dash-grid-stats" style={{ marginBottom: 18 }}>
+          {[
+            { label: "Visits", value: o.latestReport.visits },
+            { label: "Phone calls", value: o.latestReport.calls },
+            { label: "Form enquiries", value: o.latestReport.formSubmissions },
+            { label: "Bookings", value: o.latestReport.bookings },
+          ].map((s, i) => (
+            <Reveal key={s.label} stagger={i}>
+              <Card hoverable>
+                <Stat label={s.label}><Counter to={s.value} /></Stat>
+              </Card>
+            </Reveal>
+          ))}
+        </div>
+      )}
     </>
   );
 }
+
+const MONTHS = ["January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"];
+
+/** Shown only for the demo id — see live.tsx. */
+const DEMO_OVERVIEW: ApiOverview = {
+  customerId: DEMO_CUSTOMER_ID,
+  businessName: demoCustomer.businessName,
+  siteUrl: demoCustomer.siteUrl,
+  status: demoCustomer.status,
+  vertical: "plumber",
+  wonAt: new Date().toISOString(),
+  domain: { name: demoCustomer.domain.name, cutoverAt: null },
+  subscription: {
+    planCode: demoCustomer.plan, amountCents: demoCustomer.mrr * 100, currency: "GBP",
+    interval: "month", status: "active", currentPeriodEnd: new Date().toISOString(), cancelAtPeriodEnd: false,
+  },
+  invoices: demoCustomer.invoices.map((i) => ({
+    id: i.id, amountCents: i.amount * 100, currency: "GBP", status: i.status,
+    issuedAt: i.date, paidAt: i.status === "paid" ? i.date : null,
+  })),
+  agent: { live: true, packVersion: 1, approvedAt: new Date().toISOString(), calendarConnected: true },
+  counts: { openEnquiries: 3, emergencyEnquiries: 1, upcomingBookings: 2, openQueueItems: 1, openGaps: 4 },
+  latestReport: {
+    year: 2026, month: 7,
+    visits: demoCustomer.visitsThisMonth, calls: demoCustomer.callsThisMonth,
+    formSubmissions: demoCustomer.formsThisMonth, bookings: 6,
+  },
+};
 
 /* ------------------------------------------------------------------ *
  * 2 — EDIT (plain-words change request, not a builder)
@@ -278,17 +416,24 @@ function EditView() {
 /* ------------------------------------------------------------------ *
  * 3 — PERFORMANCE (value report + simple CSS charts)
  * ------------------------------------------------------------------ */
-const trend = [
-  { m: "Feb", visits: 180, calls: 12, forms: 5 },
-  { m: "Mar", visits: 214, calls: 15, forms: 6 },
-  { m: "Apr", visits: 268, calls: 19, forms: 8 },
-  { m: "May", visits: 295, calls: 22, forms: 9 },
-  { m: "Jun", visits: 320, calls: 25, forms: 10 },
-  { m: "Jul", visits: demoCustomer.visitsThisMonth, calls: demoCustomer.callsThisMonth, forms: demoCustomer.formsThisMonth },
-];
+/**
+ * ⛔ THE TREND WAS SIX HARDCODED MONTHS. Feb through Jul, 180 → 342 visits,
+ * always rising, identical for every customer who ever opened this page — and
+ * the three "vs last month" deltas underneath it ("+6.8%", "+12%", "+10%")
+ * were string literals. It read as a business doing well because it was drawn
+ * to.
+ *
+ * It now plots the stored monthly value reports. Where there are none yet it
+ * says so; where there is one month there is one bar. `@adw/reports` produced
+ * these for nobody at all until the sweep existed, which is why this page had
+ * nothing real to draw from in the first place.
+ */
+interface TrendRow { m: string; visits: number; calls: number; forms: number; bookings: number }
 
-function BarChart({ title, color, get }: { title: string; color: string; get: (r: (typeof trend)[number]) => number }) {
-  const values = trend.map(get);
+function BarChart({
+  rows, title, color, get,
+}: { rows: TrendRow[]; title: string; color: string; get: (r: TrendRow) => number }) {
+  const values = rows.map(get);
   const max = Math.max(...values, 1);
   const total = values.reduce((a, b) => a + b, 0);
   return (
@@ -298,8 +443,8 @@ function BarChart({ title, color, get }: { title: string; color: string; get: (r
         <span className="adw-muted adw-mono">{total.toLocaleString()} total</span>
       </div>
       <div className="chart">
-        <div className="chart-bars" role="img" aria-label={`${title} over the last ${trend.length} months`}>
-          {trend.map((r, i) => (
+        <div className="chart-bars" role="img" aria-label={`${title} over the last ${rows.length} months`}>
+          {rows.map((r, i) => (
             <div className="chart-col" key={r.m}>
               <span className="val">{get(r)}</span>
               <div className="bar" style={{ height: `${(get(r) / max) * 100}%`, ["--bar" as string]: color, ["--i" as string]: i }} />
@@ -312,68 +457,125 @@ function BarChart({ title, color, get }: { title: string; color: string; get: (r
   );
 }
 
+const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
 function Performance() {
-  const aiTracked = 12;
-  const aiAppears = 7;
-  const pct = Math.round((aiAppears / aiTracked) * 100);
+  const state = useLive((id) => dashboardApi.listReports(id), { reports: DEMO_REPORTS });
   return (
     <>
-      <Head title="Performance" sub="What your website actually did for the business — visits, calls and enquiries over time." />
+      <Head
+        title="Performance"
+        sub="What your website actually did for the business, month by month. Every figure comes from a closed month — nothing here is an estimate."
+      />
+      <Live state={state} loading={<LoadingRows rows={3} />}>
+        {(data, isDemoData) => {
+          // Oldest first for a left-to-right chart; the API returns newest first.
+          const rows: TrendRow[] = [...data.reports].reverse().map((r) => ({
+            m: `${SHORT_MONTHS[r.month.month - 1] ?? "?"}`,
+            visits: r.report.visits,
+            calls: r.report.calls,
+            forms: r.report.formSubmissions,
+            bookings: r.report.bookings,
+          }));
+          const latest = data.reports[0];
+          if (latest === undefined) {
+            return (
+              <Card>
+                <p className="adw-muted" style={{ margin: 0 }}>
+                  {/* ⛔ Not a chart of zeros. A customer in their first weeks has
+                      no closed month, and drawing an empty chart implies a bad
+                      month rather than no month yet. */}
+                  Nothing to show yet. Your first report is produced once your first full calendar month
+                  is complete, and every figure on it comes from that month rather than an estimate.
+                </p>
+              </Card>
+            );
+          }
+          const delta = (n: number): string => (n === 0 ? "no change" : `${n > 0 ? "+" : ""}${n} vs last month`);
+          return (
+            <>
+              {isDemoData && <DemoBanner />}
+              <div className="dash-grid-stats" style={{ marginBottom: 18 }}>
+                {[
+                  { label: "Visits", value: latest.report.visits, d: latest.report.momDelta.visits },
+                  { label: "Phone calls", value: latest.report.calls, d: latest.report.momDelta.calls },
+                  { label: "Form enquiries", value: latest.report.formSubmissions, d: latest.report.momDelta.formSubmissions },
+                  { label: "Bookings", value: latest.report.bookings, d: latest.report.momDelta.bookings },
+                ].map((s, i) => (
+                  <Reveal key={s.label} stagger={i}>
+                    <Card hoverable>
+                      <Stat label={s.label}><Counter to={s.value} /></Stat>
+                      {/* ⛔ The real month-on-month delta, computed by the report
+                          from the prior month's stored figures. The old page
+                          printed "+6.8%" as a literal. */}
+                      <div className="adw-muted" style={{ fontSize: "0.8rem", marginTop: 4 }}>{delta(s.d)}</div>
+                    </Card>
+                  </Reveal>
+                ))}
+              </div>
 
-      <div className="dash-grid-stats" style={{ marginBottom: 18 }}>
-        {[
-          { label: "Visits this month", value: demoCustomer.visitsThisMonth, delta: "+6.8%" },
-          { label: "Calls this month", value: demoCustomer.callsThisMonth, delta: "+12%" },
-          { label: "Enquiries this month", value: demoCustomer.formsThisMonth, delta: "+10%" },
-        ].map((s, i) => (
-          <Reveal key={s.label} stagger={i}>
-            <Card hoverable>
-              <Stat label={s.label}><Counter to={s.value} /></Stat>
-              <div className="adw-muted" style={{ fontSize: "0.8rem", marginTop: 4 }}>{s.delta} vs last month</div>
-            </Card>
-          </Reveal>
-        ))}
-      </div>
+              <Reveal>
+                <div className="legend" style={{ marginBottom: 12 }}>
+                  <span><i style={{ background: "var(--adw-primary)" }} /> Visits</span>
+                  <span><i style={{ background: "var(--adw-accent)" }} /> Calls</span>
+                  <span><i style={{ background: "var(--adw-warn)" }} /> Enquiries</span>
+                </div>
+              </Reveal>
 
-      <Reveal>
-        <div className="legend" style={{ marginBottom: 12 }}>
-          <span><i style={{ background: "var(--adw-primary)" }} /> Visits</span>
-          <span><i style={{ background: "var(--adw-accent)" }} /> Calls</span>
-          <span><i style={{ background: "var(--adw-warn)" }} /> Enquiries</span>
-        </div>
-      </Reveal>
+              <div className="dash-grid-3" style={{ marginBottom: 18 }}>
+                <Reveal><BarChart rows={rows} title="Visits" color="var(--adw-primary)" get={(r) => r.visits} /></Reveal>
+                <Reveal stagger={1}><BarChart rows={rows} title="Phone calls" color="var(--adw-accent)" get={(r) => r.calls} /></Reveal>
+                <Reveal stagger={2}><BarChart rows={rows} title="Form enquiries" color="var(--adw-warn)" get={(r) => r.forms} /></Reveal>
+              </div>
 
-      <div className="dash-grid-3" style={{ marginBottom: 18 }}>
-        <Reveal><BarChart title="Visits" color="var(--adw-primary)" get={(r) => r.visits} /></Reveal>
-        <Reveal stagger={1}><BarChart title="Phone calls" color="var(--adw-accent)" get={(r) => r.calls} /></Reveal>
-        <Reveal stagger={2}><BarChart title="Form enquiries" color="var(--adw-warn)" get={(r) => r.forms} /></Reveal>
-      </div>
-
-      <Reveal>
-        <Card hoverable>
-          <div className="adw-spread" style={{ marginBottom: 10 }}>
-            <strong>AI visibility</strong>
-            <Badge tone="ok">{pct}%</Badge>
-          </div>
-          <p className="adw-muted" style={{ marginTop: 0 }}>
-            Your site appears in AI assistant answers for <strong style={{ color: "var(--adw-text)" }}>{aiAppears} of {aiTracked}</strong> tracked
-            local queries (e.g. “emergency plumber near me”). We keep your structured data fresh so assistants can recommend you.
-          </p>
-          <div className="meter" aria-label={`AI visibility: ${aiAppears} of ${aiTracked} tracked queries`}>
-            <span style={{ width: `${pct}%` }} />
-          </div>
-        </Card>
-      </Reveal>
+              {latest.report.suggestion?.text !== undefined && (
+                <Reveal>
+                  <Card hoverable>
+                    <div className="adw-row" style={{ alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <strong>One thing worth doing</strong>
+                      <Badge tone="warn">1 action</Badge>
+                    </div>
+                    {/* ⛔ Exactly one, per §58, and never an upsell in a month
+                        where the figures went down. The report decides that; the
+                        screen only renders it. */}
+                    <p style={{ margin: 0 }}>{latest.report.suggestion.text}</p>
+                  </Card>
+                </Reveal>
+              )}
+            </>
+          );
+        }}
+      </Live>
     </>
   );
 }
+
+/** Design-review only — see live.tsx. */
+const DEMO_REPORTS: ApiReport[] = [342, 320, 295, 268, 214, 180].map((visits, i) => ({
+  customerId: DEMO_CUSTOMER_ID,
+  month: { year: 2026, month: 7 - i },
+  generatedAt: new Date().toISOString(),
+  report: {
+    visits,
+    calls: Math.round(visits / 12),
+    formSubmissions: Math.round(visits / 31),
+    bookings: Math.round(visits / 57),
+    momDelta: { visits: 22, calls: 3, formSubmissions: 1, bookings: 1 },
+    suggestion: i === 0 ? { text: "Add your two newest 5-star reviews to the homepage." } : null,
+  },
+}));
 
 /* ------------------------------------------------------------------ *
  * 4 — DOMAIN (self-serve transfer-out, no retention gauntlet)
  * ------------------------------------------------------------------ */
 function Domain() {
   const notify = useToast();
-  const d = demoCustomer.domain;
+  // ⛔ Their domain, or none. `demoCustomer.domain` told every customer their
+  // site lived at brightplumbing.com and renewed in March 2027 — and most
+  // customers have no domain at all, because the DNS cutover is optional by
+  // design and silence is an ordinary outcome.
+  const o = overviewOrNull(useOverview());
+  const d = o?.domain ?? null;
   const [showTransfer, setShowTransfer] = useState(false);
   const [codeShown, setCodeShown] = useState(false);
   const authCode = "ADW-7F3K-9QW2-XBLP";
@@ -391,17 +593,36 @@ function Domain() {
         </div>
       </Reveal>
 
+      {/* ⛔ MOST CUSTOMERS HAVE NO DOMAIN HERE, and that is the designed
+          outcome: the DNS cutover is deliberately off the critical path, the
+          site is complete on its subdomain, and a customer who never asks for
+          their own domain still has the whole product. The old page showed
+          brightplumbing.com, "Active", renewing 14 March 2027, to all of them. */}
+      {d === null ? (
+        <Reveal>
+          <Card>
+            <strong>You&rsquo;re on your ADW address</strong>
+            <p className="adw-muted" style={{ marginTop: 6, marginBottom: 0 }}>
+              Your site is live and complete at{" "}
+              <span className="adw-mono">{o?.siteUrl ?? "your ADW address"}</span>.
+              If you own a domain and want the site on it instead, ask us and we&rsquo;ll move it — we take a
+              snapshot of your DNS first and check afterwards that nothing touched your email.
+            </p>
+          </Card>
+        </Reveal>
+      ) : (
       <div className="dash-grid-2" style={{ marginBottom: 16 }}>
         <Reveal>
           <Card>
             <div className="adw-spread" style={{ marginBottom: 14 }}>
               <strong className="adw-mono">{d.name}</strong>
-              <Badge tone="ok">{d.status}</Badge>
+              <Badge tone={d.cutoverAt === null ? "warn" : "ok"}>{d.cutoverAt === null ? "pending" : "active"}</Badge>
             </div>
             <div className="adw-col" style={{ gap: 10 }}>
-              <div className="adw-spread"><span className="adw-muted">Registration</span><strong>Active</strong></div>
-              <div className="adw-spread"><span className="adw-muted">Renews / expires</span><strong>{fmtDate(d.expiresAt)}</strong></div>
-              <div className="adw-spread"><span className="adw-muted">Auto-renew</span><strong>On</strong></div>
+              <div className="adw-spread"><span className="adw-muted">Pointing at your site</span><strong>{d.cutoverAt === null ? "Not yet" : "Yes"}</strong></div>
+              {d.cutoverAt !== null && (
+                <div className="adw-spread"><span className="adw-muted">Moved across</span><strong>{fmtDate(d.cutoverAt)}</strong></div>
+              )}
               <div className="adw-spread"><span className="adw-muted">Registrar lock</span><strong>Enabled</strong></div>
             </div>
           </Card>
@@ -447,6 +668,7 @@ function Domain() {
           </Card>
         </Reveal>
       </div>
+      )}
     </>
   );
 }
@@ -523,7 +745,7 @@ type CancelStage = "active" | "confirming" | "cancelled";
 function Billing() {
   const notify = useToast();
   const [stage, setStage] = useState<CancelStage>("active");
-  const c = demoCustomer;
+  const o = overviewOrNull(useOverview());
   const addons = [
     { name: "Managed hosting & SSL", price: "Included" },
     { name: "Unlimited plain-words edits", price: "Included" },
@@ -540,9 +762,18 @@ function Billing() {
             <div className="adw-spread" style={{ marginBottom: 12 }}>
               <div>
                 <div className="adw-muted" style={{ fontSize: "0.82rem" }}>Current plan</div>
-                <h2 style={{ margin: "2px 0 0" }}>{c.plan}</h2>
+                <h2 style={{ margin: "2px 0 0" }}>{o?.subscription?.planCode ?? "—"}</h2>
               </div>
-              <strong style={{ fontSize: "1.3rem" }}>{money(c.mrr)}<span className="adw-muted" style={{ fontSize: "0.9rem" }}>/mo</span></strong>
+              <strong style={{ fontSize: "1.3rem" }}>
+                {/* ⛔ In the customer's own currency. This was a hardcoded `$`
+                    over a pricing table with GBP, AUD, CAD and NZD regions. */}
+                {o?.subscription === null || o?.subscription === undefined
+                  ? "—"
+                  : money(o.subscription.amountCents / 100, o.subscription.currency)}
+                <span className="adw-muted" style={{ fontSize: "0.9rem" }}>
+                  /{o?.subscription?.interval === "year" ? "yr" : "mo"}
+                </span>
+              </strong>
             </div>
             <div className="adw-col" style={{ gap: 8 }}>
               {addons.map((a) => (
@@ -561,7 +792,15 @@ function Billing() {
             {stage === "active" && (
               <>
                 <p className="adw-muted" style={{ marginTop: 6 }}>
-                  Your {c.plan} renews on <strong style={{ color: "var(--adw-text)" }}>Aug 1, 2026</strong>. Cancel anytime.
+                  {/* ⛔ The real renewal date. "Aug 1, 2026" was a string
+                      literal shown to every customer regardless of when they
+                      actually renew. */}
+                  Your {o?.subscription?.planCode ?? "plan"} renews on{" "}
+                  <strong style={{ color: "var(--adw-text)" }}>
+                    {o?.subscription === null || o?.subscription === undefined
+                      ? "—"
+                      : fmtDate(o.subscription.currentPeriodEnd)}
+                  </strong>. Cancel anytime.
                 </p>
                 <Button variant="ghost" onClick={() => setStage("confirming")}>Cancel plan</Button>
               </>
@@ -569,7 +808,9 @@ function Billing() {
             {stage === "confirming" && (
               <>
                 <p style={{ marginTop: 6 }}>
-                  This cancels your {c.plan} at the end of the current period ({fmtDate("2026-08-01")}). Your site stays live until then.
+                  This cancels your {o?.subscription?.planCode ?? "plan"} at the end of the current period
+                  ({o?.subscription === null || o?.subscription === undefined ? "—" : fmtDate(o.subscription.currentPeriodEnd)}).
+                  Your site stays live until then.
                 </p>
                 <div className="adw-row" style={{ alignItems: "center" }}>
                   <Button
@@ -604,14 +845,19 @@ function Billing() {
           <strong style={{ display: "block", marginBottom: 12 }}>Invoices</strong>
           <Table
             columns={[
-              { key: "id", header: "Invoice", render: (r) => <span className="adw-mono">{r.id}</span> },
-              { key: "date", header: "Date", render: (r) => fmtDate(r.date) },
-              { key: "amount", header: "Amount", render: (r) => money(r.amount) },
+              { key: "id", header: "Invoice", render: (r) => <span className="adw-mono">{r.id.slice(0, 8)}</span> },
+              { key: "issuedAt", header: "Date", render: (r) => fmtDate(r.issuedAt) },
+              { key: "amountCents", header: "Amount", render: (r) => money(r.amountCents / 100, r.currency) },
               { key: "status", header: "Status", render: (r) => <Badge tone={r.status === "paid" ? "ok" : "warn"}>{r.status}</Badge> },
               { key: "dl", header: "", render: () => <Button size="sm" variant="ghost">Download</Button> },
             ]}
-            rows={c.invoices}
+            rows={o?.invoices ?? []}
           />
+          {(o?.invoices.length ?? 0) === 0 && (
+            <p className="adw-muted" style={{ marginBottom: 0 }}>
+              No invoices yet — your first one appears after your first billing period.
+            </p>
+          )}
         </Card>
       </Reveal>
     </>
@@ -623,11 +869,15 @@ function Billing() {
  * ------------------------------------------------------------------ */
 function Account() {
   const notify = useToast();
+  const o = overviewOrNull(useOverview());
+  // ⛔ Blank rather than invented. "Sam Rivera / owner@brightplumbing.com"
+  // pre-filled into every customer's account form is worse than an empty one:
+  // an owner who does not notice saves a stranger's details over their own.
   const [contact, setContact] = useState({
-    name: "Sam Rivera",
-    business: demoCustomer.businessName,
-    email: "owner@brightplumbing.com",
-    phone: "555-0147",
+    name: "",
+    business: o?.businessName ?? "",
+    email: "",
+    phone: "",
   });
   const [prefs, setPrefs] = useState({ productUpdates: true, monthlyReport: true, smsAlerts: false });
 
@@ -637,7 +887,7 @@ function Account() {
   };
 
   const exportData = () => {
-    const payload = { contact, preferences: prefs, account: demoCustomer, exportedAt: new Date().toISOString() };
+    const payload = { contact, preferences: prefs, account: o, exportedAt: new Date().toISOString() };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -737,6 +987,10 @@ const NAV = [
   // The agent's own surfaces come first after Home. This is what the customer
   // is actually paying for; the site is the interface, not the product.
   { to: "/enquiries", label: "Enquiries", icon: ICONS.inbox, el: <EnquiriesView /> },
+  // ⛔ The owner's queue (MF3). Three worker jobs have been filling it hourly
+  // since they shipped and there was no route and no screen to read it, so the
+  // work they produced reached nobody.
+  { to: "/queue", label: "Needs you", icon: ICONS.gap, el: <QueueView /> },
   { to: "/gaps", label: "Gaps", icon: ICONS.gap, el: <GapsView /> },
   { to: "/bookings", label: "Bookings", icon: ICONS.calendar, el: <BookingsView /> },
   { to: "/photos", label: "Photos", icon: ICONS.camera, el: <PhotosView /> },
@@ -770,13 +1024,17 @@ export function App() {
   const year = useMemo(() => new Date().getFullYear(), []);
   return (
     <ToastProvider>
+      {/* One fetch of "whose dashboard is this", above the router, so the shell
+          knows the business name before any panel paints and every screen
+          agrees about the same customer. */}
+      <OverviewProvider>
       <HashRouter>
         <div className="dash-shell">
           <aside className="dash-side">
             <div className="dash-brand">
               <span className="logo" aria-hidden="true" />
               <span>
-                {demoCustomer.businessName}
+                <BrandName />
                 <small>ADW dashboard</small>
               </span>
             </div>
@@ -797,6 +1055,7 @@ export function App() {
           <RoutedMain />
         </div>
       </HashRouter>
+      </OverviewProvider>
     </ToastProvider>
   );
 }

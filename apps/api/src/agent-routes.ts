@@ -109,6 +109,7 @@ import {
 } from "@adw/watch";
 import { handleMcpCall, mcpManifest, MCP_TOOLS, type McpContext, type RefusalChecker } from "@adw/mcp";
 import { tenancyMiddleware } from "./tenancy.ts";
+import { customerOverview } from "./customer-overview.ts";
 import { resolveVertical } from "@adw/taxonomy";
 import type { SessionUser } from "@adw/auth";
 import { enqueueIntent, executionId } from "@adw/workflows";
@@ -1033,6 +1034,23 @@ export function agentRoutes(deps: AgentRouteDeps): Hono<{ Variables: { user: Ses
     return (await acknowledgeItem(db, id, operator.email))
       ? c.json({ ok: true })
       : c.json({ error: "unknown or already acknowledged" }, 404);
+  });
+
+  /**
+   * Everything Home, Domain, Payments and Billing need, in one round trip.
+   *
+   * ⛔ Nine of the dashboard's twelve views painted a fixture business called
+   * Bright Plumbing — 342 visits, 28 calls, two paid invoices — to every
+   * customer who logged in, and the client had three live methods in total.
+   * This is the read model that lets those screens show the person's own
+   * business.
+   */
+  app.get("/agent/:customerId/overview", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const customerId = c.req.param("customerId");
+    if (!UUID_RE.test(customerId)) return c.json({ error: "bad customerId" }, 400);
+    const overview = await customerOverview(db, customerId);
+    return overview === null ? c.json({ error: "unknown customer" }, 404) : c.json(overview);
   });
 
   /**
