@@ -20,3 +20,14 @@ export {
   type ReportMonth,
   type ReportPeriod,
 } from "./value-report.ts";
+
+// ⛔ The consumers this package never had. Until these existed, no report was
+// ever produced for any customer.
+export {
+  latestReport,
+  reportsFor,
+  storeValueReport,
+  sweepValueReports,
+  type StoredReport,
+  type SweepOutcome,
+} from "./store.ts";

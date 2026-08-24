@@ -16,7 +16,21 @@ const URL = process.env["DATABASE_ADMIN_URL"] ?? "postgres://adw_admin@127.0.0.1
 let db: Db;
 let vault: SecretsBackend;
 
-const OWNER: SessionUser = { id: "ow", email: "owner@example.com", role: "customer", customerId: null, totpEnabled: false };
+/**
+ * The signed-in owner of ONE customer.
+ *
+ * ⛔ This used to be a module constant with `customerId: null`, and every
+ * owner-facing test passed with it — which is precisely the hole tenancy.ts
+ * closes. A customer session that names no customer now authorises nothing, so
+ * the fixture has to say whose owner it is, exactly as a real session does.
+ */
+const ownerOf = (customerId: string): SessionUser => ({
+  id: "ow",
+  email: "owner@example.com",
+  role: "customer",
+  customerId,
+  totpEnabled: false,
+});
 const appAs = (user: SessionUser | null) => createApp({ db, vault, forceMock: true, authOverride: user });
 
 beforeAll(async () => {
@@ -463,7 +477,7 @@ describe("the gap list", () => {
     for (let i = 0; i < 2; i++) {
       await app.request("/agent/turn", json({ sessionId, question: "Do you fit underfloor heating?", turnIndex: i }));
     }
-    const res = await appAs(OWNER).request(`/agent/${customerId}/gaps`);
+    const res = await appAs(ownerOf(customerId)).request(`/agent/${customerId}/gaps`);
     const body = (await res.json()) as { gaps: { question: string; timesAsked: number }[] };
     expect(body.gaps[0]?.question).toBe("Do you fit underfloor heating?");
     expect(body.gaps[0]?.timesAsked).toBe(2);
@@ -486,14 +500,14 @@ describe("the gap list", () => {
     const denied = await appAs(null).request(`/agent/gaps/${gap.id}/approve`, json({ answer: "Yes we do." }));
     expect(denied.status).toBe(401);
 
-    const ok = await appAs(OWNER).request(`/agent/gaps/${gap.id}/approve`, json({ answer: "Yes, we fit underfloor heating." }));
+    const ok = await appAs(ownerOf(customerId)).request(`/agent/gaps/${gap.id}/approve`, json({ answer: "Yes, we fit underfloor heating." }));
     expect(ok.status).toBe(200);
     const after = await db.one<{ status: string; approved_by: string | null }>(
       `SELECT status, approved_by FROM agent_gaps WHERE id = $1`,
       [gap.id],
     );
     expect(after.status).toBe("approved");
-    expect(after.approved_by).toBe(OWNER.email);
+    expect(after.approved_by).toBe("owner@example.com");
   });
 
   it("⛔ applies the refusal policy to the owner's own words", async () => {
@@ -506,7 +520,7 @@ describe("the gap list", () => {
     };
     await app.request("/agent/turn", json({ sessionId, question: "Do you fit underfloor heating?" }));
     const gap = await db.one<{ id: string }>(`SELECT id FROM agent_gaps WHERE customer_id = $1`, [customerId]);
-    const res = await appAs(OWNER).request(
+    const res = await appAs(ownerOf(customerId)).request(
       `/agent/gaps/${gap.id}/approve`,
       json({ answer: "Yes — and we guarantee we'll be there within the hour." }),
     );
@@ -605,7 +619,7 @@ describe("⛔ pack approval — the step that unblocks going live", () => {
 // take one.
 
 describe("bookings, clocks and journeys", () => {
-  const owner: SessionUser = { ...OWNER, role: "superadmin" };
+  const owner: SessionUser = { ...ownerOf("unused"), role: "superadmin", customerId: null };
 
   async function resourceFor(customerId: string): Promise<string> {
     const r = await db.one<{ id: string }>(

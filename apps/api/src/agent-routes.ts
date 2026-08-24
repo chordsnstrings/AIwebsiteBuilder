@@ -21,14 +21,19 @@ import { Hono } from "hono";
 import type { Db } from "@adw/db";
 import {
   contextFromPack,
+  enquirySummary,
   handleTurn,
+  listEnquiries,
   loadSession,
   openGaps,
   openSession,
   refusalPolicy,
+  setEnquiryStatus,
   type ConciergeContext,
   type ConciergeDeps,
 } from "@adw/concierge";
+import { acknowledgeItem, queue, resolveItem } from "@adw/cases";
+import { reportsFor } from "@adw/reports";
 import { mayPublish } from "@adw/kb";
 import { approvePack, loadQAPack, type QAPack } from "@adw/qapack";
 import {
@@ -49,7 +54,7 @@ import {
   stopJourney,
   upcomingReminders,
 } from "@adw/journeys";
-import { cancelBooking, claimSlot } from "@adw/scheduling";
+import { bookingsFor, cancelBooking, claimSlot } from "@adw/scheduling";
 import { markReturned, missedCalls, recordCall } from "@adw/voice";
 import {
   advanceOpportunity,
@@ -103,6 +108,7 @@ import {
   type Collectors,
 } from "@adw/watch";
 import { handleMcpCall, mcpManifest, MCP_TOOLS, type McpContext, type RefusalChecker } from "@adw/mcp";
+import { tenancyMiddleware } from "./tenancy.ts";
 import { resolveVertical } from "@adw/taxonomy";
 import type { SessionUser } from "@adw/auth";
 import { enqueueIntent, executionId } from "@adw/workflows";
@@ -308,6 +314,15 @@ export function agentRoutes(deps: AgentRouteDeps): Hono<{ Variables: { user: Ses
 
   const user = (c: { get: (k: "user") => SessionUser | null }): SessionUser | null =>
     deps.authOverride !== undefined ? deps.authOverride : c.get("user");
+
+  // ⛔ WHO may act on WHICH customer. Every handler below already checked that
+  // somebody was signed in and none of them checked who — so a customer could
+  // read any other customer's enquiries, calls, documents and packs by editing
+  // a uuid. This runs before all of them and fails closed on any /agent path it
+  // does not recognise; see tenancy.ts for why it is middleware and not a line
+  // in each handler. The per-handler 401s are left in place deliberately: they
+  // are now unreachable belt-and-braces rather than the only guard.
+  app.use("*", tenancyMiddleware({ db, currentUser: user }));
 
   // --- Opening a conversation ----------------------------------------------
   app.post("/agent/session", async (c) => {
@@ -912,6 +927,143 @@ export function agentRoutes(deps: AgentRouteDeps): Hono<{ Variables: { user: Ses
     const out = await cancelBooking(db, bookingId);
     if (!out.cancelled) return c.json({ error: "unknown or already cancelled" }, 404);
     return c.json({ ok: true, waitlisted: out.waiting.length });
+  });
+
+  /**
+   * The owner's diary.
+   *
+   * ⛔ There was a POST to take a slot and a POST to cancel one and no GET at
+   * all, so a booking the agent accepted was invisible to the one person it
+   * obliges to turn up. The write side has been correct since MF10 shipped.
+   */
+  app.get("/agent/:customerId/bookings", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const customerId = c.req.param("customerId");
+    if (!UUID_RE.test(customerId)) return c.json({ error: "bad customerId" }, 400);
+    const from = c.req.query("from");
+    const to = c.req.query("to");
+    const parse = (v: string | undefined): Date | undefined => {
+      if (v === undefined) return undefined;
+      const d = new Date(v);
+      return Number.isNaN(d.getTime()) ? undefined : d;
+    };
+    const fromAt = parse(from);
+    const toAt = parse(to);
+    return c.json({
+      bookings: await bookingsFor(db, customerId, {
+        ...(fromAt === undefined ? {} : { from: fromAt }),
+        ...(toAt === undefined ? {} : { to: toAt }),
+        includeCancelled: c.req.query("includeCancelled") === "true",
+      }),
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Enquiries — the read side of the promise the agent makes to a visitor
+  // -------------------------------------------------------------------------
+  //
+  // ⛔ `commitEnquiry` has written these rows correctly since the concierge
+  // shipped, and nothing in the repository has ever selected from the table.
+  // No route, no job, no screen — the dashboard's Enquiries view renders a demo
+  // fixture. Meanwhile the agent tells the caller, in words, that it has passed
+  // their message on. Of everything this audit found, this is the only defect
+  // where the product actively misleads a member of the public, and it was a
+  // missing SELECT.
+
+  app.get("/agent/:customerId/enquiries", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const customerId = c.req.param("customerId");
+    if (!UUID_RE.test(customerId)) return c.json({ error: "bad customerId" }, 400);
+    const [enquiries, summary] = await Promise.all([
+      listEnquiries(db, customerId, { includeClosed: c.req.query("includeClosed") === "true" }),
+      enquirySummary(db, customerId),
+    ]);
+    return c.json({ enquiries, summary });
+  });
+
+  /** "I called them back." Keeps the row, moves the state, records who. */
+  app.post("/agent/enquiries/:enquiryId/contacted", async (c) => {
+    const operator = user(c);
+    if (operator === null) return c.json({ error: "unauthorised" }, 401);
+    const id = c.req.param("enquiryId");
+    if (!UUID_RE.test(id)) return c.json({ error: "bad enquiryId" }, 400);
+    return (await setEnquiryStatus(db, id, "contacted", operator.email))
+      ? c.json({ ok: true })
+      : c.json({ error: "unknown or already closed" }, 404);
+  });
+
+  app.post("/agent/enquiries/:enquiryId/resolve", async (c) => {
+    const operator = user(c);
+    if (operator === null) return c.json({ error: "unauthorised" }, 401);
+    const id = c.req.param("enquiryId");
+    if (!UUID_RE.test(id)) return c.json({ error: "bad enquiryId" }, 400);
+    return (await setEnquiryStatus(db, id, "closed", operator.email))
+      ? c.json({ ok: true })
+      : c.json({ error: "unknown or already closed" }, 404);
+  });
+
+  // -------------------------------------------------------------------------
+  // The owner's queue (MF3)
+  // -------------------------------------------------------------------------
+  //
+  // ⛔ Three worker jobs write `exceptions` rows WITH `customer_id` set — due
+  // reminders, journey steps needing a person, and watcher findings at severity
+  // 2 or worse — and `@adw/cases` exports queue/acknowledge/resolve/assign to
+  // work them. Nothing served it. The rows accumulated, correctly, behind no
+  // route and no screen, which is why every one of those jobs looked healthy
+  // while doing nothing anyone could act on.
+
+  app.get("/agent/:customerId/queue", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const customerId = c.req.param("customerId");
+    if (!UUID_RE.test(customerId)) return c.json({ error: "bad customerId" }, 400);
+    return c.json({
+      items: await queue(db, {
+        customerId,
+        includeAcknowledged: c.req.query("includeAcknowledged") === "true",
+      }),
+    });
+  });
+
+  app.post("/agent/queue/:itemId/acknowledge", async (c) => {
+    const operator = user(c);
+    if (operator === null) return c.json({ error: "unauthorised" }, 401);
+    const id = c.req.param("itemId");
+    if (!UUID_RE.test(id)) return c.json({ error: "bad itemId" }, 400);
+    return (await acknowledgeItem(db, id, operator.email))
+      ? c.json({ ok: true })
+      : c.json({ error: "unknown or already acknowledged" }, 404);
+  });
+
+  /**
+   * The monthly value report (§58) — what the customer got for their money.
+   *
+   * ⛔ `@adw/reports` had no consumer of any kind: no job wrote one, no table
+   * held one, no route served one. The one artefact that answers the question
+   * deciding whether a subscription renews had never been generated for anyone.
+   */
+  app.get("/agent/:customerId/reports", async (c) => {
+    if (user(c) === null) return c.json({ error: "unauthorised" }, 401);
+    const customerId = c.req.param("customerId");
+    if (!UUID_RE.test(customerId)) return c.json({ error: "bad customerId" }, 400);
+    const limit = Number(c.req.query("limit") ?? 12);
+    return c.json({
+      reports: await reportsFor(db, customerId, Number.isFinite(limit) ? limit : 12),
+    });
+  });
+
+  app.post("/agent/queue/:itemId/resolve", async (c) => {
+    const operator = user(c);
+    if (operator === null) return c.json({ error: "unauthorised" }, 401);
+    const id = c.req.param("itemId");
+    if (!UUID_RE.test(id)) return c.json({ error: "bad itemId" }, 400);
+    const b = (await c.req.json().catch(() => ({}))) as { resolution?: string };
+    // ⛔ A resolution nobody wrote down is a queue item that vanished. The
+    // default names the actor rather than leaving the column empty.
+    const resolution = (b.resolution ?? "").trim() || `handled by ${operator.email}`;
+    return (await resolveItem(db, id, operator.email, resolution))
+      ? c.json({ ok: true })
+      : c.json({ error: "unknown or already resolved" }, 404);
   });
 
   /** The owner's calendar of dates: statutory first, then by severity. */

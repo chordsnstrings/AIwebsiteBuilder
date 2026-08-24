@@ -304,6 +304,45 @@ export function subscriberReclassificationJob(run: (db: Db, now: Date) => Promis
 }
 
 /**
+ * Tell owners about enquiries their agent captured.
+ *
+ * ⛔ The job that closes the only gap where this product misled the public. The
+ * agent tells a visitor it has passed their details on; until this ran, nothing
+ * did — `enquiries` had a correct writer and no reader anywhere in the repo.
+ *
+ * Every minute, because the whole value of the message is that it arrives while
+ * the caller is still reachable. The settle window inside
+ * `pendingNotifications` — not this interval — is what stops a
+ * mid-conversation correction being mailed as final.
+ */
+export function enquiryNotifyJob(run: (db: Db, now: Date) => Promise<unknown>): Job {
+  return {
+    name: "enquiry_notifications",
+    intervalMs: 60_000,
+    run: async ({ db, now }) => void (await run(db, now)),
+  };
+}
+
+/**
+ * The monthly value report (§58).
+ *
+ * ⛔ `@adw/reports` had ZERO consumers. Generated, tested, exported, imported by
+ * nothing — the same defect as `approvePack` and `claimSlot` before it. The one
+ * artefact that tells a customer what they got for their money, and it was
+ * never produced for anybody.
+ *
+ * Hourly, and idempotent per (customer, month): it stores last month's report
+ * once the month has closed and does nothing on every subsequent pass.
+ */
+export function valueReportJob(run: (db: Db, now: Date) => Promise<unknown>): Job {
+  return {
+    name: "value_reports",
+    intervalMs: 60 * 60_000,
+    run: async ({ db, now }) => void (await run(db, now)),
+  };
+}
+
+/**
  * Drain the workflow outbox. This is the job that turns "a customer claimed
  * their preview" into a running onboarding — without it the API records
  * intentions nobody acts on, and the pipeline has no ignition.

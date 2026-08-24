@@ -93,6 +93,23 @@ export {
   type EnquiryRecord,
   type LeadState,
 } from "./statemachine/lead.ts";
+
+// ⛔ The read side those writes never had. See enquiries.ts.
+export {
+  MAX_NOTIFY_ATTEMPTS,
+  SETTLE_MS,
+  enquirySummary,
+  getEnquiry,
+  listEnquiries,
+  markNotified,
+  pendingNotifications,
+  recordNotifyFailure,
+  setEnquiryStatus,
+  type Enquiry,
+  type EnquiryStatus,
+  type ListOptions,
+  type PendingNotification,
+} from "./enquiries.ts";
 export {
   hitRate,
   loadMachineState,

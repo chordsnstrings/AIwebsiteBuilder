@@ -49,7 +49,8 @@
     "@adw/voice": "workspace:*",
     "@adw/watch": "workspace:*",
     "@adw/workflows": "workspace:*",
-    "zod": "^3.24.1"
+    "zod": "^3.24.1",
+    "@adw/reports": "workspace:*"
   },
   "devDependencies": {}
 }

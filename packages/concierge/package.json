@@ -17,6 +17,7 @@
     "@adw/db": "workspace:*",
     "@adw/mcp": "workspace:*",
     "@adw/qapack": "workspace:*",
-    "@adw/protocol": "workspace:*"
+    "@adw/protocol": "workspace:*",
+    "@adw/telemetry": "workspace:*"
   }
 }

@@ -266,6 +266,61 @@ export async function cancelBooking(
   });
 }
 
+export interface BookedSlot {
+  id: string;
+  start: Date;
+  end: Date;
+  contact: string | null;
+  status: "held" | "confirmed" | "cancelled";
+  resourceName: string | null;
+  createdAt: Date;
+}
+
+/**
+ * The owner's diary.
+ *
+ * ⛔ `claimSlot` wrote bookings and NOTHING read them back. There was a POST to
+ * take a slot, a POST to cancel one, and no way for the person expected to turn
+ * up to see that a slot had been taken at all — a booking the agent accepted was
+ * invisible to the only human it obliges. Same shape as the enquiry table one
+ * family over: a correct writer and no reader.
+ *
+ * Forward-looking by default, because a diary is about what is coming; `from`
+ * moves the window for the history view.
+ */
+export async function bookingsFor(
+  db: Db,
+  customerId: string,
+  opts: { from?: Date; to?: Date; includeCancelled?: boolean; limit?: number } = {},
+): Promise<BookedSlot[]> {
+  const from = opts.from ?? new Date();
+  const to = opts.to ?? new Date(from.getTime() + 90 * 86_400_000);
+  const rows = await db.query<{
+    id: string; slot_start: Date; slot_end: Date; contact: string | null;
+    status: string; created_at: Date; resource_name: string | null;
+  }>(
+    `SELECT b.id, b.slot_start, b.slot_end, b.contact, b.status, b.created_at,
+            r.name AS resource_name
+       FROM bookings b
+       LEFT JOIN scheduling_resources r ON r.id = b.resource_id
+      WHERE b.customer_id = $1
+        AND b.slot_start >= $2 AND b.slot_start < $3
+        AND ($4::boolean OR b.status <> 'cancelled')
+      ORDER BY b.slot_start ASC
+      LIMIT $5`,
+    [customerId, from, to, opts.includeCancelled === true, Math.min(500, Math.max(1, opts.limit ?? 200))],
+  );
+  return rows.rows.map((r) => ({
+    id: r.id,
+    start: r.slot_start,
+    end: r.slot_end,
+    contact: r.contact,
+    status: (r.status === "confirmed" || r.status === "cancelled" ? r.status : "held"),
+    resourceName: r.resource_name,
+    createdAt: r.created_at,
+  }));
+}
+
 export async function joinWaitlist(
   db: Db,
   input: {

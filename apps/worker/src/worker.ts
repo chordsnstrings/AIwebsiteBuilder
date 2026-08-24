@@ -16,7 +16,7 @@ import { runJourneys, runReminders } from "@adw/journeys";
 import { httpCollectors, pruneObservations, runDueWatches, simulatedCollectors, type FetchLike } from "@adw/watch";
 import { publishApproved, simulatedConnectors } from "@adw/publish";
 import { generateApproved } from "@adw/assets";
-import { resolveCompanyRegistry, resolveLeadSource, resolveMediaGenerator } from "@adw/vendors";
+import { resolveCompanyRegistry, resolveEmailTransport, resolveLeadSource, resolveMediaGenerator } from "@adw/vendors";
 import { dueChases, purgeExpired } from "@adw/uploads";
 import { resolveObjectStore } from "@adw/vendors";
 import { advanceDunning } from "@adw/billing";
@@ -52,7 +52,12 @@ import {
   sourcingJob,
   subscriberReclassificationJob,
   workflowTimerJob,
+  enquiryNotifyJob,
+  valueReportJob,
 } from "./jobs.ts";
+import { notifyPendingEnquiries } from "./enquiry-notify.ts";
+import { MAX_NOTIFY_ATTEMPTS } from "@adw/concierge";
+import { sweepValueReports } from "@adw/reports";
 
 const db = await createDb({});
 
@@ -457,6 +462,38 @@ const scheduler = new Scheduler({
         `[worker] reclassified ${out.resolved}/${out.considered} GB/IE contact(s)` +
           `${types === "" ? "" : ` · ${types}`} · ${out.backlog} still unresolved` +
           `${out.errors === 0 ? "" : ` · ${out.errors} registry error(s)`}`,
+      );
+    }),
+    // ⛔ The job that stops this product misleading the public. The agent tells
+    // a visitor it has passed their details on; `commitEnquiry` writes the row;
+    // until this ran, nothing read that table anywhere in the repository and the
+    // owner was never told.
+    enquiryNotifyJob(async (database, at) => {
+      const out = await notifyPendingEnquiries({
+        db: database,
+        transport: await resolveEmailTransport("aws_ses", { vault, forceMock }),
+        from: process.env["ADW_BRAND_SENDER"] ?? "hello@adwsites.com",
+        now: () => at,
+      });
+      if (out.customers === 0) return;
+      console.log(
+        `[worker] enquiry notifications: ${out.notified} sent to ${out.customers} owner(s)` +
+          `${out.failed === 0 ? "" : ` · ${out.failed} refused (${out.reasons.join(", ")})`}` +
+          `${out.abandoned === 0 ? "" : ` · ${out.abandoned} abandoned after ${MAX_NOTIFY_ATTEMPTS} attempts`}`,
+      );
+    }),
+    // ⛔ `@adw/reports` had zero consumers. This is the one that makes the
+    // monthly report exist for a customer rather than only in the type system.
+    valueReportJob(async (database, at) => {
+      const out = await sweepValueReports(database, at);
+      // Denominator alongside the count: "0 generated" over 0 eligible
+      // customers and over 200 are completely different states.
+      if (out.considered === 0) return;
+      console.log(
+        `[worker] value reports ${out.month.year}-${String(out.month.month).padStart(2, "0")}: ` +
+          `${out.generated}/${out.considered} generated` +
+          `${out.skipped === 0 ? "" : ` · ${out.skipped} already present`}` +
+          `${out.errors === 0 ? "" : ` · ${out.errors} failed`}`,
       );
     }),
   ],

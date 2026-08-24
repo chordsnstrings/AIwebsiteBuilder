@@ -124,10 +124,31 @@ export async function gate(msg: OutboundMessage, deps: GateDeps): Promise<GateDe
   }
 
   // Rule 6 — quiet hours (recipient local).
-  const hour = msg.localHour ?? now.getUTCHours();
-  const weekday = msg.localWeekday ?? now.getUTCDay();
-  if (!withinSendWindow(row, hour, weekday)) {
-    return decide({ allow: false, reason: "QUIET_HOURS", ruleId: "rule_6_quiet_hours" });
+  //
+  // ⛔ MARKETING CLASSES ONLY, on the same reasoning rule 8b spells out below:
+  // "A customer who is being invoiced does not stop receiving their invoice
+  // because a verifier had an opinion." Quiet hours exist so we do not solicit
+  // strangers at night. They are not a reason to withhold a message a paying
+  // customer is owed — and applied to `transactional` they did real damage in
+  // two places:
+  //
+  //   • an enquiry notification ("someone just asked for an emergency callout
+  //     and left their number") could only be delivered 08:00–18:00 Mon–Fri, so
+  //     every evening and every weekend enquiry — the hours a trade business
+  //     actually gets emergencies — was denied and the owner never heard;
+  //   • `send_delivery_email` had to pass a hardcoded `localHour: 10,
+  //     localWeekday: 2` to get out at all, which is not a fix but a lie told
+  //     to the gate, and it is the shape of workaround that survives into
+  //     production and then gets copied.
+  //
+  // `obligationsFor` already draws exactly this line between the marketing
+  // classes and the rest; this makes rule 6 agree with it.
+  if (msg.messageClass === "cold" || msg.messageClass === "preview_link") {
+    const hour = msg.localHour ?? now.getUTCHours();
+    const weekday = msg.localWeekday ?? now.getUTCDay();
+    if (!withinSendWindow(row, hour, weekday)) {
+      return decide({ allow: false, reason: "QUIET_HOURS", ruleId: "rule_6_quiet_hours" });
+    }
   }
 
   // Rule 7 — frequency cap.

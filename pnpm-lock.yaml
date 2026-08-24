@@ -90,6 +90,9 @@ importers:
       '@adw/billing':
         specifier: workspace:*
         version: link:../../packages/billing
+      '@adw/cases':
+        specifier: workspace:*
+        version: link:../../packages/cases
       '@adw/compliance':
         specifier: workspace:*
         version: link:../../packages/compliance
@@ -141,6 +144,9 @@ importers:
       '@adw/registry':
         specifier: workspace:*
         version: link:../../packages/registry
+      '@adw/reports':
+        specifier: workspace:*
+        version: link:../../packages/reports
       '@adw/scheduling':
         specifier: workspace:*
         version: link:../../packages/scheduling
@@ -371,6 +377,9 @@ importers:
       '@adw/registry':
         specifier: workspace:*
         version: link:../../packages/registry
+      '@adw/reports':
+        specifier: workspace:*
+        version: link:../../packages/reports
       '@adw/reviewer-gates':
         specifier: workspace:*
         version: link:../../packages/reviewer-gates
@@ -551,6 +560,9 @@ importers:
       '@adw/qapack':
         specifier: workspace:*
         version: link:../qapack
+      '@adw/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
 
   packages/config:
     dependencies:
@@ -892,6 +904,9 @@ importers:
       '@adw/db':
         specifier: workspace:*
         version: link:../db
+      '@adw/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
 
   packages/reviewer-gates:
     dependencies:
