@@ -25,11 +25,13 @@ import { remainingSendCapacity, sourceLeads } from "@adw/provenance";
 import {
   getEmailTransport,
   resolveCompanyRegistry,
+  resolveEmailTransport,
   resolveEmailVerifier,
   resolveLeadSource,
   resolveObjectStore,
 } from "@adw/vendors";
 import { registerActivities } from "./src/activities.ts";
+import { notifyPendingEnquiries } from "./src/enquiry-notify.ts";
 import { intentDispatcherJob, workflowTimerJob } from "./src/jobs.ts";
 import { createApp } from "../api/src/app.ts";
 import type { SessionUser } from "@adw/auth";
@@ -158,15 +160,23 @@ const onb = await db.one<{ status: string }>(
 );
 // The deep pack belongs to the customer this onboarding created — and after
 // the packId fix it is its own row, with the customer attached at persist.
-const pack = await db.maybeOne<{ id: string; pair_count: number; approval_kind: string | null }>(
-  `SELECT p.id, p.pair_count, p.approval_kind FROM qa_packs p
+const pack = await db.maybeOne<{ id: string; pair_count: number; approval_kind: string | null; customer_id: string }>(
+  `SELECT p.id, p.pair_count, p.approval_kind, p.customer_id FROM qa_packs p
     WHERE p.customer_id IS NOT NULL ORDER BY p.created_at DESC LIMIT 1`,
 );
 if (pack?.approval_kind != null) throw new Error(`deep pack pre-approved as '${pack.approval_kind}' — the owner has not signed`);
 console.log(`onboarding: ${onb.status}, deep pack ${pack?.id} with ${pack?.pair_count} pairs`);
 
 step("5 · the owner approves their agent's answers (authenticated API route)");
-const owner: SessionUser = { id: "own", email: "owner@example.com", role: "customer", customerId: null, totpEnabled: false };
+// ⛔ The owner OF THIS CUSTOMER. A customer session naming no customer now
+// authorises nothing — treating "no customer" as "any customer" was how every
+// /agent route let one customer read another's data — so the driver has to
+// carry the same thing a real signed-in owner carries. It used to pass
+// `customerId: null` and the API accepted it, which is the bug in one line.
+const owner: SessionUser = {
+  id: "own", email: "owner@example.com", role: "customer",
+  customerId: pack!.customer_id, totpEnabled: false,
+};
 const ownerApp = createApp({ db, vault, forceMock: true, authOverride: owner });
 const approve = await ownerApp.request(`/agent/packs/${pack!.id}/approve`, { method: "POST", body: "{}" });
 console.log(`approve → ${approve.status}`, await approve.json());
@@ -196,7 +206,71 @@ const final = await db.one<{ status: string; result: unknown }>(
 );
 console.log(`onboarding: ${final.status} →`, JSON.stringify(final.result));
 
+// ---------------------------------------------------------------------------
+step("8 · a visitor asks the LIVE agent and leaves their number");
+// ⛔ The half that used to go nowhere. `commitEnquiry` wrote the row correctly
+// and NOTHING in the repository ever read that table — no route, no job, no
+// screen — while the agent told the visitor it had passed their details on.
+const ask = async (question: string, sessionId?: string) => {
+  const res = await publicApp.request("/agent/ask", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sessionRef: customer.id, question, ...(sessionId === undefined ? {} : { sessionId }) }),
+  });
+  return (await res.json()) as { sessionId: string; answer: string };
+};
+const t1 = await ask("My roof is leaking badly and water is coming through the ceiling");
+console.log(`visitor: my roof is leaking badly…\nagent:   ${t1.answer}`);
+const t2 = await ask("I'm Ada Marsh, you can reach me on 07700900456", t1.sessionId);
+console.log(`visitor: I'm Ada Marsh, 07700900456\nagent:   ${t2.answer}`);
+
+const enquiry = await db.maybeOne<{ id: string; name: string | null; contact: string; need: string; notified_at: Date | null }>(
+  "SELECT id, name, contact, need, notified_at FROM enquiries WHERE customer_id = $1 ORDER BY created_at DESC LIMIT 1",
+  [customer.id],
+);
+if (!enquiry) throw new Error("the agent captured no enquiry");
+console.log(`enquiry captured: ${enquiry.name ?? "(no name)"} · ${enquiry.contact} · "${enquiry.need}"`);
+if (enquiry.notified_at !== null) throw new Error("marked notified before the notifier ran");
+
+step("9 · the notifier tells the owner — the send that did not exist");
+// Past the settle window, which exists so a mid-conversation correction is not
+// mailed as final.
+await db.query("UPDATE enquiries SET created_at = created_at - interval '5 minutes' WHERE id = $1", [enquiry.id]);
+const notified = await notifyPendingEnquiries({
+  db,
+  transport: await resolveEmailTransport("aws_ses", { vault, forceMock: true }),
+  from: "hello@adwsites.com",
+  now: () => PINNED,
+});
+const notice = [...brandTransport.sentMessages()].reverse().find((m) => m.subject.toLowerCase().includes("enquiry"));
+console.log(`\n--- the enquiry notification ${customer.contact_email} received ---`);
+console.log(notice ? `Subject: ${notice.subject}\n${notice.body}` : "⛔ NO NOTIFICATION");
+if (!notice) throw new Error(`owner never notified (${notified.failed} refused: ${notified.reasons.join(", ")})`);
+if (!notice.body.includes(enquiry.contact)) throw new Error("notification does not carry the caller's number");
+
+step("10 · the owner opens the dashboard and sees it");
+const ownerApp2 = createApp({
+  db, vault, forceMock: true,
+  authOverride: { id: "own", email: "owner@example.com", role: "customer", customerId: customer.id, totpEnabled: false },
+});
+const listed = await ownerApp2.request(`/agent/${customer.id}/enquiries`);
+const body = (await listed.json()) as { enquiries: { name: string | null; contact: string }[]; summary: { open: number } };
+console.log(`GET /agent/:id/enquiries → ${listed.status}, ${body.summary.open} open`);
+if (body.enquiries[0]?.contact !== enquiry.contact) throw new Error("the owner's list does not contain the enquiry");
+
+// ⛔ And a DIFFERENT customer cannot see it. Until the tenancy middleware
+// existed, every one of these routes answered 200 to anybody signed in.
+const stranger = createApp({
+  db, vault, forceMock: true,
+  authOverride: { id: "other", email: "other@example.com", role: "customer", customerId: "00000000-0000-4000-8000-000000000000", totpEnabled: false },
+});
+const denied = await stranger.request(`/agent/${customer.id}/enquiries`);
+console.log(`another customer asking for the same list → ${denied.status}`);
+if (denied.status !== 403) throw new Error(`cross-tenant read returned ${denied.status}, expected 403`);
+
 step("VERDICT");
-console.log(`site deployed at: ${deploy.deployed_url}`);
-console.log(`delivery email:   carries that URL — verified`);
+console.log(`site deployed at:  ${deploy.deployed_url}`);
+console.log(`delivery email:    carries that URL — verified`);
+console.log(`enquiry captured:  ${enquiry.contact} — and the owner was emailed it`);
+console.log(`cross-tenant read: refused`);
 await db.close();
